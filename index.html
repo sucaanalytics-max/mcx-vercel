@@ -1026,6 +1026,35 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   </div>
 </div>
 
+<!-- ── IMPLIED METRICS (reverse-engineer from CMP) ─────────────────────── -->
+<div class="card" style="margin-bottom:20px;padding:20px" id="impliedMetricsCard">
+  <div class="card-label" style="margin-bottom:10px">Implied Metrics — What the Market is Pricing</div>
+  <div class="fc-tooltip" style="margin-bottom:12px">Reverse-engineers your model assumptions from the current share price. Shows what daily revenue the market implies at your chosen PE, or what PE it implies at your chosen revenue.</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div>
+      <div class="card-label" style="font-size:11px;margin-bottom:8px;color:var(--accent2)">At Your PE (what revenue is implied?)</div>
+      <div class="kv"><span class="kv-key">Implied EPS</span><span class="kv-val" id="imEps">—</span></div>
+      <div class="kv"><span class="kv-key">Implied PAT</span><span class="kv-val" id="imPat">—</span></div>
+      <div class="kv"><span class="kv-key">Implied PBT</span><span class="kv-val" id="imPbt">—</span></div>
+      <div class="kv"><span class="kv-key">Implied EBITDA</span><span class="kv-val" id="imEbitda">—</span></div>
+      <div class="kv"><span class="kv-key">Implied Annual Revenue</span><span class="kv-val" id="imAnnualRev">—</span></div>
+      <div class="sep"></div>
+      <div class="kv"><span class="kv-key" style="font-weight:700;color:var(--accent)">Implied Daily Revenue</span><span class="kv-val" style="font-size:16px;color:var(--accent)" id="imDailyRev">—</span></div>
+      <div class="kv"><span class="kv-key">vs Model Daily Rev</span><span class="kv-val" id="imDailyRevDelta">—</span></div>
+    </div>
+    <div>
+      <div class="card-label" style="font-size:11px;margin-bottom:8px;color:var(--accent2)">At Your Revenue (what PE is implied?)</div>
+      <div class="kv"><span class="kv-key" style="font-weight:700;color:var(--accent)">Implied PE</span><span class="kv-val" style="font-size:16px;color:var(--accent)" id="imPe">—</span></div>
+      <div class="kv"><span class="kv-key">vs Model PE</span><span class="kv-val" id="imPeDelta">—</span></div>
+      <div class="sep" style="margin:12px 0"></div>
+      <div class="card-label" style="font-size:11px;margin-bottom:8px;color:var(--text-secondary)">Market Snapshot</div>
+      <div class="kv"><span class="kv-key">Market Cap</span><span class="kv-val" id="imMcap">—</span></div>
+      <div class="kv"><span class="kv-key">Model Price / CMP</span><span class="kv-val" id="imPriceCmp">—</span></div>
+      <div class="kv"><span class="kv-key">Model Premium / Discount</span><span class="kv-val" id="imPremDisc">—</span></div>
+    </div>
+  </div>
+</div>
+
 <!-- ── ADVANCED ASSUMPTIONS (accordion) ──────────────────────────────────── -->
 <div class="accordion">
   <button class="accordion-trigger" onclick="toggleAcc('fcAdv')" aria-expanded="false">
@@ -1620,6 +1649,9 @@ function recalcForecast() {
   renderScenario('Bear', bear, inp.dailyRev * (1 + bearRevPct/100), inp.pe * (1 + bearPePct/100), inp.currentPrice);
   renderScenario('Base', base, inp.dailyRev, inp.pe, inp.currentPrice);
   renderScenario('Bull', bull, inp.dailyRev * (1 + bullRevPct/100), inp.pe * (1 + bullPePct/100), inp.currentPrice);
+
+  // Implied metrics — reverse-engineer from CMP
+  calcImpliedMetrics(inp, base);
 }
 
 function renderScenario(name, m, dailyRev, pe, cmp) {
@@ -1632,6 +1664,59 @@ function renderScenario(name, m, dailyRev, pe, cmp) {
   document.getElementById(id + 'Pe').textContent = pe.toFixed(1) + 'x';
   document.getElementById(id + 'Eps').textContent = '₹' + m.eps.toFixed(2);
   document.getElementById(id + 'Pat').textContent = '₹' + fmtInr(m.pat) + ' Cr';
+}
+
+// ── Implied Metrics: reverse-engineer from CMP ──────────────────────────
+function calcImpliedMetrics(inp, base) {
+  const cmp = inp.currentPrice;
+  const pe = inp.pe;
+  const shares = inp.shares;
+  const taxRate = inp.taxRate / 100;
+  const opex = inp.opex;
+  const otherIncome = inp.otherIncome;
+  const tradingDays = inp.tradingDays;
+
+  // Path A: At your PE, what revenue is implied?
+  const imEps = pe > 0 ? cmp / pe : 0;
+  const imPat = imEps * shares;
+  const imPbt = (1 - taxRate) > 0 ? imPat / (1 - taxRate) : 0;
+  const imEbitda = imPbt - otherIncome;
+  const imAnnualRev = imEbitda + opex;
+  const imDailyRev = tradingDays > 0 ? imAnnualRev / tradingDays : 0;
+  const dailyRevDelta = inp.dailyRev > 0 ? ((imDailyRev / inp.dailyRev - 1) * 100) : 0;
+
+  // Path B: At your revenue, what PE is implied?
+  const modelEps = base.eps;
+  const imPe = modelEps > 0 ? cmp / modelEps : 0;
+  const peDelta = pe > 0 ? ((imPe / pe - 1) * 100) : 0;
+
+  // Market snapshot
+  const mcap = cmp * shares;
+  const modelPrice = base.price;
+  const premDisc = cmp > 0 ? ((modelPrice / cmp - 1) * 100) : 0;
+
+  // Render
+  document.getElementById('imEps').textContent = '₹' + imEps.toFixed(2);
+  document.getElementById('imPat').textContent = '₹' + fmtInr(imPat) + ' Cr';
+  document.getElementById('imPbt').textContent = '₹' + fmtInr(imPbt) + ' Cr';
+  document.getElementById('imEbitda').textContent = '₹' + fmtInr(imEbitda) + ' Cr';
+  document.getElementById('imAnnualRev').textContent = '₹' + fmtInr(imAnnualRev) + ' Cr';
+  document.getElementById('imDailyRev').textContent = '₹' + imDailyRev.toFixed(2) + ' Cr';
+
+  const drdEl = document.getElementById('imDailyRevDelta');
+  drdEl.textContent = `${dailyRevDelta >= 0 ? '+' : ''}${dailyRevDelta.toFixed(1)}%`;
+  drdEl.style.color = dailyRevDelta >= 0 ? 'var(--positive)' : 'var(--negative)';
+
+  document.getElementById('imPe').textContent = imPe.toFixed(1) + 'x';
+  const pedEl = document.getElementById('imPeDelta');
+  pedEl.textContent = `${peDelta >= 0 ? '+' : ''}${peDelta.toFixed(1)}%`;
+  pedEl.style.color = Math.abs(peDelta) < 5 ? 'var(--text-secondary)' : (peDelta >= 0 ? 'var(--negative)' : 'var(--positive)');
+
+  document.getElementById('imMcap').textContent = '₹' + fmtInr(mcap) + ' Cr';
+  document.getElementById('imPriceCmp').textContent = '₹' + fmtInr(modelPrice) + ' / ₹' + fmtInr(cmp);
+  const pdEl = document.getElementById('imPremDisc');
+  pdEl.textContent = `${premDisc >= 0 ? '+' : ''}${premDisc.toFixed(1)}% ${premDisc >= 0 ? 'premium' : 'discount'}`;
+  pdEl.style.color = premDisc >= 0 ? 'var(--positive)' : 'var(--negative)';
 }
 
 // Slider <-> Input sync
