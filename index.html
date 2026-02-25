@@ -915,9 +915,10 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   <div class="fc-hero-card">
     <h3>Current Market</h3>
     <div class="fc-hero-price" style="color:var(--text)" id="fcCmpPrice">₹2,396</div>
-    <div class="fc-hero-sub">
+    <div class="fc-hero-sub" id="fcCmpMeta">
       EPS (TTM): ₹36.75 · PE: 65.2x · MCap: ₹61,090 Cr
     </div>
+    <div class="fc-hero-sub" id="fcCmpSource" style="margin-top:4px;font-size:11px;opacity:0.6"></div>
   </div>
   <div class="fc-hero-card fc-hero-card--model">
     <h3>Model Prediction</h3>
@@ -1661,6 +1662,39 @@ function seedForecastFromAPI(totalRev) {
   }
 }
 
+// ── Auto-fetch CMP from /api/mcxprice (indianapi.in → Yahoo fallback) ────
+async function fetchLiveCMP() {
+  try {
+    const resp = await fetch('/api/mcxprice');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (data.error) { console.warn('CMP fetch:', data.error); return; }
+
+    const price = Math.round(data.price);
+    // Update hero CMP display
+    document.getElementById('fcCmpPrice').textContent = '₹' + price.toLocaleString('en-IN');
+    // Update advanced CMP input + FC constant
+    document.getElementById('fcAdvCMP').value = price;
+    FC.currentPrice = price;
+
+    // Source indicator
+    const srcEl = document.getElementById('fcCmpSource');
+    if (srcEl) {
+      const src = data.source || '?';
+      const cached = data.cached ? ' (cached)' : '';
+      const changeTxt = data.change_pct != null ? ` · ${data.change_pct >= 0 ? '+' : ''}${data.change_pct.toFixed(2)}%` : '';
+      srcEl.textContent = `Live: ${src}${cached}${changeTxt}`;
+    }
+
+    // Recalculate model with new CMP
+    recalcForecast();
+    console.log(`CMP updated: ₹${price} (${data.source})`);
+  } catch (e) {
+    console.warn('CMP auto-fetch failed:', e.message);
+    // Keep hardcoded default — no user-visible error
+  }
+}
+
 // URL cookie sync
 (function() {
   const params = new URLSearchParams(window.location.search);
@@ -1672,6 +1706,10 @@ function seedForecastFromAPI(totalRev) {
   }
   // Render intraday chart immediately (static data, no API needed)
   renderIntradayChart();
+  // Auto-fetch live CMP on page load
+  fetchLiveCMP();
+  // Refresh CMP every 5 minutes
+  setInterval(fetchLiveCMP, 5 * 60 * 1000);
 })();
 </script>
 </body>
