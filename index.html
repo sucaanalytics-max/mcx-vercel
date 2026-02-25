@@ -1,0 +1,1678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCX Revenue</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* ═══════════════════════════════════════════════════════════════════════════
+   DATA BRUTALISM — MCX Revenue Dashboard
+   Light-first, monospaced numerics, raw structural honesty
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --bg: #F2F0EB;
+  --surface: #FFFFFF;
+  --surface2: #E8E6E1;
+  --border: #C4C0B8;
+  --border-heavy: #8A857D;
+  --text: #1A1A1A;
+  --text-secondary: #6B6560;
+  --accent: #D4380D;
+  --accent2: #0958D9;
+  --positive: #1B7D3A;
+  --negative: #CF1322;
+  --warning: #AD6800;
+  --mono: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+  --sans: 'DM Sans', 'Helvetica Neue', sans-serif;
+  --radius: 2px;
+}
+
+html.dark {
+  --bg: #0F0F0F;
+  --surface: #1A1A1A;
+  --surface2: #252525;
+  --border: #333;
+  --border-heavy: #555;
+  --text: #E0DDD8;
+  --text-secondary: #888;
+  --accent: #FF6B47;
+  --accent2: #5B9CF5;
+  --positive: #52C41A;
+  --negative: #FF4D4F;
+  --warning: #FAAD14;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── TOPBAR ─────────────────────────────────────────────────────────────── */
+.topbar {
+  background: var(--surface);
+  border-bottom: 3px solid var(--text);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.topbar-brand {
+  font-family: var(--mono);
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: -0.5px;
+  text-transform: uppercase;
+}
+.topbar-brand span { color: var(--accent); }
+.topbar-live {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--positive);
+  background: color-mix(in srgb, var(--positive) 10%, transparent);
+  border: 1px solid var(--positive);
+  padding: 2px 8px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.topbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.topbar-meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  text-align: right;
+}
+.btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 6px 14px;
+  border: 2px solid var(--text);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.1s;
+}
+.btn:hover { background: var(--text); color: var(--surface); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn:disabled:hover { background: var(--surface); color: var(--text); }
+.btn--accent { border-color: var(--accent); color: var(--accent); }
+.btn--accent:hover { background: var(--accent); color: #fff; }
+.btn--sm { padding: 3px 8px; font-size: 10px; border-width: 1px; }
+.btn.loading .btn-label { display: none; }
+.btn.loading .btn-spin { display: inline-block; }
+.btn-spin { display: none; animation: spin 0.5s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg) } }
+
+.theme-toggle {
+  width: 32px; height: 32px;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.1s;
+}
+.theme-toggle:hover { border-color: var(--text); }
+
+/* ── LAYOUT ─────────────────────────────────────────────────────────────── */
+.wrap { max-width: 1360px; margin: 0 auto; padding: 20px 24px; }
+
+/* ── HERO: THE NUMBER ───────────────────────────────────────────────────── */
+.hero {
+  background: var(--surface);
+  border: 3px solid var(--text);
+  padding: 32px 36px;
+  margin-bottom: 20px;
+  position: relative;
+}
+.hero-eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin-bottom: 4px;
+}
+.hero-row {
+  display: flex;
+  align-items: baseline;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.hero-revenue {
+  font-family: var(--mono);
+  font-size: 56px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -2px;
+  color: var(--text);
+}
+.hero-unit {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-left: -8px;
+}
+.hero-badge {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border: 2px solid;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.hero-badge.high { border-color: var(--positive); color: var(--positive); }
+.hero-badge.medium { border-color: var(--warning); color: var(--warning); }
+.hero-badge.expiry { border-color: #7C3AED; color: #7C3AED; }
+.hero-badge.low { border-color: var(--text-secondary); color: var(--text-secondary); }
+.hero-sub {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 8px;
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.hero-sub strong { color: var(--text); }
+.hero-delta {
+  font-weight: 700;
+}
+.hero-delta.up { color: var(--positive); }
+.hero-delta.down { color: var(--negative); }
+
+.hero-progress {
+  margin-top: 16px;
+  height: 6px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  position: relative;
+}
+.hero-progress-fill {
+  height: 100%;
+  background: var(--text);
+  transition: width 0.5s ease;
+}
+html.dark .hero-progress-fill { background: var(--accent); }
+
+/* ── GRID CARDS ROW ─────────────────────────────────────────────────────── */
+.card-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.card {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  padding: 16px;
+}
+.card--bordered { border-color: var(--text); }
+.card-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-bottom: 6px;
+}
+.card-value {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+.card-note {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+/* ── 45-DAY SPARKLINE ───────────────────────────────────────────────────── */
+.spark-section {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+.spark-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.spark-title {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-secondary);
+}
+.spark-legend {
+  display: flex;
+  gap: 14px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-secondary);
+}
+.spark-legend span::before {
+  content: '';
+  display: inline-block;
+  width: 8px; height: 8px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.spark-legend .leg-actual::before { background: var(--accent); }
+.spark-legend .leg-bhav::before { background: var(--text); }
+html.dark .spark-legend .leg-bhav::before { background: #ccc; }
+.spark-legend .leg-ma::before { background: var(--accent2); border-radius: 0; height: 2px; margin-bottom: 3px; }
+.spark-legend .leg-today::before { background: var(--positive); border-radius: 50%; }
+
+/* ── ACCORDION ──────────────────────────────────────────────────────────── */
+.accordion { margin-bottom: 12px; }
+.accordion-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text);
+  transition: all 0.1s;
+}
+.accordion-trigger:hover { border-color: var(--text); }
+.accordion-trigger[aria-expanded="true"] {
+  border-color: var(--text);
+  border-bottom: none;
+}
+.accordion-trigger .arrow {
+  font-size: 10px;
+  transition: transform 0.15s;
+  color: var(--text-secondary);
+}
+.accordion-trigger[aria-expanded="true"] .arrow {
+  transform: rotate(180deg);
+}
+.accordion-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-left: auto;
+  margin-right: 12px;
+}
+.accordion-panel {
+  display: none;
+  background: var(--surface);
+  border: 2px solid var(--text);
+  border-top: 1px dashed var(--border);
+  padding: 18px;
+}
+.accordion-panel.open { display: block; }
+
+/* ── DATA TABLE ─────────────────────────────────────────────────────────── */
+.dtable { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+.dtable th {
+  text-align: left;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+  padding: 6px 10px;
+  border-bottom: 2px solid var(--text);
+}
+.dtable td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.dtable tr:hover td { background: var(--surface2); }
+.dtable .num { text-align: right; font-variant-numeric: tabular-nums; }
+.dtable .label-col { color: var(--text-secondary); }
+
+/* ── KV ROW (key-value pairs) ───────────────────────────────────────────── */
+.kv { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid var(--border); font-family: var(--mono); font-size: 12px; }
+.kv:last-child { border-bottom: none; }
+.kv-key { color: var(--text-secondary); }
+.kv-val { font-weight: 700; text-align: right; }
+
+/* ── UTILITY ────────────────────────────────────────────────────────────── */
+.green { color: var(--positive) !important; }
+.red { color: var(--negative) !important; }
+.yellow { color: var(--warning) !important; }
+.accent { color: var(--accent) !important; }
+.muted { color: var(--text-secondary) !important; }
+.mono { font-family: var(--mono); }
+.sep { border-top: 2px solid var(--text); margin: 10px 0; }
+.sep--light { border-top: 1px dashed var(--border); margin: 8px 0; }
+.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+@media (max-width: 800px) { .g2, .g3, .card-row { grid-template-columns: 1fr; } }
+
+/* ── TOAST ───────────────────────────────────────────────────────────────── */
+.toast {
+  position: fixed; bottom: 20px; right: 20px; z-index: 999;
+  font-family: var(--mono); font-size: 12px; font-weight: 700;
+  padding: 10px 18px; border: 2px solid var(--text);
+  background: var(--surface); color: var(--text);
+  animation: slideup 0.2s ease;
+}
+.toast.success { border-color: var(--positive); color: var(--positive); }
+.toast.error { border-color: var(--negative); color: var(--negative); }
+@keyframes slideup { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:translateY(0) } }
+
+/* ── CHART CONTAINERS ───────────────────────────────────────────────────── */
+.chart-wrap { position: relative; }
+.chart-wrap canvas { width: 100% !important; }
+.spark-container { position: relative; height: 120px; max-height: 120px; overflow: hidden; }
+.bar-container   { position: relative; height: 240px; max-height: 240px; overflow: hidden; }
+.curve-container { position: relative; height: 220px; max-height: 220px; overflow: hidden; }
+.curve-legend    { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 8px; font-family: var(--mono); font-size: 10px; color: var(--text-secondary); }
+.curve-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.curve-legend .dot { width: 8px; height: 8px; display: inline-block; }
+
+/* ── MODAL ───────────────────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-overlay.hidden { display: none; }
+.modal-box {
+  background: var(--surface);
+  border: 3px solid var(--text);
+  padding: 24px;
+  max-width: 580px; width: 90%;
+}
+.modal-box h3 { font-family: var(--mono); font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+.modal-box textarea {
+  width: 100%; background: var(--bg); border: 2px solid var(--border);
+  color: var(--text); font-family: var(--mono); font-size: 11px;
+  padding: 8px; resize: vertical; min-height: 80px;
+}
+.modal-box .actions { display: flex; gap: 8px; margin-top: 12px; }
+
+/* ── HISTORY CARDS ──────────────────────────────────────────────────────── */
+.hist-cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.hist-card {
+  flex: 1; min-width: 140px;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  padding: 14px;
+}
+.hist-card--today {
+  border-color: var(--text);
+  border-width: 3px;
+}
+.hist-card--ma {
+  border-color: var(--accent2);
+  border-style: dashed;
+}
+
+/* ── TAB NAVIGATION ────────────────────────────────────────────────────── */
+.tab-nav {
+  background: var(--surface);
+  border-bottom: 2px solid var(--border);
+  display: flex;
+  gap: 0;
+  padding: 0 24px;
+}
+.tab-btn {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 12px 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  transition: all 0.1s;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ── FORECAST INPUTS ───────────────────────────────────────────────────── */
+.fc-input-group { margin-bottom: 16px; }
+.fc-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+.fc-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: var(--border);
+  outline: none;
+}
+.fc-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px; height: 16px;
+  background: var(--accent);
+  border: 2px solid var(--text);
+  cursor: pointer;
+}
+.fc-slider::-moz-range-thumb {
+  width: 16px; height: 16px;
+  background: var(--accent);
+  border: 2px solid var(--text);
+  cursor: pointer;
+  border-radius: 0;
+}
+.fc-num-input {
+  width: 90px;
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 700;
+  padding: 6px 8px;
+  border: 2px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  text-align: right;
+}
+.fc-num-input:focus { outline: none; border-color: var(--accent); }
+.fc-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+}
+.fc-tooltip {
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* ── FORECAST HERO CARDS ───────────────────────────────────────────────── */
+.fc-hero-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.fc-hero-card {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  padding: 20px 24px;
+}
+.fc-hero-card--model {
+  border-color: var(--accent);
+  border-width: 3px;
+}
+.fc-hero-card h3 {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+.fc-hero-price {
+  font-family: var(--mono);
+  font-size: 36px;
+  font-weight: 800;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.fc-hero-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* ── SCENARIO CARDS ────────────────────────────────────────────────────── */
+.scenario-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.scenario-card {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  padding: 18px;
+}
+.scenario-card--bear { border-color: var(--negative); }
+.scenario-card--base { border-color: var(--text); border-width: 3px; }
+.scenario-card--bull { border-color: var(--positive); }
+.scenario-card-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 12px;
+}
+.scenario-card--bear .scenario-card-title { color: var(--negative); }
+.scenario-card--base .scenario-card-title { color: var(--text); }
+.scenario-card--bull .scenario-card-title { color: var(--positive); }
+.scenario-price {
+  font-family: var(--mono);
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.1;
+  margin-bottom: 4px;
+}
+.scenario-delta {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+.scenario-kv {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.scenario-kv:last-child { border-bottom: none; }
+.scenario-kv-key { color: var(--text-secondary); }
+.scenario-kv-val { font-weight: 700; }
+.sc-adjust {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.sc-adjust-input {
+  width: 55px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  text-align: right;
+}
+.sc-adjust-input:focus { outline: none; border-color: var(--accent); }
+.sc-adjust-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 800px) {
+  .scenario-row { grid-template-columns: 1fr; }
+  .fc-hero-row { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══ TOPBAR ═══════════════════════════════════════════════════════════════ -->
+<div class="topbar">
+  <div class="topbar-brand">MCX<span>/</span>REV</div>
+  <div class="topbar-live" id="livePill">● LIVE</div>
+  <div class="topbar-right">
+    <div class="topbar-meta" id="refreshMeta">—</div>
+    <button class="btn btn--accent" id="refreshBtn" onclick="doRefresh()">
+      <span class="btn-label">REFRESH</span>
+      <span class="btn-spin">↻</span>
+    </button>
+    <button class="btn btn--sm" onclick="openCookieModal()">⚙</button>
+    <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">◐</button>
+  </div>
+</div>
+
+<!-- ═══ TAB NAVIGATION ══════════════════════════════════════════════════════ -->
+<div class="tab-nav">
+  <button class="tab-btn active" data-tab="tabPredictor" onclick="switchTab('tabPredictor')">Daily Predictor</button>
+  <button class="tab-btn" data-tab="tabForecast" onclick="switchTab('tabForecast')">Interactive Forecast</button>
+</div>
+
+<!-- ═══ TAB: DAILY PREDICTOR ════════════════════════════════════════════════ -->
+<div id="tabPredictor">
+<div class="wrap">
+
+<!-- ═══ HERO ═════════════════════════════════════════════════════════════════ -->
+<div class="hero">
+  <div class="hero-eyebrow" id="heroEyebrow">Today's Projected Revenue</div>
+  <div class="hero-row">
+    <div style="display:flex;align-items:baseline;gap:4px;">
+      <div class="hero-revenue" id="heroRevenue">—</div>
+      <div class="hero-unit">Cr</div>
+    </div>
+    <span class="hero-badge low" id="heroBadge">—</span>
+    <span class="hero-delta muted" id="heroDelta">vs 45d MA: —</span>
+  </div>
+  <div class="hero-sub">
+    <span id="heroDate">—</span>
+    <span id="heroSession">— elapsed</span>
+    <span id="heroRange">range —</span>
+    <span id="heroConfidence">—</span>
+  </div>
+  <div class="hero-progress"><div class="hero-progress-fill" id="heroProgressFill" style="width:0%"></div></div>
+</div>
+
+<!-- ═══ HISTORY CARDS ═══════════════════════════════════════════════════════ -->
+<div class="hist-cards">
+  <div class="hist-card" id="histDay1">
+    <div class="card-label">Day -3</div>
+    <div class="card-value" id="hd1val">—</div>
+    <div class="card-note" id="hd1sub">—</div>
+  </div>
+  <div class="hist-card" id="histDay2">
+    <div class="card-label">Day -2</div>
+    <div class="card-value" id="hd2val">—</div>
+    <div class="card-note" id="hd2sub">—</div>
+  </div>
+  <div class="hist-card" id="histDay3">
+    <div class="card-label">Yesterday</div>
+    <div class="card-value" id="hd3val">—</div>
+    <div class="card-note" id="hd3sub">—</div>
+  </div>
+  <div class="hist-card hist-card--today">
+    <div class="card-label" style="color:var(--accent)">Today</div>
+    <div class="card-value accent" id="heroTodayCard">—</div>
+    <div class="card-note" id="heroTodayCardSub">Click Refresh</div>
+  </div>
+  <div class="hist-card hist-card--ma">
+    <div class="card-label">45d MA</div>
+    <div class="card-value" style="color:var(--accent2)" id="heroMAVal">—</div>
+    <div class="card-note" id="heroMARange">—</div>
+  </div>
+</div>
+
+<!-- ═══ SPARKLINE ═══════════════════════════════════════════════════════════ -->
+<div class="spark-section">
+  <div class="spark-header">
+    <div class="spark-title">45-Day Revenue Trend (₹ Cr/day)</div>
+    <div class="spark-legend">
+      <span class="leg-actual">Actual</span>
+      <span class="leg-ma">45d MA</span>
+      <span class="leg-today">Today</span>
+    </div>
+  </div>
+  <div class="spark-container"><canvas id="sparkChart"></canvas></div>
+</div>
+
+<!-- ═══ KPI ROW ═════════════════════════════════════════════════════════════ -->
+<div class="card-row">
+  <div class="card">
+    <div class="card-label">Daily Revenue</div>
+    <div class="card-value green" id="kpiTotalRev">—</div>
+    <div class="card-note" id="kpiTotalRevLbl">Projected</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Day Type</div>
+    <div class="card-value" id="kpiDayType">—</div>
+    <div class="card-note" id="kpiDayTypeNote">—</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Annualized</div>
+    <div class="card-value" id="kpiAnnual">—</div>
+    <div class="card-note">×250 trading days</div>
+  </div>
+  <div class="card">
+    <div class="card-label">Prem/Notl Ratio</div>
+    <div class="card-value yellow" id="kpiPremRatio">—</div>
+    <div class="card-note">Options moneyness proxy</div>
+  </div>
+  <div class="card">
+    <div class="card-label">vs Q3 FY26 Avg</div>
+    <div class="card-value" id="kpiVsQ3">—</div>
+    <div class="card-note">₹10.25 Cr/day baseline</div>
+  </div>
+</div>
+
+<!-- ═══ ACCORDION: LIVE SNAPSHOT ═══════════════════════════════════════════ -->
+<div class="accordion">
+  <button class="accordion-trigger" onclick="toggleAcc('snapshot')" aria-expanded="false">
+    <span>Revenue Snapshot — Full Breakdown</span>
+    <span class="accordion-badge" id="snBadgeRev">—</span>
+    <span class="arrow">▼</span>
+  </button>
+  <div class="accordion-panel" id="snapshot-panel">
+    <div class="g2" style="gap:20px">
+      <div>
+        <div style="font-family:var(--mono);font-size:9px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Volume</div>
+        <div class="kv"><span class="kv-key">Futures Notional</span><span class="kv-val" id="snFutNotl">—</span></div>
+        <div class="kv"><span class="kv-key">Options Notional</span><span class="kv-val" id="snOptNotl">—</span></div>
+        <div class="kv"><span class="kv-key">Options Premium</span><span class="kv-val" id="snOptPrem">—</span></div>
+        <div class="kv"><span class="kv-key">Total F&O Notional</span><span class="kv-val" id="snTotalNotl">—</span></div>
+        <div class="sep--light"></div>
+        <div class="kv"><span class="kv-key">Active Futures</span><span class="kv-val" id="snFutContracts">—</span></div>
+        <div class="kv"><span class="kv-key">Active Options</span><span class="kv-val" id="snOptContracts">—</span></div>
+      </div>
+      <div>
+        <div style="font-family:var(--mono);font-size:9px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Revenue</div>
+        <div class="kv"><span class="kv-key">Futures TX <span class="muted" id="snFutFormula"></span></span><span class="kv-val green" id="snFutRev">—</span></div>
+        <div class="kv"><span class="kv-key">Options TX <span class="muted" id="snOptFormula"></span></span><span class="kv-val green" id="snOptRev">—</span></div>
+        <div class="kv"><span class="kv-key">Non-TX (daily)</span><span class="kv-val">₹0.95 Cr</span></div>
+        <div class="sep"></div>
+        <div class="kv"><span class="kv-key" style="font-weight:700;color:var(--text)" id="snTotalLabel">Projected Total</span><span class="kv-val accent" style="font-size:16px" id="snTotalRev">—</span></div>
+        <div class="kv"><span class="kv-key">Range (±uncertainty)</span><span class="kv-val yellow" id="snRevRange">—</span></div>
+        <div class="sep--light"></div>
+        <div class="kv"><span class="kv-key">vs Model Baseline (₹9.05/d)</span><span class="kv-val" id="corrModelDelta">—</span></div>
+        <div class="kv"><span class="kv-key">Annualized Run-Rate</span><span class="kv-val" id="snAnnual">—</span></div>
+      </div>
+    </div>
+    <div style="margin-top:12px;font-family:var(--mono);font-size:10px;color:var(--text-secondary)">
+      <span id="snDataSource">—</span> · <span id="snStatus">—</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ ACCORDION: CHARTS ═════════════════════════════════════════════════ -->
+<div class="accordion">
+  <button class="accordion-trigger" onclick="toggleAcc('charts')" aria-expanded="false">
+    <span>Commodity Breakdown — Charts</span>
+    <span class="arrow">▼</span>
+  </button>
+  <div class="accordion-panel" id="charts-panel">
+    <div class="g2" style="margin-bottom:16px">
+      <div class="chart-wrap">
+        <div class="card-label">Futures by Commodity (₹ Cr)</div>
+        <div class="bar-container"><canvas id="futChart"></canvas></div>
+      </div>
+      <div class="chart-wrap">
+        <div class="card-label">Options Premium by Commodity (₹ Cr)</div>
+        <div class="bar-container"><canvas id="optChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ ACCORDION: CONTRACT TABLES ═══════════════════════════════════════ -->
+<div class="accordion">
+  <button class="accordion-trigger" onclick="toggleAcc('contracts')" aria-expanded="false">
+    <span>Live Contracts — Top Futures & Options</span>
+    <span class="arrow">▼</span>
+  </button>
+  <div class="accordion-panel" id="contracts-panel">
+    <div class="g2">
+      <div>
+        <div class="card-label" style="margin-bottom:6px">Top Futures by Notional</div>
+        <table class="dtable">
+          <thead><tr><th>Symbol</th><th class="num">Notional (Cr)</th><th class="num">Share</th></tr></thead>
+          <tbody id="futTable"></tbody>
+        </table>
+      </div>
+      <div>
+        <div class="card-label" style="margin-bottom:6px">Top Options by Premium</div>
+        <table class="dtable">
+          <thead><tr><th>Symbol</th><th class="num">Premium (Cr)</th><th class="num">P/N%</th></tr></thead>
+          <tbody id="optTable"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ ACCORDION: INTRADAY CURVE ════════════════════════════════════════ -->
+<div class="accordion">
+  <button class="accordion-trigger" onclick="toggleAcc('intraday')" aria-expanded="false">
+    <span>Intraday Volume Curve — MCX Session Profile</span>
+    <span class="accordion-badge" id="intradayBadge">7 buckets</span>
+    <span class="arrow">▼</span>
+  </button>
+  <div class="accordion-panel" id="intraday-panel">
+    <div class="curve-container"><canvas id="intradayChart"></canvas></div>
+    <div class="curve-legend" id="intradayLegend"></div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:8px;padding:8px;border:1px dashed var(--border)">
+      Session: 09:00–23:30 IST · Evening session (17:00–23:30) ≈ 67% of daily turnover · ★ PRIME = NYMEX open overlap
+    </div>
+  </div>
+</div>
+
+<!-- ═══ ACCORDION: MODEL NOTES ═══════════════════════════════════════════ -->
+<div class="accordion">
+  <button class="accordion-trigger" onclick="toggleAcc('model')" aria-expanded="false">
+    <span>Model Notes — FY26E → FY28E</span>
+    <span class="accordion-badge">14 fixes applied</span>
+    <span class="arrow">▼</span>
+  </button>
+  <div class="accordion-panel" id="model-panel">
+    <div style="font-family:var(--mono);font-size:11px;color:var(--text-secondary);margin-bottom:12px;padding:10px;border:2px solid var(--warning);background:color-mix(in srgb, var(--warning) 5%, transparent)">
+      <strong style="color:var(--warning)">MODEL UPDATE — 14 ERRORS FIXED:</strong>
+      Old FY26E: <span class="red">₹862 Cr</span> → Corrected: <span class="green">₹2,281 Cr</span> <span class="yellow">(+165%)</span>
+    </div>
+    <table class="dtable">
+      <thead>
+        <tr><th style="min-width:180px">Line Item</th><th class="num">FY25A</th><th class="num" style="color:var(--positive)">FY26E ✓</th><th class="num">FY27E</th><th class="num">FY28E</th></tr>
+      </thead>
+      <tbody>
+        <tr><td colspan="5" style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);background:var(--surface2);padding:4px 10px">Volume Assumptions (₹ Cr/day)</td></tr>
+        <tr><td>Futures ADT</td><td class="num muted">~₹65K</td><td class="num accent">₹80,000</td><td class="num">₹1,00,000</td><td class="num">₹1,20,000</td></tr>
+        <tr><td>Options Premium ADT</td><td class="num muted">~₹2.5K</td><td class="num accent">₹6,000</td><td class="num">₹8,500</td><td class="num">₹11,000</td></tr>
+        <tr><td colspan="5" style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);background:var(--surface2);padding:4px 10px">Revenue (₹ Crore · 252 days)</td></tr>
+        <tr><td>Futures TX Revenue</td><td class="num">₹730</td><td class="num accent">₹847</td><td class="num">₹1,058</td><td class="num">₹1,270</td></tr>
+        <tr><td>Options TX Revenue</td><td class="num">₹285</td><td class="num accent">₹1,264</td><td class="num">₹1,791</td><td class="num">₹2,317</td></tr>
+        <tr><td>Other Income</td><td class="num">₹98</td><td class="num accent">₹126</td><td class="num">₹160</td><td class="num">₹200</td></tr>
+        <tr style="border-top:2px solid var(--text)"><td><strong>Total Revenue</strong></td><td class="num"><strong>₹1,113</strong></td><td class="num accent"><strong>₹2,237</strong></td><td class="num"><strong>₹3,009</strong></td><td class="num"><strong>₹3,787</strong></td></tr>
+      </tbody>
+    </table>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:12px">
+      Day-type multipliers (45d bhav-calibrated): HIGH ×1.34 · MEDIUM ×1.09 · EXPIRY ×1.00 · LOW ×1.20
+    </div>
+  </div>
+</div>
+
+</div><!-- /wrap -->
+</div><!-- /tabPredictor -->
+
+<!-- ═══ TAB: INTERACTIVE FORECAST ═══════════════════════════════════════════ -->
+<div id="tabForecast" style="display:none">
+<div class="wrap">
+
+<!-- ── CURRENT vs MODEL HERO ─────────────────────────────────────────────── -->
+<div class="fc-hero-row">
+  <div class="fc-hero-card">
+    <h3>Current Market</h3>
+    <div class="fc-hero-price" style="color:var(--text)" id="fcCmpPrice">₹2,396</div>
+    <div class="fc-hero-sub">
+      EPS (TTM): ₹36.75 · PE: 65.2x · MCap: ₹61,090 Cr
+    </div>
+  </div>
+  <div class="fc-hero-card fc-hero-card--model">
+    <h3>Model Prediction</h3>
+    <div class="fc-hero-price accent" id="fcModelPrice">—</div>
+    <div class="fc-hero-sub" id="fcModelSub">EPS: — · PE: — · MCap: —</div>
+    <div class="fc-hero-sub" id="fcModelDelta" style="margin-top:4px;font-weight:700">—</div>
+  </div>
+</div>
+
+<!-- ── INPUT CONTROLS ────────────────────────────────────────────────────── -->
+<div class="card" style="margin-bottom:20px;padding:24px">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+    <div class="fc-input-group">
+      <div class="fc-label">Daily Revenue (₹ Cr)</div>
+      <div class="fc-tooltip">Average daily exchange revenue. Drives annualized topline.</div>
+      <div class="fc-slider-row">
+        <input type="range" class="fc-slider" id="fcRevSlider" min="2" max="35" step="0.1" value="13.85">
+        <input type="number" class="fc-num-input" id="fcRevInput" value="13.85" step="0.1" min="0">
+      </div>
+      <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--text-secondary);margin-top:2px">
+        <span>₹2</span>
+        <span id="fcRevAnnual" style="color:var(--accent)">Annual: ₹3,463 Cr</span>
+        <span>₹35</span>
+      </div>
+    </div>
+    <div class="fc-input-group">
+      <div class="fc-label">P/E Ratio</div>
+      <div class="fc-tooltip">Price-to-Earnings multiple applied to FY26E EPS.</div>
+      <div class="fc-slider-row">
+        <input type="range" class="fc-slider" id="fcPeSlider" min="15" max="120" step="0.5" value="42">
+        <input type="number" class="fc-num-input" id="fcPeInput" value="42" step="0.5" min="1">
+      </div>
+      <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--text-secondary);margin-top:2px">
+        <span>15x</span>
+        <span id="fcPeLabel" style="color:var(--accent2)">Default: 42x</span>
+        <span>120x</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── P&L WATERFALL ─────────────────────────────────────────────────────── -->
+<div class="card" style="margin-bottom:20px;padding:20px">
+  <div class="card-label" style="margin-bottom:10px">P&L Waterfall — FY26E</div>
+  <div class="kv"><span class="kv-key">Annual Revenue (Daily × 250)</span><span class="kv-val" id="fcWfRevenue">—</span></div>
+  <div class="kv"><span class="kv-key">Less: Operating Costs</span><span class="kv-val red" id="fcWfOpex">—</span></div>
+  <div class="kv"><span class="kv-key">EBITDA</span><span class="kv-val" id="fcWfEbitda">—</span></div>
+  <div class="kv"><span class="kv-key">Plus: Other Income</span><span class="kv-val" id="fcWfOther">—</span></div>
+  <div class="kv"><span class="kv-key">PBT</span><span class="kv-val" id="fcWfPbt">—</span></div>
+  <div class="kv"><span class="kv-key">Less: Tax (<span id="fcWfTaxLabel">20.30</span>%)</span><span class="kv-val red" id="fcWfTax">—</span></div>
+  <div class="sep"></div>
+  <div class="kv"><span class="kv-key" style="font-weight:700;color:var(--text)">PAT</span><span class="kv-val green" style="font-size:16px" id="fcWfPat">—</span></div>
+  <div class="kv"><span class="kv-key">EPS (PAT / <span id="fcWfSharesLabel">25.5</span> Cr shares)</span><span class="kv-val accent" style="font-size:16px" id="fcWfEps">—</span></div>
+  <div class="kv"><span class="kv-key" style="font-weight:700">Share Price (EPS × PE)</span><span class="kv-val" style="font-size:18px;color:var(--accent)" id="fcWfPrice">—</span></div>
+</div>
+
+<!-- ── SCENARIO ANALYSIS ─────────────────────────────────────────────────── -->
+<div class="card-label" style="margin-bottom:8px">Scenario Analysis — Bear / Base / Bull</div>
+<div class="scenario-row">
+  <div class="scenario-card scenario-card--bear">
+    <div class="scenario-card-title">Bear Case</div>
+    <div class="scenario-price red" id="scBearPrice">—</div>
+    <div class="scenario-delta red" id="scBearDelta">—</div>
+    <div class="scenario-kv"><span class="scenario-kv-key">Daily Rev</span><span class="scenario-kv-val" id="scBearRev">—</span></div>
+    <div class="scenario-kv"><span class="scenario-kv-key">Annual Rev</span><span class="scenario-kv-val" id="scBearAnnual">—</span></div>
+    <div class="scenario-kv"><span class="scenario-kv-key">PE Ratio</span><span class="scenario-kv-val" id="scBearPe">—</span></div>
+    <div class="scenario-kv"><span class="scenario-kv-key">EPS</span><span class="scenario-kv-val" id="scBearEps">—</span></div>
+    <div class="scenario-kv"><span class="scenario-kv-key">PAT</span><span class="scenario-kv-val" id="scBearPat">—</span></div>
+    <div class="sc-adjust">
+      <span class="sc-adjust-label">Rev</span>
+      <input type="number" class="sc-adjust-input" id="scBearRevPct" value="-15" step="1">
+      <span class="sc-adjust-label">%</span>
+      <span class="sc-adjust-label" style="margin-left:4px">PE</span>
+      <input type="number" class="sc-adjust-input" id="scBearPePct" value="-10" step="1">
+      <span class="sc-adjust-label">%</span>
+    </div>
+  </div>
+  <div class="scenario-card scenario-card--base">
+    <div class="scenario-card-title">Base Case</div>
+    <div class="scenario-price accent" id="scBasePrice">—</div>
+    <div class="scenario-delta" id="scBaseDelta" style="color:var(--text-secondary)">—</div>
+    <div class="scenario-kv"><span class="scenario-kv-key">Daily Rev</span><span class="scenario-kv-val" id="scBaseRev">—</span></div>
+    <div class="scenario-kv"><span class="scenario-kv-key">Annual Rev</span><span class="scenario-kv-val" id="scBaseAnnual">—</span></div>
+    <div class="scenario-kv"><span class="scenario-kv-key">PE Ratio</span><span class="scenario-kv-val" id="scBasePe">—</span></div>
+    <div class="scenario-kv"><span class="scenario-kv-key">EPS</span><span class="scenario-kv-val" id="scBaseEps">—</span></div>
+    <div class="scenario-kv"><span class="scenario-kv-key">PAT</span><span class="scenario-kv-val" id="scBasePat">—</span></div>
+  </div>
+  <div class="scenario-card scenario-card--bull">
+    <div class="scenario-card-title">Bull Case</div>
+    <div class="scenario-price green" id="scBullPrice">—</div>
+    <div class="scenario-delta green" id="scBullDelta">—</div>
+    <div class="scenario-kv"><span class="scenario-kv-key">Daily Rev</span><span class="scenario-kv-val" id="scBullRev">—</span></div>
+    <div class="scenario-kv"><span class="scenario-kv-key">Annual Rev</span><span class="scenario-kv-val" id="scBullAnnual">—</span></div>
+    <div class="scenario-kv"><span class="scenario-kv-key">PE Ratio</span><span class="scenario-kv-val" id="scBullPe">—</span></div>
+    <div class="scenario-kv"><span class="scenario-kv-key">EPS</span><span class="scenario-kv-val" id="scBullEps">—</span></div>
+    <div class="scenario-kv"><span class="scenario-kv-key">PAT</span><span class="scenario-kv-val" id="scBullPat">—</span></div>
+    <div class="sc-adjust">
+      <span class="sc-adjust-label">Rev</span>
+      <input type="number" class="sc-adjust-input" id="scBullRevPct" value="15" step="1">
+      <span class="sc-adjust-label">%</span>
+      <span class="sc-adjust-label" style="margin-left:4px">PE</span>
+      <input type="number" class="sc-adjust-input" id="scBullPePct" value="10" step="1">
+      <span class="sc-adjust-label">%</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── ADVANCED ASSUMPTIONS (accordion) ──────────────────────────────────── -->
+<div class="accordion">
+  <button class="accordion-trigger" onclick="toggleAcc('fcAdv')" aria-expanded="false">
+    <span>Advanced Assumptions</span>
+    <span class="arrow">▼</span>
+  </button>
+  <div class="accordion-panel" id="fcAdv-panel">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
+      <div>
+        <div class="fc-label">Operating Costs (₹ Cr/yr)</div>
+        <div class="fc-tooltip">Staff + tech + regulatory + admin</div>
+        <input type="number" class="fc-num-input" id="fcAdvOpex" value="700" step="10" style="width:100%;margin-top:6px">
+      </div>
+      <div>
+        <div class="fc-label">Other Income (₹ Cr/yr)</div>
+        <div class="fc-tooltip">Treasury, data licensing, membership</div>
+        <input type="number" class="fc-num-input" id="fcAdvOther" value="126" step="10" style="width:100%;margin-top:6px">
+      </div>
+      <div>
+        <div class="fc-label">Tax Rate (%)</div>
+        <div class="fc-tooltip">Effective corporate tax rate</div>
+        <input type="number" class="fc-num-input" id="fcAdvTax" value="20.30" step="0.01" style="width:100%;margin-top:6px">
+      </div>
+      <div>
+        <div class="fc-label">Shares Outstanding (Cr)</div>
+        <div class="fc-tooltip">Total diluted shares</div>
+        <input type="number" class="fc-num-input" id="fcAdvShares" value="25.5" step="0.1" style="width:100%;margin-top:6px">
+      </div>
+      <div>
+        <div class="fc-label">Trading Days / Year</div>
+        <div class="fc-tooltip">MCX active trading days</div>
+        <input type="number" class="fc-num-input" id="fcAdvDays" value="250" step="1" style="width:100%;margin-top:6px">
+      </div>
+      <div>
+        <div class="fc-label">Current Share Price (₹)</div>
+        <div class="fc-tooltip">For upside/downside calculation</div>
+        <input type="number" class="fc-num-input" id="fcAdvCMP" value="2396" step="1" style="width:100%;margin-top:6px">
+      </div>
+    </div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:12px">
+      Sources: Screener.in, BSE filings, Q3 FY26 results. Shares: 25.5 Cr (post 1:5 split Jan 2026). FY25 opex: ₹447 Cr → FY26E est: ₹700 Cr (Q3 run rate). Tax: effective 20.3% (Q3 FY26 actual, down from statutory 20.30%).
+    </div>
+  </div>
+</div>
+
+</div><!-- /wrap -->
+</div><!-- /tabForecast -->
+
+<!-- ═══ COOKIE MODAL ═══════════════════════════════════════════════════════ -->
+<div class="modal-overlay hidden" id="cookieModal" onclick="if(event.target===this)closeCookieModal()">
+  <div class="modal-box">
+    <h3>Cookie Setup</h3>
+    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">The relay pushes MCX data to Supabase automatically. Cookie is only needed for direct MCX API access from cloud (usually blocked).</p>
+    <textarea id="cookieTextarea" placeholder="ASP.NET_SessionId=xxxx; _ga=..."></textarea>
+    <div id="cookieStatus" style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:6px">—</div>
+    <div class="actions">
+      <button class="btn btn--accent" onclick="saveCookie()">Save</button>
+      <button class="btn" onclick="closeCookieModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ JAVASCRIPT ═══════════════════════════════════════════════════════════ -->
+<script>
+// ════════════════════════════════════════════════════════════════════════════
+//  GLOBALS
+// ════════════════════════════════════════════════════════════════════════════
+let sparkChartInst = null;
+let futData = [], optData = [];
+let TOTAL_FUT = 0, TOTAL_OPT = 0;
+let autoRefreshInterval = null;
+let nextRefreshAt = null;
+const AUTO_REFRESH_MS = 2 * 60 * 1000;  // 2 minutes
+
+function fmt(n) { return parseFloat(n).toLocaleString('en-IN', {maximumFractionDigits:0}); }
+function fmtDec(n,d=2) { return parseFloat(n).toFixed(d); }
+
+// ════════════════════════════════════════════════════════════════════════════
+//  THEME
+// ════════════════════════════════════════════════════════════════════════════
+function applyTheme(mode) {
+  if (mode === 'dark') {
+    document.documentElement.classList.add('dark');
+    document.getElementById('themeToggle').textContent = '◑';
+  } else {
+    document.documentElement.classList.remove('dark');
+    document.getElementById('themeToggle').textContent = '◐';
+  }
+}
+function toggleTheme() {
+  const isDark = document.documentElement.classList.contains('dark');
+  const next = isDark ? 'light' : 'dark';
+  localStorage.setItem('mcxTheme', next);
+  applyTheme(next);
+  if (typeof renderIntradayChart === 'function') renderIntradayChart();
+}
+applyTheme(localStorage.getItem('mcxTheme') || 'light');
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ACCORDION
+// ════════════════════════════════════════════════════════════════════════════
+function toggleAcc(id) {
+  const panel = document.getElementById(id + '-panel');
+  const trigger = panel.previousElementSibling;
+  const open = panel.classList.toggle('open');
+  trigger.setAttribute('aria-expanded', open);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  TOAST
+// ════════════════════════════════════════════════════════════════════════════
+function showToast(msg, type='') {
+  const t = document.createElement('div');
+  t.className = 'toast ' + type;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  COOKIE MODAL
+// ════════════════════════════════════════════════════════════════════════════
+function openCookieModal() {
+  document.getElementById('cookieTextarea').value = localStorage.getItem('mcxCookie') || '';
+  document.getElementById('cookieModal').classList.remove('hidden');
+}
+function closeCookieModal() { document.getElementById('cookieModal').classList.add('hidden'); }
+function saveCookie() {
+  const val = document.getElementById('cookieTextarea').value.trim();
+  if (val) { localStorage.setItem('mcxCookie', val); closeCookieModal(); showToast('Cookie saved', 'success'); }
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCookieModal(); });
+
+// ════════════════════════════════════════════════════════════════════════════
+//  RENDER TABLES
+// ════════════════════════════════════════════════════════════════════════════
+function renderTables() {
+  const ftb = document.getElementById('futTable');
+  ftb.innerHTML = futData.slice(0, 10).map(f => {
+    const pct = TOTAL_FUT > 0 ? (f.notl / TOTAL_FUT * 100).toFixed(1) : '—';
+    return `<tr><td>${f.sym}</td><td class="num">₹${fmt(f.notl)}</td><td class="num">${pct}%</td></tr>`;
+  }).join('');
+
+  const otb = document.getElementById('optTable');
+  otb.innerHTML = optData.slice(0, 10).map(o => {
+    const ratio = o.ratio ? o.ratio.toFixed(3) : '—';
+    return `<tr><td>${o.sym}</td><td class="num">₹${fmtDec(o.prem)}</td><td class="num">${ratio}%</td></tr>`;
+  }).join('');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  RENDER CHARTS
+// ════════════════════════════════════════════════════════════════════════════
+let futChartInst = null, optChartInst = null;
+function renderCharts() {
+  const isDark = document.documentElement.classList.contains('dark');
+  const gridColor = isDark ? '#333' : '#E8E6E1';
+  const tickColor = isDark ? '#888' : '#6B6560';
+
+  // Futures chart
+  const futLabels = futData.slice(0, 8).map(f => f.sym);
+  const futVals = futData.slice(0, 8).map(f => f.notl);
+  if (futChartInst) futChartInst.destroy();
+  futChartInst = new Chart(document.getElementById('futChart'), {
+    type: 'bar',
+    data: { labels: futLabels, datasets: [{ data: futVals, backgroundColor: isDark ? '#FF6B47' : '#D4380D', borderWidth: 0, borderRadius: 2 }] },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { ticks: { color: tickColor, font: { family: "'JetBrains Mono'", size: 9 } }, grid: { display: false } },
+        x: { ticks: { color: tickColor, font: { family: "'JetBrains Mono'", size: 9 }, callback: v => '₹' + (v/1000).toFixed(0) + 'K' }, grid: { color: gridColor } }
+      }
+    }
+  });
+
+  // Options chart
+  const optLabels = optData.slice(0, 8).map(o => o.sym);
+  const optVals = optData.slice(0, 8).map(o => o.prem);
+  if (optChartInst) optChartInst.destroy();
+  optChartInst = new Chart(document.getElementById('optChart'), {
+    type: 'bar',
+    data: { labels: optLabels, datasets: [{ data: optVals, backgroundColor: isDark ? '#5B9CF5' : '#0958D9', borderWidth: 0, borderRadius: 2 }] },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { ticks: { color: tickColor, font: { family: "'JetBrains Mono'", size: 9 } }, grid: { display: false } },
+        x: { ticks: { color: tickColor, font: { family: "'JetBrains Mono'", size: 9 }, callback: v => '₹' + v.toFixed(0) }, grid: { color: gridColor } }
+      }
+    }
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  INTRADAY VOLUME CURVE
+// ════════════════════════════════════════════════════════════════════════════
+let intradayChartInst = null;
+const INTRADAY_BUCKETS = [
+  { label: '09:00–10:30', tag: 'Opening + metals',  weight: 0.06 },
+  { label: '10:30–12:30', tag: 'Mid-morning',       weight: 0.10 },
+  { label: '12:30–15:00', tag: 'Post-lunch lull',   weight: 0.07 },
+  { label: '15:00–17:00', tag: 'Pre-evening',       weight: 0.10 },
+  { label: '17:00–19:30', tag: 'Europe open',       weight: 0.18 },
+  { label: '19:30–22:00', tag: '★ NYMEX open',      weight: 0.34 },
+  { label: '22:00–23:30', tag: 'Late session',      weight: 0.15 },
+];
+
+function renderIntradayChart() {
+  const isDark = document.documentElement.classList.contains('dark');
+  const gridColor = isDark ? '#333' : '#E8E6E1';
+  const tickColor = isDark ? '#888' : '#6B6560';
+
+  const labels = INTRADAY_BUCKETS.map(b => b.label);
+  const values = INTRADAY_BUCKETS.map(b => b.weight * 100);
+  const colors = INTRADAY_BUCKETS.map(b => {
+    if (b.weight >= 0.30) return isDark ? '#FF6B47' : '#D4380D';
+    if (b.weight >= 0.15) return isDark ? '#FAAD14' : '#D48806';
+    return isDark ? '#5B9CF5' : '#0958D9';
+  });
+
+  if (intradayChartInst) intradayChartInst.destroy();
+  intradayChartInst = new Chart(document.getElementById('intradayChart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: values,
+        backgroundColor: colors,
+        borderWidth: 0,
+        borderRadius: 2
+      }]
+    },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const b = INTRADAY_BUCKETS[ctx.dataIndex];
+              return `${b.weight * 100}% — ${b.tag}`;
+            }
+          }
+        }
+      },
+      scales: {
+        y: { ticks: { color: tickColor, font: { family: "'JetBrains Mono'", size: 10 } }, grid: { display: false } },
+        x: {
+          max: 40,
+          ticks: { color: tickColor, font: { family: "'JetBrains Mono'", size: 9 }, callback: v => v + '%' },
+          grid: { color: gridColor }
+        }
+      }
+    }
+  });
+
+  // Legend with color dots
+  const legend = document.getElementById('intradayLegend');
+  if (legend) {
+    legend.innerHTML = `
+      <span><span class="dot" style="background:${isDark ? '#FF6B47' : '#D4380D'}"></span> ≥30% Prime</span>
+      <span><span class="dot" style="background:${isDark ? '#FAAD14' : '#D48806'}"></span> 15–29% High</span>
+      <span><span class="dot" style="background:${isDark ? '#5B9CF5' : '#0958D9'}"></span> <15% Regular</span>
+      <span>Evening (17:00–23:30) = 67%</span>
+    `;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  UPDATE UI FROM /api/refresh
+// ════════════════════════════════════════════════════════════════════════════
+function updateSnapshotFromAPI(d) {
+  const futRevVal = 2 * d.proj_fut_cr * 210 / 1e7;
+  const optRevVal = 2 * d.proj_opt_cr * 4180 / 1e7;
+  const txRev = futRevVal + optRevVal;
+  const totalRev = txRev + 0.95;
+  const isLive = !d.session_closed;
+  const tradingDays = d.trading_days || 250;
+
+  // ── Hero ──────────────────────────────────────────────────────────────
+  document.getElementById('heroEyebrow').textContent = isLive ? "Today's Projected Revenue" : "Today's Final Revenue";
+  document.getElementById('heroRevenue').textContent = '₹' + fmtDec(totalRev);
+  const badge = document.getElementById('heroBadge');
+  badge.textContent = d.day_type || '—';
+  badge.className = 'hero-badge ' + (d.day_type || 'low').toLowerCase();
+
+  const deltaEl = document.getElementById('heroDelta');
+  const ma45 = parseFloat(document.getElementById('heroMAVal')?.textContent?.replace(/[^0-9.]/g, '')) || 13.93;
+  const vsMa = ((totalRev / ma45 - 1) * 100);
+  deltaEl.textContent = `vs 45d MA: ${vsMa >= 0 ? '+' : ''}${vsMa.toFixed(1)}%`;
+  deltaEl.className = 'hero-delta ' + (vsMa >= 0 ? 'up' : 'down');
+
+  document.getElementById('heroDate').textContent = d.timestamp ? d.timestamp.split('T')[0] : '—';
+  document.getElementById('heroSession').textContent = isLive ? `${d.elapsed_pct}% elapsed` : 'Session closed';
+  document.getElementById('heroRange').textContent = (d.rev_low != null) ? `₹${fmtDec(d.rev_low,1)}–${fmtDec(d.rev_high,1)} Cr` : '';
+  document.getElementById('heroConfidence').textContent = `${d.confidence || '—'} · ±${d.uncertainty_pct || 0}%`;
+  document.getElementById('heroProgressFill').style.width = (d.elapsed_pct || 0) + '%';
+
+  // ── Today card in history row ────────────────────────────────────────
+  document.getElementById('heroTodayCard').textContent = '₹' + fmtDec(totalRev);
+  document.getElementById('heroTodayCardSub').textContent = isLive ? `${d.elapsed_pct}% · ${d.confidence}` : 'Final';
+
+  // ── Snapshot accordion ───────────────────────────────────────────────
+  document.getElementById('snBadgeRev').textContent = '₹' + fmtDec(totalRev) + ' Cr';
+  document.getElementById('snFutNotl').textContent = '₹' + fmt(d.fut_notl_cr) + ' Cr';
+  document.getElementById('snOptNotl').textContent = '₹' + fmt(d.opt_notl_cr) + ' Cr';
+  document.getElementById('snOptPrem').textContent = '₹' + fmt(d.opt_prem_cr) + ' Cr';
+  document.getElementById('snTotalNotl').textContent = '₹' + fmt((d.fut_notl_cr||0) + (d.opt_notl_cr||0)) + ' Cr';
+  document.getElementById('snFutContracts').textContent = d.active_futures + ' contracts';
+  document.getElementById('snOptContracts').textContent = d.active_options + ' contracts';
+  document.getElementById('snFutFormula').textContent = `(2×₹${fmt(d.proj_fut_cr)}×210)`;
+  document.getElementById('snOptFormula').textContent = `(2×₹${fmt(d.proj_opt_cr)}×4180)`;
+  document.getElementById('snFutRev').textContent = '₹' + fmtDec(futRevVal, 2) + ' Cr';
+  document.getElementById('snOptRev').textContent = '₹' + fmtDec(optRevVal, 2) + ' Cr';
+  document.getElementById('snTotalLabel').textContent = isLive ? 'Projected Total' : 'Actual Total';
+  document.getElementById('snTotalRev').textContent = '₹' + fmtDec(totalRev) + ' Cr (±' + (d.uncertainty_pct||0) + '%)';
+  if (d.rev_low != null) document.getElementById('snRevRange').textContent = '₹' + fmtDec(d.rev_low) + '–' + fmtDec(d.rev_high) + ' Cr';
+  document.getElementById('snAnnual').textContent = '₹' + Math.round(totalRev * tradingDays) + ' Cr';
+
+  const vsModel = ((totalRev / 9.05 - 1) * 100);
+  const cme = document.getElementById('corrModelDelta');
+  cme.textContent = (vsModel >= 0 ? '+' : '') + vsModel.toFixed(1) + '%';
+  cme.style.color = vsModel >= 0 ? 'var(--positive)' : 'var(--negative)';
+
+  document.getElementById('snDataSource').textContent = (d.source === 'supabase_cache' ? 'Relay → Supabase' : 'MCX Direct') + ' · ' + (d.active_futures + d.active_options) + ' contracts';
+  document.getElementById('snStatus').textContent = isLive ? `Open · ${d.elapsed_pct}%` : 'Closed';
+
+  // ── KPIs ──────────────────────────────────────────────────────────────
+  document.getElementById('kpiTotalRev').textContent = '₹' + fmtDec(totalRev);
+  document.getElementById('kpiTotalRevLbl').textContent = isLive ? 'Projected' : 'Final';
+  const kdt = document.getElementById('kpiDayType');
+  kdt.textContent = d.day_type || '—';
+  kdt.style.color = d.day_type === 'HIGH' ? 'var(--positive)' : d.day_type === 'MEDIUM' ? 'var(--warning)' : 'var(--text-secondary)';
+  document.getElementById('kpiDayTypeNote').textContent = (d.day_description || '').split('.')[0];
+  document.getElementById('kpiAnnual').textContent = '₹' + Math.round(totalRev * tradingDays) + ' Cr';
+  document.getElementById('kpiPremRatio').textContent = (d.prem_notl_pct || 0).toFixed(3) + '%';
+  const vsQ3 = (totalRev / 10.25 * 100).toFixed(1);
+  document.getElementById('kpiVsQ3').textContent = vsQ3 + '%';
+  document.getElementById('kpiVsQ3').style.color = parseFloat(vsQ3) >= 100 ? 'var(--positive)' : 'var(--negative)';
+
+  // ── Live pill ────────────────────────────────────────────────────────
+  document.getElementById('livePill').textContent = isLive ? '● LIVE' : '● FINAL';
+  document.getElementById('refreshMeta').textContent = new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'});
+
+  // ── Tables & charts ──────────────────────────────────────────────────
+  if (d.top_futures && d.top_futures.length) {
+    futData = d.top_futures.map(f => ({sym:f.sym, notl:f.notl}));
+    TOTAL_FUT = d.proj_fut_cr;
+  }
+  if (d.top_options && d.top_options.length) {
+    optData = d.top_options.map(o => ({sym:o.sym, prem:o.prem, notl:o.notl, ratio:o.ratio||0}));
+    TOTAL_OPT = d.proj_opt_cr;
+  }
+  renderTables();
+  renderCharts();
+  renderIntradayChart();
+
+  // ── Seed forecast tab with live revenue ──────────────────────────────
+  seedForecastFromAPI(totalRev);
+
+  // ── Update sparkline today point ─────────────────────────────────────
+  if (sparkChartInst) {
+    const ds = sparkChartInst.data.datasets[0];
+    if (ds && ds.data.length > 0) {
+      ds.data[ds.data.length - 1] = totalRev;
+      sparkChartInst.update('none');
+    }
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  REFRESH
+// ════════════════════════════════════════════════════════════════════════════
+function isInsideTradingHours() {
+  const now = new Date();
+  const istMin = (now.getUTCHours() * 60 + now.getUTCMinutes()) + 330;
+  return istMin >= 535 && istMin <= 1415;
+}
+
+function startAutoRefresh() {
+  if (autoRefreshInterval) return;
+  nextRefreshAt = Date.now() + AUTO_REFRESH_MS;
+  autoRefreshInterval = setInterval(() => {
+    if (isInsideTradingHours()) doRefresh(true);
+    nextRefreshAt = Date.now() + AUTO_REFRESH_MS;
+  }, AUTO_REFRESH_MS);
+}
+
+async function doRefresh(silent) {
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.add('loading');
+  btn.disabled = true;
+
+  try {
+    const resp = await fetch('/api/refresh');
+    const data = await resp.json();
+    if (data.success) {
+      updateSnapshotFromAPI(data);
+      if (!silent) showToast('Data refreshed', 'success');
+      if (!autoRefreshInterval && isInsideTradingHours()) startAutoRefresh();
+    } else {
+      if (!silent) showToast('Refresh failed: ' + (data.error || ''), 'error');
+    }
+  } catch(e) {
+    if (!silent) showToast('Network error', 'error');
+  } finally {
+    btn.classList.remove('loading');
+    btn.disabled = false;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  HERO — load from /api/history
+// ════════════════════════════════════════════════════════════════════════════
+async function loadHero() {
+  try {
+    const resp = await fetch('/api/history');
+    const data = await resp.json();
+    renderHero(data);
+  } catch(e) {
+    document.getElementById('heroMAVal').textContent = '—';
+  }
+}
+
+function renderHero(data) {
+  const history = data.history || [];
+  const ma45 = data.ma_45 || 13.93;
+  const prev3 = history.filter(h => !h.is_today && h.adr !== null).slice(-3);
+
+  prev3.forEach((day, i) => {
+    const vs = ((day.adr / ma45 - 1) * 100);
+    const col = vs >= 0 ? 'var(--positive)' : 'var(--negative)';
+    document.getElementById(`hd${i+1}val`).textContent = '₹' + fmtDec(day.adr);
+    document.getElementById(`hd${i+1}sub`).innerHTML = `<span style="color:${col}">${vs>=0?'+':''}${vs.toFixed(1)}%</span> · ${day.label}`;
+  });
+
+  document.getElementById('heroMAVal').textContent = '₹' + fmtDec(ma45);
+  const validAdrs = history.map(h => h.adr).filter(v => v !== null);
+  document.getElementById('heroMARange').textContent = validAdrs.length ? `₹${Math.min(...validAdrs).toFixed(1)}–${Math.max(...validAdrs).toFixed(1)}` : '—';
+
+  const todayLabel = data.today_label || new Date().toLocaleDateString('en-IN', {weekday:'short',day:'2-digit',month:'short'});
+  document.getElementById('heroDate').textContent = todayLabel;
+
+  renderSparkline(history, ma45);
+}
+
+function renderSparkline(history, ma45) {
+  const isDark = document.documentElement.classList.contains('dark');
+  const labels = history.map(h => h.label);
+  const adrs = history.map(h => h.is_today ? null : h.adr);
+  const maLine = history.map(() => ma45);
+
+  const pointColors = history.map(h =>
+    h.is_today ? (isDark ? '#52C41A' : '#1B7D3A') :
+    h.is_actual ? (isDark ? '#E0DDD8' : '#1A1A1A') :
+    (isDark ? '#555' : '#C4C0B8')
+  );
+  const pointRadius = history.map(h => h.is_today ? 6 : h.is_actual ? 3 : 2);
+
+  if (sparkChartInst) sparkChartInst.destroy();
+  sparkChartInst = new Chart(document.getElementById('sparkChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Daily Revenue',
+          data: adrs,
+          borderColor: isDark ? 'rgba(255,107,71,0.6)' : 'rgba(212,56,13,0.5)',
+          backgroundColor: isDark ? 'rgba(255,107,71,0.05)' : 'rgba(212,56,13,0.04)',
+          fill: true, tension: 0.25,
+          pointRadius, pointBackgroundColor: pointColors,
+          borderWidth: 1.5
+        },
+        {
+          label: '45d MA',
+          data: maLine,
+          borderColor: isDark ? '#5B9CF5' : '#0958D9',
+          borderDash: [5, 3],
+          pointRadius: 0, borderWidth: 1.5, fill: false
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: item => '₹' + (item.raw||0).toFixed(2) + ' Cr' } } },
+      scales: {
+        x: { ticks: { maxTicksLimit: 8, color: isDark ? '#555' : '#999', font: { family: "'JetBrains Mono'", size: 9 } }, grid: { color: isDark ? '#222' : '#E8E6E1' } },
+        y: { ticks: { color: isDark ? '#555' : '#999', font: { family: "'JetBrains Mono'", size: 9 }, callback: v => '₹' + v.toFixed(0) }, grid: { color: isDark ? '#222' : '#E8E6E1' } }
+      }
+    }
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════════════════════════════════
+loadHero();
+
+// Auto-trigger first refresh
+setTimeout(() => doRefresh(true), 800);
+
+// ════════════════════════════════════════════════════════════════════════════
+//  TAB SWITCHING
+// ════════════════════════════════════════════════════════════════════════════
+function switchTab(tabId) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
+  document.getElementById('tabPredictor').style.display = tabId === 'tabPredictor' ? 'block' : 'none';
+  document.getElementById('tabForecast').style.display = tabId === 'tabForecast' ? 'block' : 'none';
+  if (tabId === 'tabForecast') recalcForecast();
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  FORECAST MODEL — Revenue → EPS → Share Price
+//  Uses same fee schedule as Daily Predictor (mcx_config.py)
+// ════════════════════════════════════════════════════════════════════════════
+const FC = {
+  dailyRev: 13.85, pe: 42, opex: 700, otherIncome: 126,
+  taxRate: 20.30, shares: 25.5, tradingDays: 250, currentPrice: 2406
+};
+
+function getFcInputs() {
+  return {
+    dailyRev: parseFloat(document.getElementById('fcRevInput').value) || FC.dailyRev,
+    pe: parseFloat(document.getElementById('fcPeInput').value) || FC.pe,
+    opex: parseFloat(document.getElementById('fcAdvOpex').value) || FC.opex,
+    otherIncome: parseFloat(document.getElementById('fcAdvOther').value) || FC.otherIncome,
+    taxRate: parseFloat(document.getElementById('fcAdvTax').value) || FC.taxRate,
+    shares: parseFloat(document.getElementById('fcAdvShares').value) || FC.shares,
+    tradingDays: parseFloat(document.getElementById('fcAdvDays').value) || FC.tradingDays,
+    currentPrice: parseFloat(document.getElementById('fcAdvCMP').value) || FC.currentPrice,
+  };
+}
+
+function calcModel(dailyRev, pe, inp) {
+  const annualRev = dailyRev * inp.tradingDays;
+  const ebitda = annualRev - inp.opex;
+  const pbt = ebitda + inp.otherIncome;
+  const tax = pbt > 0 ? pbt * (inp.taxRate / 100) : 0;
+  const pat = pbt > 0 ? pbt - tax : 0;
+  const eps = inp.shares > 0 ? pat / inp.shares : 0;
+  const price = eps * pe;
+  const mcap = price * inp.shares;
+  return { annualRev, ebitda, pbt, tax, pat, eps, price, mcap };
+}
+
+function fmtInr(n) { return Math.round(n).toLocaleString('en-IN'); }
+
+function recalcForecast() {
+  const inp = getFcInputs();
+  const base = calcModel(inp.dailyRev, inp.pe, inp);
+
+  // Annual label under slider
+  document.getElementById('fcRevAnnual').textContent = `Annual: ₹${fmtInr(base.annualRev)} Cr`;
+
+  // Model hero card
+  document.getElementById('fcModelPrice').textContent = '₹' + fmtInr(base.price);
+  document.getElementById('fcModelSub').textContent =
+    `EPS: ₹${base.eps.toFixed(2)} · PE: ${inp.pe.toFixed(1)}x · MCap: ₹${fmtInr(base.mcap)} Cr`;
+  const upside = ((base.price / inp.currentPrice - 1) * 100);
+  const ud = document.getElementById('fcModelDelta');
+  ud.textContent = `${upside >= 0 ? '+' : ''}${upside.toFixed(1)}% vs CMP ₹${fmtInr(inp.currentPrice)}`;
+  ud.style.color = upside >= 0 ? 'var(--positive)' : 'var(--negative)';
+
+  // CMP display
+  document.getElementById('fcCmpPrice').textContent = '₹' + fmtInr(inp.currentPrice);
+
+  // P&L waterfall
+  document.getElementById('fcWfRevenue').textContent = '₹' + fmtInr(base.annualRev) + ' Cr';
+  document.getElementById('fcWfOpex').textContent = '(₹' + fmtInr(inp.opex) + ' Cr)';
+  document.getElementById('fcWfEbitda').textContent = '₹' + fmtInr(base.ebitda) + ' Cr';
+  document.getElementById('fcWfOther').textContent = '₹' + fmtInr(inp.otherIncome) + ' Cr';
+  document.getElementById('fcWfPbt').textContent = '₹' + fmtInr(base.pbt) + ' Cr';
+  document.getElementById('fcWfTax').textContent = '(₹' + fmtInr(base.tax) + ' Cr)';
+  document.getElementById('fcWfTaxLabel').textContent = inp.taxRate.toFixed(2);
+  document.getElementById('fcWfPat').textContent = '₹' + fmtInr(base.pat) + ' Cr';
+  document.getElementById('fcWfEps').textContent = '₹' + base.eps.toFixed(2);
+  document.getElementById('fcWfSharesLabel').textContent = inp.shares.toFixed(1);
+  document.getElementById('fcWfPrice').textContent = '₹' + fmtInr(base.price);
+
+  // Scenarios
+  const bearRevPct = parseFloat(document.getElementById('scBearRevPct').value) || -15;
+  const bearPePct  = parseFloat(document.getElementById('scBearPePct').value) || -10;
+  const bullRevPct = parseFloat(document.getElementById('scBullRevPct').value) || 15;
+  const bullPePct  = parseFloat(document.getElementById('scBullPePct').value) || 10;
+
+  const bear = calcModel(inp.dailyRev * (1 + bearRevPct/100), inp.pe * (1 + bearPePct/100), inp);
+  const bull = calcModel(inp.dailyRev * (1 + bullRevPct/100), inp.pe * (1 + bullPePct/100), inp);
+
+  renderScenario('Bear', bear, inp.dailyRev * (1 + bearRevPct/100), inp.pe * (1 + bearPePct/100), inp.currentPrice);
+  renderScenario('Base', base, inp.dailyRev, inp.pe, inp.currentPrice);
+  renderScenario('Bull', bull, inp.dailyRev * (1 + bullRevPct/100), inp.pe * (1 + bullPePct/100), inp.currentPrice);
+}
+
+function renderScenario(name, m, dailyRev, pe, cmp) {
+  const id = 'sc' + name;
+  document.getElementById(id + 'Price').textContent = '₹' + fmtInr(m.price);
+  const delta = ((m.price / cmp - 1) * 100);
+  document.getElementById(id + 'Delta').textContent = `${delta >= 0 ? '+' : ''}${delta.toFixed(1)}% vs CMP`;
+  document.getElementById(id + 'Rev').textContent = '₹' + dailyRev.toFixed(2) + ' Cr/d';
+  document.getElementById(id + 'Annual').textContent = '₹' + fmtInr(m.annualRev) + ' Cr';
+  document.getElementById(id + 'Pe').textContent = pe.toFixed(1) + 'x';
+  document.getElementById(id + 'Eps').textContent = '₹' + m.eps.toFixed(2);
+  document.getElementById(id + 'Pat').textContent = '₹' + fmtInr(m.pat) + ' Cr';
+}
+
+// Slider <-> Input sync
+function syncSlider(sliderId, inputId) {
+  const slider = document.getElementById(sliderId);
+  const input = document.getElementById(inputId);
+  slider.addEventListener('input', () => { input.value = slider.value; recalcForecast(); });
+  input.addEventListener('input', () => {
+    if (parseFloat(input.value) >= parseFloat(slider.min) && parseFloat(input.value) <= parseFloat(slider.max))
+      slider.value = input.value;
+    recalcForecast();
+  });
+}
+syncSlider('fcRevSlider', 'fcRevInput');
+syncSlider('fcPeSlider', 'fcPeInput');
+
+// Advanced inputs + scenario adjustments trigger recalc
+['fcAdvOpex','fcAdvOther','fcAdvTax','fcAdvShares','fcAdvDays','fcAdvCMP',
+ 'scBearRevPct','scBearPePct','scBullRevPct','scBullPePct'].forEach(id => {
+  document.getElementById(id).addEventListener('input', recalcForecast);
+});
+
+// Seed forecast default daily rev from API when available
+function seedForecastFromAPI(totalRev) {
+  if (totalRev > 0) {
+    document.getElementById('fcRevSlider').value = totalRev.toFixed(2);
+    document.getElementById('fcRevInput').value = totalRev.toFixed(2);
+  }
+}
+
+// URL cookie sync
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  const urlCookie = params.get('cookie');
+  if (urlCookie) {
+    localStorage.setItem('mcxCookie', urlCookie);
+    window.history.replaceState({}, '', window.location.pathname);
+    setTimeout(() => doRefresh(), 1200);
+  }
+  // Render intraday chart immediately (static data, no API needed)
+  renderIntradayChart();
+})();
+</script>
+</body>
+</html>

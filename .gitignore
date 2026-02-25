@@ -1,0 +1,9 @@
+.vercel
+__pycache__/
+*.pyc
+.~lock.*
+~$*
+node_modules/
+.env
+*.xlsx
+*.pdf
