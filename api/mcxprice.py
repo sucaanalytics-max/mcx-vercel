@@ -17,7 +17,7 @@ except ImportError:
     )
 
 INDIANAPI_KEY = os.environ.get("INDIANAPI_KEY", "")
-INDIANAPI_URL = "https://stock.indianapi.in/stock?name=Multi%20Commodity%20Exchange%20of%20India"
+INDIANAPI_URL = "https://stock.indianapi.in/stock?name=MCX"
 YAHOO_URL = "https://query1.finance.yahoo.com/v8/finance/chart/MCX.NS?range=1d&interval=1d"
 
 CACHE_TTL_MINUTES = 5
@@ -37,30 +37,27 @@ def _fetch_indianapi():
     })
     with urllib.request.urlopen(req, timeout=8) as resp:
         data = json.loads(resp.read().decode("utf-8"))
-    # Parse response — try multiple possible field names
+    # Parse response: { currentPrice: { BSE: "2448", NSE: "2446.30" }, percentChange: 2.17 }
     price = None
     change_pct = None
     if isinstance(data, dict):
-        # Direct fields
-        for key in ("currentPrice", "current_price", "price", "lastPrice", "last_price"):
-            if key in data and data[key] is not None:
-                price = float(data[key])
-                break
-        # Nested under "data"
-        if price is None and "data" in data and isinstance(data["data"], dict):
-            inner = data["data"]
-            for key in ("currentPrice", "current_price", "price", "lastPrice"):
-                if key in inner and inner[key] is not None:
-                    price = float(inner[key])
-                    break
+        cp = data.get("currentPrice")
+        if isinstance(cp, dict):
+            # Prefer NSE price, fallback to BSE
+            nse = cp.get("NSE") or cp.get("nse")
+            bse = cp.get("BSE") or cp.get("bse")
+            raw = nse or bse
+            if raw is not None:
+                price = float(str(raw).replace(",", ""))
+        elif cp is not None:
+            price = float(str(cp).replace(",", ""))
         # Change percent
-        for key in ("percentChange", "percent_change", "change_percent", "pChange"):
-            if key in data and data[key] is not None:
-                try:
-                    change_pct = float(data[key])
-                except (ValueError, TypeError):
-                    pass
-                break
+        pct = data.get("percentChange")
+        if pct is not None:
+            try:
+                change_pct = float(pct)
+            except (ValueError, TypeError):
+                pass
     if price is None:
         raise ValueError(f"Could not parse indianapi response: {json.dumps(data)[:400]}")
     return price, change_pct, "indianapi"
