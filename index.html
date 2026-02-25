@@ -890,7 +890,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
         <tr><td colspan="5" style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);background:var(--surface2);padding:4px 10px">Volume Assumptions (₹ Cr/day)</td></tr>
         <tr><td>Futures ADT</td><td class="num muted">~₹65K</td><td class="num accent">₹80,000</td><td class="num">₹1,00,000</td><td class="num">₹1,20,000</td></tr>
         <tr><td>Options Premium ADT</td><td class="num muted">~₹2.5K</td><td class="num accent">₹6,000</td><td class="num">₹8,500</td><td class="num">₹11,000</td></tr>
-        <tr><td colspan="5" style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);background:var(--surface2);padding:4px 10px">Revenue (₹ Crore · 252 days)</td></tr>
+        <tr><td colspan="5" style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);background:var(--surface2);padding:4px 10px">Revenue (₹ Crore · 250 days)</td></tr>
         <tr><td>Futures TX Revenue</td><td class="num">₹730</td><td class="num accent">₹847</td><td class="num">₹1,058</td><td class="num">₹1,270</td></tr>
         <tr><td>Options TX Revenue</td><td class="num">₹285</td><td class="num accent">₹1,264</td><td class="num">₹1,791</td><td class="num">₹2,317</td></tr>
         <tr><td>Other Income</td><td class="num">₹98</td><td class="num accent">₹126</td><td class="num">₹160</td><td class="num">₹200</td></tr>
@@ -899,8 +899,8 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
     </table>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:12px">
       Day-type multipliers (361d bhav-calibrated): HIGH ×1.15 · MEDIUM ×1.05 · EXPIRY ×1.00 · LOW ×1.00<br>
-      Tax rate: 25.00% · Trading days: 252 · P/E base: 50x (bear 42x / bull 58x) · OpEx: ₹1,960 Cr all-in<br>
-      Revenue model: SEBI Oct 2024 fee schedule. Expense ratios from MCX quarterly filings. Validated against Tusk internal Excel model.
+      Tax rate: 25.00% · Trading days: 250 · P/E base: 50x (bear 42x / bull 58x) · OpEx: ₹850 Cr (audit-validated)<br>
+      Revenue model: SEBI Oct 2024 fee schedule. OpEx derived from MCX Q1-Q3 FY26 quarterly filings (expense ratio ~25-28% at run-rate revenue).
     </div>
   </div>
 </div>
@@ -916,7 +916,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 <div class="fc-hero-row">
   <div class="fc-hero-card">
     <h3>Current Market</h3>
-    <div class="fc-hero-price" style="color:var(--text)" id="fcCmpPrice">₹2,644</div>
+    <div class="fc-hero-price" style="color:var(--text)" id="fcCmpPrice">₹2,447</div>
     <div class="fc-hero-sub">
       EPS (TTM): ₹36.75 · PE: 65.2x · MCap: ₹61,090 Cr
     </div>
@@ -1038,7 +1038,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
       <div>
         <div class="fc-label">Operating Costs (₹ Cr/yr)</div>
         <div class="fc-tooltip">Staff + tech + regulatory + admin</div>
-        <input type="number" class="fc-num-input" id="fcAdvOpex" value="1960" step="10" style="width:100%;margin-top:6px">
+        <input type="number" class="fc-num-input" id="fcAdvOpex" value="850" step="10" style="width:100%;margin-top:6px">
       </div>
       <div>
         <div class="fc-label">Other Income (₹ Cr/yr)</div>
@@ -1058,12 +1058,12 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
       <div>
         <div class="fc-label">Trading Days / Year</div>
         <div class="fc-tooltip">MCX active trading days</div>
-        <input type="number" class="fc-num-input" id="fcAdvDays" value="252" step="1" style="width:100%;margin-top:6px">
+        <input type="number" class="fc-num-input" id="fcAdvDays" value="250" step="1" style="width:100%;margin-top:6px">
       </div>
       <div>
         <div class="fc-label">Current Share Price (₹)</div>
         <div class="fc-tooltip">For upside/downside calculation</div>
-        <input type="number" class="fc-num-input" id="fcAdvCMP" value="2644" step="1" style="width:100%;margin-top:6px">
+        <input type="number" class="fc-num-input" id="fcAdvCMP" value="2447" step="1" style="width:100%;margin-top:6px">
       </div>
     </div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:12px">
@@ -1546,8 +1546,8 @@ function switchTab(tabId) {
 //  Uses same fee schedule as Daily Predictor (mcx_config.py)
 // ════════════════════════════════════════════════════════════════════════════
 const FC = {
-  dailyRev: 13.35, pe: 50, opex: 1960, otherIncome: 126,
-  taxRate: 25.00, shares: 25.5, tradingDays: 252, currentPrice: 2644
+  dailyRev: 13.35, pe: 50, opex: 850, otherIncome: 126,
+  taxRate: 25.00, shares: 25.5, tradingDays: 250, currentPrice: 2447
 };
 
 function getFcInputs() {
