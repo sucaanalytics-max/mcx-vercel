@@ -159,10 +159,10 @@ def _fetch_supabase_history():
 
 def generate_history_45d():
     """
-    45-day rolling history with 4-tier data quality:
-      1. BHAV_MCXPY  — live from MCX via mcxpy (gold standard)
-      2. BHAV_MANUAL — hardcoded verified actuals from config
-      3. SUPABASE    — cached in Supabase from local relay
+    45-day rolling history with 5-tier data quality:
+      1. SUPABASE    — refreshed daily by bhav_refresh.py cron (gold standard)
+      2. BHAV_MCXPY  — live from MCX via mcxpy (fallback on Vercel)
+      3. BHAV_MANUAL — hardcoded verified actuals from config (legacy)
       4. COMMODITY   — Alpha Vantage volatility-based estimate
       5. SYNTHETIC   — deterministic random fallback
     """
@@ -230,17 +230,17 @@ def generate_history_45d():
             })
             continue
 
-        # Tier 2: Hardcoded manual bhav actuals
-        if date_str in BHAV_MANUAL:
+        # Tier 1: Supabase (refreshed by bhav_refresh.py cron — gold standard)
+        if date_str in supabase_cache:
             history.append({
                 "date": date_str, "label": td.strftime("%a %d %b"),
-                "adr": BHAV_MANUAL[date_str], "is_actual": True, "is_today": False,
-                "source": "bhav_manual",
+                "adr": supabase_cache[date_str], "is_actual": True, "is_today": False,
+                "source": "supabase",
             })
-            bhav_manual_used += 1
+            supabase_used += 1
             continue
 
-        # Tier 1: mcxpy bhav copy
+        # Tier 2: mcxpy bhav copy (live fetch, rare on Vercel)
         if date_str in bhav_mcxpy:
             rev = bhav_mcxpy[date_str]
             history.append({
@@ -265,14 +265,14 @@ def generate_history_45d():
                     pass
             continue
 
-        # Tier 2.5: Supabase cached
-        if date_str in supabase_cache:
+        # Tier 3: Hardcoded manual bhav actuals (legacy fallback)
+        if date_str in BHAV_MANUAL:
             history.append({
                 "date": date_str, "label": td.strftime("%a %d %b"),
-                "adr": supabase_cache[date_str], "is_actual": True, "is_today": False,
-                "source": "supabase_cache",
+                "adr": BHAV_MANUAL[date_str], "is_actual": True, "is_today": False,
+                "source": "bhav_manual",
             })
-            supabase_used += 1
+            bhav_manual_used += 1
             continue
 
         # Determine base revenue for estimation tiers
