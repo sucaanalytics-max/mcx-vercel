@@ -11,7 +11,7 @@ from collections import defaultdict
 FUTURES_RATE = 210.0        # ₹ per crore, both sides
 OPTIONS_RATE = 4180.0       # ₹ per crore of premium, both sides
 NONTX_DAILY  = float(os.environ.get("MCX_NONTX_DAILY", "0.95"))  # F-03: configurable
-TRADING_DAYS = int(os.environ.get("MCX_TRADING_DAYS", "250"))      # F-04: MCX actual calendar (~261 weekdays - 16 holidays)
+TRADING_DAYS = int(os.environ.get("MCX_TRADING_DAYS", "252"))      # F-04: MCX actual calendar (Excel uses 254)
 
 # ─── Alpha Vantage (F-07: from env var, not hardcoded) ───────────────────────
 AV_KEY = os.environ.get("ALPHA_VANTAGE_KEY", "")

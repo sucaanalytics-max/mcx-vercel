@@ -890,7 +890,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
         <tr><td colspan="5" style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);background:var(--surface2);padding:4px 10px">Volume Assumptions (₹ Cr/day)</td></tr>
         <tr><td>Futures ADT</td><td class="num muted">~₹65K</td><td class="num accent">₹80,000</td><td class="num">₹1,00,000</td><td class="num">₹1,20,000</td></tr>
         <tr><td>Options Premium ADT</td><td class="num muted">~₹2.5K</td><td class="num accent">₹6,000</td><td class="num">₹8,500</td><td class="num">₹11,000</td></tr>
-        <tr><td colspan="5" style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);background:var(--surface2);padding:4px 10px">Revenue (₹ Crore · 250 days)</td></tr>
+        <tr><td colspan="5" style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);background:var(--surface2);padding:4px 10px">Revenue (₹ Crore · 252 days)</td></tr>
         <tr><td>Futures TX Revenue</td><td class="num">₹730</td><td class="num accent">₹847</td><td class="num">₹1,058</td><td class="num">₹1,270</td></tr>
         <tr><td>Options TX Revenue</td><td class="num">₹285</td><td class="num accent">₹1,264</td><td class="num">₹1,791</td><td class="num">₹2,317</td></tr>
         <tr><td>Other Income</td><td class="num">₹98</td><td class="num accent">₹126</td><td class="num">₹160</td><td class="num">₹200</td></tr>
@@ -898,9 +898,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
       </tbody>
     </table>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:12px">
-      Day-type multipliers (361d bhav-calibrated): HIGH ×1.15 · MEDIUM ×1.05 · EXPIRY ×1.00 · LOW ×1.00<br>
-      Tax rate: 25.00% · Trading days: 250 · P/E base: 50x (bear 42x / bull 58x) · OpEx: ₹850 Cr (audit-validated)<br>
-      Revenue model: SEBI Oct 2024 fee schedule. OpEx derived from MCX Q1-Q3 FY26 quarterly filings (expense ratio ~25-28% at run-rate revenue).
+      Day-type multipliers (45d bhav-calibrated): HIGH ×1.34 · MEDIUM ×1.09 · EXPIRY ×1.00 · LOW ×1.20
     </div>
   </div>
 </div>
@@ -916,7 +914,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 <div class="fc-hero-row">
   <div class="fc-hero-card">
     <h3>Current Market</h3>
-    <div class="fc-hero-price" style="color:var(--text)" id="fcCmpPrice">₹2,447</div>
+    <div class="fc-hero-price" style="color:var(--text)" id="fcCmpPrice">₹2,396</div>
     <div class="fc-hero-sub">
       EPS (TTM): ₹36.75 · PE: 65.2x · MCap: ₹61,090 Cr
     </div>
@@ -936,8 +934,8 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
       <div class="fc-label">Daily Revenue (₹ Cr)</div>
       <div class="fc-tooltip">Average daily exchange revenue. Drives annualized topline.</div>
       <div class="fc-slider-row">
-        <input type="range" class="fc-slider" id="fcRevSlider" min="2" max="35" step="0.1" value="13.35">
-        <input type="number" class="fc-num-input" id="fcRevInput" value="13.35" step="0.1" min="0">
+        <input type="range" class="fc-slider" id="fcRevSlider" min="2" max="35" step="0.1" value="13.85">
+        <input type="number" class="fc-num-input" id="fcRevInput" value="13.85" step="0.1" min="0">
       </div>
       <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--text-secondary);margin-top:2px">
         <span>₹2</span>
@@ -949,8 +947,8 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
       <div class="fc-label">P/E Ratio</div>
       <div class="fc-tooltip">Price-to-Earnings multiple applied to FY26E EPS.</div>
       <div class="fc-slider-row">
-        <input type="range" class="fc-slider" id="fcPeSlider" min="15" max="120" step="0.5" value="50">
-        <input type="number" class="fc-num-input" id="fcPeInput" value="50" step="0.5" min="1">
+        <input type="range" class="fc-slider" id="fcPeSlider" min="15" max="120" step="0.5" value="42">
+        <input type="number" class="fc-num-input" id="fcPeInput" value="42" step="0.5" min="1">
       </div>
       <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--text-secondary);margin-top:2px">
         <span>15x</span>
@@ -990,10 +988,10 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
     <div class="scenario-kv"><span class="scenario-kv-key">PAT</span><span class="scenario-kv-val" id="scBearPat">—</span></div>
     <div class="sc-adjust">
       <span class="sc-adjust-label">Rev</span>
-      <input type="number" class="sc-adjust-input" id="scBearRevPct" value="-16" step="1">
+      <input type="number" class="sc-adjust-input" id="scBearRevPct" value="-15" step="1">
       <span class="sc-adjust-label">%</span>
       <span class="sc-adjust-label" style="margin-left:4px">PE</span>
-      <input type="number" class="sc-adjust-input" id="scBearPePct" value="-16" step="1">
+      <input type="number" class="sc-adjust-input" id="scBearPePct" value="-10" step="1">
       <span class="sc-adjust-label">%</span>
     </div>
   </div>
@@ -1018,10 +1016,10 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
     <div class="scenario-kv"><span class="scenario-kv-key">PAT</span><span class="scenario-kv-val" id="scBullPat">—</span></div>
     <div class="sc-adjust">
       <span class="sc-adjust-label">Rev</span>
-      <input type="number" class="sc-adjust-input" id="scBullRevPct" value="16" step="1">
+      <input type="number" class="sc-adjust-input" id="scBullRevPct" value="15" step="1">
       <span class="sc-adjust-label">%</span>
       <span class="sc-adjust-label" style="margin-left:4px">PE</span>
-      <input type="number" class="sc-adjust-input" id="scBullPePct" value="16" step="1">
+      <input type="number" class="sc-adjust-input" id="scBullPePct" value="10" step="1">
       <span class="sc-adjust-label">%</span>
     </div>
   </div>
@@ -1038,7 +1036,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
       <div>
         <div class="fc-label">Operating Costs (₹ Cr/yr)</div>
         <div class="fc-tooltip">Staff + tech + regulatory + admin</div>
-        <input type="number" class="fc-num-input" id="fcAdvOpex" value="850" step="10" style="width:100%;margin-top:6px">
+        <input type="number" class="fc-num-input" id="fcAdvOpex" value="700" step="10" style="width:100%;margin-top:6px">
       </div>
       <div>
         <div class="fc-label">Other Income (₹ Cr/yr)</div>
@@ -1048,7 +1046,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
       <div>
         <div class="fc-label">Tax Rate (%)</div>
         <div class="fc-tooltip">Effective corporate tax rate</div>
-        <input type="number" class="fc-num-input" id="fcAdvTax" value="25.00" step="0.01" style="width:100%;margin-top:6px">
+        <input type="number" class="fc-num-input" id="fcAdvTax" value="20.30" step="0.01" style="width:100%;margin-top:6px">
       </div>
       <div>
         <div class="fc-label">Shares Outstanding (Cr)</div>
@@ -1063,7 +1061,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
       <div>
         <div class="fc-label">Current Share Price (₹)</div>
         <div class="fc-tooltip">For upside/downside calculation</div>
-        <input type="number" class="fc-num-input" id="fcAdvCMP" value="2447" step="1" style="width:100%;margin-top:6px">
+        <input type="number" class="fc-num-input" id="fcAdvCMP" value="2396" step="1" style="width:100%;margin-top:6px">
       </div>
     </div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:12px">
@@ -1546,8 +1544,8 @@ function switchTab(tabId) {
 //  Uses same fee schedule as Daily Predictor (mcx_config.py)
 // ════════════════════════════════════════════════════════════════════════════
 const FC = {
-  dailyRev: 13.35, pe: 50, opex: 850, otherIncome: 126,
-  taxRate: 25.00, shares: 25.5, tradingDays: 250, currentPrice: 2447
+  dailyRev: 13.85, pe: 42, opex: 700, otherIncome: 126,
+  taxRate: 20.30, shares: 25.5, tradingDays: 250, currentPrice: 2406
 };
 
 function getFcInputs() {
@@ -1610,10 +1608,10 @@ function recalcForecast() {
   document.getElementById('fcWfPrice').textContent = '₹' + fmtInr(base.price);
 
   // Scenarios
-  const bearRevPct = parseFloat(document.getElementById('scBearRevPct').value) || -16;
-  const bearPePct  = parseFloat(document.getElementById('scBearPePct').value) || -16;
-  const bullRevPct = parseFloat(document.getElementById('scBullRevPct').value) || 16;
-  const bullPePct  = parseFloat(document.getElementById('scBullPePct').value) || 16;
+  const bearRevPct = parseFloat(document.getElementById('scBearRevPct').value) || -15;
+  const bearPePct  = parseFloat(document.getElementById('scBearPePct').value) || -10;
+  const bullRevPct = parseFloat(document.getElementById('scBullRevPct').value) || 15;
+  const bullPePct  = parseFloat(document.getElementById('scBullPePct').value) || 10;
 
   const bear = calcModel(inp.dailyRev * (1 + bearRevPct/100), inp.pe * (1 + bearPePct/100), inp);
   const bull = calcModel(inp.dailyRev * (1 + bullRevPct/100), inp.pe * (1 + bullPePct/100), inp);
