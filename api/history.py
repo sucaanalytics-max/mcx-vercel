@@ -130,7 +130,7 @@ def _fetch_bhav_revenues(trading_days):
             bhav = mcx.mcx_bhavcopy(ds_api)
             if bhav is not None and len(bhav) > 1000:
                 rev = _compute_bhav_revenue(bhav)
-                if 3.0 < rev < 25.0:
+                if 1.0 < rev < 50.0:
                     results[ds_iso] = rev
                     diag.append(f"{ds_iso}: OK rev={rev}")
                 else:
@@ -208,8 +208,8 @@ def generate_history_45d():
             ng_chg  = abs(p_now.get("ng", 0) / p_prev.get("ng", 1) - 1) if p_prev.get("ng") else 0
             price_changes[d_now] = wti_chg * 0.6 + ng_chg * 0.4
 
-    Q4_BASELINE = 13.35  # Q4 FY26: Excel TX last-50d (12.40) + nonTX (0.95) = 13.35 (Exchanges Dashboard audit)
-    Q3_BASELINE = 10.25  # Q3 FY26: Jul – Sep 2025
+    Q4_BASELINE = 12.40  # Q4 FY26: Excel TX last-50d (Exchanges Dashboard audit). Non-TX removed.
+    Q3_BASELINE =  9.30  # Q3 FY26: Jul – Sep 2025 (was 10.25 incl 0.95 non-TX)
     q3_end = datetime(2025, 9, 30)  # Q3 ends Sep 30; Oct+ uses Q4
 
     history = []
@@ -219,8 +219,13 @@ def generate_history_45d():
     commodity_used = 0
     synthetic_used = 0
 
+    # ── Pass 1: Collect all actual data (tiers 1-3) ──────────────────────
+    # Deferred indices track days that need synthetic/commodity estimation
+    deferred_indices = []
+
     for td in trading_days:
         date_str = td.strftime("%Y-%m-%d")
+        idx = len(history)
 
         if td == today:
             history.append({
@@ -275,37 +280,54 @@ def generate_history_45d():
             bhav_manual_used += 1
             continue
 
-        # Determine base revenue for estimation tiers
-        base = Q3_BASELINE if td <= q3_end else Q4_BASELINE
-        dtype = get_day_type(td)
-        base *= DAY_MULTIPLIER.get(dtype, 0.91)
+        # No actual data — placeholder; will be filled in pass 2
+        history.append({
+            "date": date_str, "label": td.strftime("%a %d %b"),
+            "adr": None, "is_actual": False, "is_today": False,
+            "source": "deferred",
+        })
+        deferred_indices.append(idx)
 
-        # Tier 3: Commodity-derived
+    # ── Dynamic trailing ADR from actuals (self-correcting baseline) ─────
+    actuals = [h["adr"] for h in history if h.get("is_actual") and h["adr"] is not None]
+    if len(actuals) >= 10:
+        dynamic_baseline = round(sum(actuals[-10:]) / len(actuals[-10:]), 2)
+    elif actuals:
+        dynamic_baseline = round(sum(actuals) / len(actuals), 2)
+    else:
+        dynamic_baseline = Q4_BASELINE  # Fall back to static if no actuals
+
+    # ── Pass 2: Fill deferred days with commodity-derived or synthetic ────
+    for idx in deferred_indices:
+        entry = history[idx]
+        date_str = entry["date"]
+        td = datetime.strptime(date_str, "%Y-%m-%d")
+
+        # Use dynamic baseline instead of stale quarterly constant
+        base = dynamic_baseline
+        dtype = get_day_type(td)
+        base *= DAY_MULTIPLIER.get(dtype, 1.00)
+
+        # Tier 4: Commodity-derived
         if date_str in price_changes:
             chg = price_changes[date_str]
             vol_factor = math.sqrt(max(chg, 0.001) / 0.010)
             vol_factor = max(0.85, min(1.25, vol_factor))
             noise = rng.uniform(-0.03, 0.03)
             adr = round(base * vol_factor * (1 + noise), 2)
-            adr = max(5.5, min(18.0, adr))
+            adr = max(3.0, min(35.0, adr))
             commodity_used += 1
-            history.append({
-                "date": date_str, "label": td.strftime("%a %d %b"),
-                "adr": adr, "is_actual": False, "is_today": False,
-                "source": "commodity_derived",
-            })
+            entry["adr"] = adr
+            entry["source"] = "commodity_derived"
             continue
 
-        # Tier 4: Synthetic fallback
+        # Tier 5: Synthetic fallback
         noise = rng.uniform(-0.08, 0.08)
         adr = round(base * (1 + noise), 2)
-        adr = max(5.5, min(18.0, adr))
+        adr = max(3.0, min(35.0, adr))
         synthetic_used += 1
-        history.append({
-            "date": date_str, "label": td.strftime("%a %d %b"),
-            "adr": adr, "is_actual": False, "is_today": False,
-            "source": "synthetic",
-        })
+        entry["adr"] = adr
+        entry["source"] = "synthetic"
 
     valid = [h["adr"] for h in history if h["adr"] is not None]
     ma_45 = round(sum(valid) / len(valid), 2) if valid else 0.0
