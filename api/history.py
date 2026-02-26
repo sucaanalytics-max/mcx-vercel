@@ -144,15 +144,22 @@ def _fetch_bhav_revenues(trading_days):
 
 
 def _fetch_supabase_history():
-    """Fetch cached daily revenue from Supabase (F-08)."""
+    """Fetch cached daily revenue from Supabase (F-08).
+    Returns dict: {date_str: {"rev": total_rev_cr, "source": source_tag}}"""
     if not SUPABASE_ANON_KEY:
         return {}
     try:
         rows = supabase_read(
             "mcx_daily_revenue",
-            "?order=trading_date.desc&limit=60"
+            "?select=trading_date,total_rev_cr,source&order=trading_date.desc&limit=60"
         )
-        return {r["trading_date"]: r["total_rev_cr"] for r in rows if r.get("total_rev_cr")}
+        return {
+            r["trading_date"]: {
+                "rev": r["total_rev_cr"],
+                "source": r.get("source", "unknown"),
+            }
+            for r in rows if r.get("total_rev_cr")
+        }
     except Exception:
         return {}
 
@@ -235,12 +242,13 @@ def generate_history_45d():
             })
             continue
 
-        # Tier 1: Supabase (refreshed by bhav_refresh.py cron — gold standard)
+        # Tier 1: Supabase (refreshed by bhav_refresh.py or relay EOD — gold standard)
         if date_str in supabase_cache:
+            sc = supabase_cache[date_str]
             history.append({
                 "date": date_str, "label": td.strftime("%a %d %b"),
-                "adr": supabase_cache[date_str], "is_actual": True, "is_today": False,
-                "source": "supabase",
+                "adr": sc["rev"], "is_actual": True, "is_today": False,
+                "source": sc.get("source", "supabase"),
             })
             supabase_used += 1
             continue
@@ -336,6 +344,12 @@ def generate_history_45d():
     real_cnt = bhav_total + commodity_used
     total_cnt = max(len(history), 1)
 
+    # Break down Supabase sources for quality tracking
+    relay_eod_cnt = sum(1 for h in history if h.get("source") == "mcx_relay_eod")
+    excel_cal_cnt = sum(1 for h in history if h.get("source") == "excel_calibrated")
+    bhav_proxy_cnt = sum(1 for h in history if h.get("source") in ("bhav_proxy", "bhav_mcxpy"))
+    official_cnt = relay_eod_cnt + excel_cal_cnt
+
     return {
         "history": history,
         "ma_45": ma_45,
@@ -350,6 +364,10 @@ def generate_history_45d():
             "synthetic": synthetic_used,
             "total": len(history),
             "real_pct": round(real_cnt / total_cnt * 100, 1),
+            "relay_eod": relay_eod_cnt,
+            "excel_calibrated": excel_cal_cnt,
+            "bhav_proxy": bhav_proxy_cnt,
+            "official_pct": round(official_cnt / total_cnt * 100, 1),
             "mcxpy_available": HAS_MCXPY,
             "mcxpy_note": (
                 "MCX blocks cloud IPs; mcxpy works locally. Use local relay to push bhav data to Supabase."

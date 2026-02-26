@@ -304,8 +304,67 @@ def run_snapshot():
     return True
 
 
+def capture_eod():
+    """Capture final EOD data and upsert to mcx_daily_revenue as authoritative record.
+    Uses MCX API's direct PremiumValue — no proxy approximation needed.
+    This replaces/supersedes BHAV proxy data for the day."""
+    t = now_ist()
+    date_iso = t.strftime("%Y-%m-%d")
+    print(f"\n  ── EOD Capture for {date_iso} ──")
+
+    try:
+        cookie = fetch_cookies()
+        if not cookie:
+            print("  ✗ EOD: Cookie fetch failed")
+            return False
+
+        raw = fetch_market_watch(cookie)
+        # Second call for reliability
+        time.sleep(2)
+        raw2 = fetch_market_watch(cookie)
+
+        fut_n1, opt_n1, opt_p1, futures1, options1 = extract_notionals(raw)
+        fut_n2, opt_n2, opt_p2, _, _ = extract_notionals(raw2)
+        fut_notl = max(fut_n1, fut_n2)
+        opt_prem = max(opt_p1, opt_p2)
+
+        # Compute final revenue (no projection — this IS the final data)
+        fut_rev = 2 * fut_notl * FUTURES_RATE / 1e7
+        opt_rev = 2 * opt_prem * OPTIONS_RATE / 1e7
+        total_rev = fut_rev + opt_rev + NONTX_DAILY
+
+        if total_rev < 1.0 or total_rev > 50.0:
+            print(f"  ⚠ EOD: revenue {total_rev:.4f} out of range, skipping")
+            return False
+
+        eod_record = {
+            "trading_date": date_iso,
+            "fut_notl_cr": round(fut_notl, 2),
+            "opt_prem_cr": round(opt_prem, 2),
+            "fut_rev_cr": round(fut_rev, 4),
+            "opt_rev_cr": round(opt_rev, 4),
+            "nontx_rev_cr": NONTX_DAILY,
+            "total_rev_cr": round(total_rev, 4),
+            "source": "mcx_relay_eod",
+            "is_actual": True,
+            "active_futures": len(futures1),
+            "active_options": len(options1),
+        }
+
+        result = supabase_upsert("mcx_daily_revenue", eod_record)
+        print(f"  ✓ EOD {date_iso}: ₹{total_rev:.4f} Cr "
+              f"(Fut: {fut_rev:.4f} | Opt: {opt_rev:.4f}) "
+              f"→ mcx_daily_revenue [source=mcx_relay_eod]")
+        return True
+
+    except Exception as e:
+        print(f"  ✗ EOD capture error: {e}")
+        return False
+
+
 def run_loop():
-    """Run snapshots every 15 minutes until trading session ends."""
+    """Run snapshots every 15 minutes until trading session ends.
+    After session close, captures authoritative EOD record for mcx_daily_revenue."""
     print(f"MCX Relay — loop mode (every {LOOP_INTERVAL//60} min)")
     print(f"Trading hours: 09:00–23:30 IST")
 
@@ -336,7 +395,9 @@ def run_loop():
         t2 = now_ist()
         current_min2 = t2.hour * 60 + t2.minute
         if current_min2 > SESSION_END + 15:
-            print("Session ended. Final snapshot done.")
+            # Session ended — capture EOD authoritative record
+            print("\nSession ended. Capturing EOD record...")
+            capture_eod()
             break
 
         print(f"  Next snapshot in {LOOP_INTERVAL//60} min...")

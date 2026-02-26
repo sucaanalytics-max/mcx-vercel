@@ -4,6 +4,8 @@ BHAV Daily Revenue Refresh — scheduled task
 Fetches MCX BHAV copy via mcxpy, calculates revenue, upserts to Supabase.
 Run daily after 7:30 PM IST (market close + buffer).
 
+Priority: relay EOD data (direct PremiumValue) > BHAV proxy fallback.
+
 Usage:
   python3 scripts/bhav_refresh.py              # refresh today + missing last 5 days
   python3 scripts/bhav_refresh.py 2026-02-20   # refresh specific date
@@ -45,8 +47,28 @@ def is_trading_day(d):
     return d.weekday() < 5 and d.strftime("%Y-%m-%d") not in MCX_HOLIDAYS
 
 
+def check_relay_eod(date_iso):
+    """Check if relay has already captured EOD data for this date.
+    Returns the row dict if found (source='mcx_relay_eod'), else None."""
+    url = (f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue"
+           f"?trading_date=eq.{date_iso}&source=eq.mcx_relay_eod&limit=1")
+    req = urllib.request.Request(url, headers={
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            rows = json.loads(resp.read().decode())
+            return rows[0] if rows else None
+    except Exception:
+        return None
+
+
 def compute_revenue(bhav_df):
-    """Compute daily revenue from mcxpy BHAV DataFrame."""
+    """Compute daily revenue from mcxpy BHAV DataFrame.
+    NOTE: Options premium uses proxy formula (opt_close/undl_close × Value_Lacs).
+    This introduces ~11% random error vs MCX's actual PremiumValue.
+    Prefer relay EOD data when available."""
     df = bhav_df.copy()
     for col in ["Value(Lacs)", "Volume(Lots)", "Close"]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
@@ -64,7 +86,8 @@ def compute_revenue(bhav_df):
     for _, r in futcom.iterrows():
         underlying[(r["Symbol"], r["Expiry Date"])] = r["Close"]
 
-    # Options premium = (opt_close / underlying_close) × value_lacs
+    # Options premium proxy: (opt_close / underlying_close) × value_lacs
+    # ⚠ This is an approximation — actual PremiumValue from MCX is more accurate
     opt_prem_lacs = 0
     for _, r in optfut.iterrows():
         if r["Close"] <= 0 or r["Value(Lacs)"] <= 0:
@@ -97,14 +120,14 @@ def compute_revenue(bhav_df):
 
 def get_existing_dates():
     """Fetch all dates already in Supabase."""
-    url = f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue?select=trading_date&order=trading_date.desc&limit=200"
+    url = f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue?select=trading_date,source&order=trading_date.desc&limit=200"
     req = urllib.request.Request(url, headers={
         "apikey": SUPABASE_ANON_KEY,
         "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
     })
     with urllib.request.urlopen(req, timeout=10) as resp:
         rows = json.loads(resp.read().decode())
-    return {r["trading_date"] for r in rows}
+    return {r["trading_date"]: r.get("source", "") for r in rows}
 
 
 def upsert_rows(rows):
@@ -122,7 +145,16 @@ def upsert_rows(rows):
 
 
 def fetch_and_compute(date_iso):
-    """Fetch BHAV for one date and compute revenue. Returns dict or None."""
+    """Fetch BHAV for one date and compute revenue.
+    Checks relay EOD first; falls back to BHAV proxy if not available."""
+
+    # Priority 1: Check if relay already captured authoritative EOD data
+    relay = check_relay_eod(date_iso)
+    if relay:
+        print(f"  ✓ {date_iso}: relay EOD found ({relay['total_rev_cr']} Cr) — skipping BHAV")
+        return None  # Already in Supabase with correct data
+
+    # Priority 2: BHAV proxy fallback
     parts = date_iso.split("-")
     mcx_fmt = f"{parts[2]}-{parts[1]}-{parts[0]}"  # DD-MM-YYYY
     try:
@@ -135,8 +167,8 @@ def fetch_and_compute(date_iso):
             return None
         return {
             "trading_date": date_iso,
-            "source": "bhav_mcxpy",
-            "data_source": "bhav_mcxpy_relay",
+            "source": "bhav_proxy",
+            "data_source": "bhav_mcxpy_proxy",
             "is_actual": True,
             **rev,
         }
@@ -173,7 +205,7 @@ def refresh(lookback_days=5, force_dates=None):
         if row:
             rows.append(row)
             print(f"  ✓ {date_iso}: {row['total_rev_cr']} Cr "
-                  f"({row['active_futures']}F/{row['active_options']}O)")
+                  f"({row['active_futures']}F/{row['active_options']}O) [{row['source']}]")
 
     if rows:
         print(f"\nUpserting {len(rows)} rows...")
