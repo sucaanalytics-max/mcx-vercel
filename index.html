@@ -793,7 +793,6 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
         <div style="font-family:var(--mono);font-size:9px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px">Revenue</div>
         <div class="kv"><span class="kv-key">Futures TX <span class="muted" id="snFutFormula"></span></span><span class="kv-val green" id="snFutRev">—</span></div>
         <div class="kv"><span class="kv-key">Options TX <span class="muted" id="snOptFormula"></span></span><span class="kv-val green" id="snOptRev">—</span></div>
-        <div class="kv"><span class="kv-key">Non-TX (daily)</span><span class="kv-val">₹0.95 Cr</span></div>
         <div class="sep"></div>
         <div class="kv"><span class="kv-key" style="font-weight:700;color:var(--text)" id="snTotalLabel">Projected Total</span><span class="kv-val accent" style="font-size:16px" id="snTotalRev">—</span></div>
         <div class="kv"><span class="kv-key">Range (±uncertainty)</span><span class="kv-val yellow" id="snRevRange">—</span></div>
@@ -1331,7 +1330,7 @@ function updateSnapshotFromAPI(d) {
   const futRevVal = 2 * d.proj_fut_cr * 210 / 1e7;
   const optRevVal = 2 * d.proj_opt_cr * 4180 / 1e7;
   const txRev = futRevVal + optRevVal;
-  const totalRev = txRev + 0.95;
+  const totalRev = txRev;
   const isLive = !d.session_closed;
   const tradingDays = d.trading_days || 250;
 

@@ -10,7 +10,7 @@ from collections import defaultdict
 # ─── FEE SCHEDULE (SEBI Oct 2024 flat rate) ──────────────────────────────────
 FUTURES_RATE = 210.0        # ₹ per crore, both sides
 OPTIONS_RATE = 4180.0       # ₹ per crore of premium, both sides
-NONTX_DAILY  = float(os.environ.get("MCX_NONTX_DAILY", "0.95"))  # F-03: configurable
+NONTX_DAILY  = float(os.environ.get("MCX_NONTX_DAILY", "0.00"))  # removed from daily predictor
 TRADING_DAYS = int(os.environ.get("MCX_TRADING_DAYS", "252"))      # F-04: MCX actual calendar (Excel uses 254)
 
 # ─── Alpha Vantage (F-07: from env var, not hardcoded) ───────────────────────
@@ -203,7 +203,7 @@ def get_day_type(dt: datetime) -> str:
 
 
 # ─── BHAV ACTUALS — 45 trading days verified via mcxpy (Feb 25, 2026 audit) ──
-# Revenue = 2 × fut_notl × 210/1e7 + 2 × opt_prem × 4180/1e7 + 0.95 non-TX
+# Revenue = 2 × fut_notl × 210/1e7 + 2 × opt_prem × 4180/1e7
 BHAV_MANUAL = {
     # ── Dec 2025 ──
     "2025-12-22": 12.09,
