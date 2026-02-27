@@ -304,62 +304,167 @@ def run_snapshot():
     return True
 
 
+def fetch_mcx_historical(date_iso):
+    """Fetch daily revenue from MCX Historical Detailed Report API.
+    Returns revenue dict with exact PremiumTurnover, or None on failure.
+    Endpoint: /backpage.aspx/GetHistoricalDataDetails"""
+    date_compact = date_iso.replace("-", "")
+
+    payload = json.dumps({
+        "GroupBy": "D", "Segment": "ALL", "CommodityHead": "ALL",
+        "Commodity": "ALL", "Startdate": date_compact,
+        "EndDate": date_compact, "InstrumentName": "ALL",
+    }).encode()
+
+    url = "https://www.mcxindia.com/backpage.aspx/GetHistoricalDataDetails"
+    hdrs = {
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Content-Type": "application/json; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Origin": "https://www.mcxindia.com",
+        "Referer": "https://www.mcxindia.com/market-data/historical-data",
+    }
+
+    try:
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
+        init_req = urllib.request.Request(
+            "https://www.mcxindia.com/market-data/historical-data",
+            headers={"User-Agent": hdrs["User-Agent"]},
+        )
+        opener.open(init_req, timeout=10)
+
+        req = urllib.request.Request(url, data=payload, method="POST")
+        for k, v in hdrs.items():
+            req.add_header(k, v)
+        with opener.open(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+
+        rows = data.get("d", {}).get("Data")
+        if not rows or len(rows) < 5:
+            return None
+
+        fut_notl_lacs = 0.0
+        opt_prem_lacs = 0.0
+        n_fut = n_opt = 0
+
+        for r in rows:
+            inst = r.get("InstrumentName", "")
+            total_val = float(r.get("TotalValue", 0) or 0)
+            prem_str = str(r.get("PremiumTurnover", "-")).strip()
+
+            if inst in ("FUTCOM", "FUTIDX"):
+                fut_notl_lacs += total_val
+                if total_val > 0:
+                    n_fut += 1
+            elif inst in ("OPTFUT", "OPTIDX"):
+                if prem_str not in ("-", ""):
+                    try:
+                        opt_prem_lacs += float(prem_str)
+                    except ValueError:
+                        pass
+                if total_val > 0:
+                    n_opt += 1
+
+        if fut_notl_lacs <= 0 and opt_prem_lacs <= 0:
+            return None
+
+        fn_cr = fut_notl_lacs / 100
+        op_cr = opt_prem_lacs / 100
+        fut_rev = 2 * fn_cr * FUTURES_RATE / 1e7
+        opt_rev = 2 * op_cr * OPTIONS_RATE / 1e7
+        total = fut_rev + opt_rev + NONTX_DAILY
+
+        return {
+            "fut_notl_cr": round(fn_cr, 2),
+            "opt_prem_cr": round(op_cr, 2),
+            "fut_rev_cr": round(fut_rev, 4),
+            "opt_rev_cr": round(opt_rev, 4),
+            "nontx_rev_cr": NONTX_DAILY,
+            "total_rev_cr": round(total, 4),
+            "active_futures": n_fut,
+            "active_options": n_opt,
+        }
+    except Exception:
+        return None
+
+
 def capture_eod():
     """Capture final EOD data and upsert to mcx_daily_revenue as authoritative record.
-    Uses MCX API's direct PremiumValue — no proxy approximation needed.
+    Priority: market watch API (direct PremiumValue) > historical detailed report.
     This replaces/supersedes BHAV proxy data for the day."""
     t = now_ist()
     date_iso = t.strftime("%Y-%m-%d")
     print(f"\n  ── EOD Capture for {date_iso} ──")
 
+    eod_record = None
+    source_tag = None
+
+    # Priority 1: Market watch API (direct PremiumValue)
     try:
         cookie = fetch_cookies()
-        if not cookie:
-            print("  ✗ EOD: Cookie fetch failed")
-            return False
+        if cookie:
+            raw = fetch_market_watch(cookie)
+            time.sleep(2)
+            raw2 = fetch_market_watch(cookie)
 
-        raw = fetch_market_watch(cookie)
-        # Second call for reliability
-        time.sleep(2)
-        raw2 = fetch_market_watch(cookie)
+            fut_n1, opt_n1, opt_p1, futures1, options1 = extract_notionals(raw)
+            fut_n2, opt_n2, opt_p2, _, _ = extract_notionals(raw2)
+            fut_notl = max(fut_n1, fut_n2)
+            opt_prem = max(opt_p1, opt_p2)
 
-        fut_n1, opt_n1, opt_p1, futures1, options1 = extract_notionals(raw)
-        fut_n2, opt_n2, opt_p2, _, _ = extract_notionals(raw2)
-        fut_notl = max(fut_n1, fut_n2)
-        opt_prem = max(opt_p1, opt_p2)
+            fut_rev = 2 * fut_notl * FUTURES_RATE / 1e7
+            opt_rev = 2 * opt_prem * OPTIONS_RATE / 1e7
+            total_rev = fut_rev + opt_rev + NONTX_DAILY
 
-        # Compute final revenue (no projection — this IS the final data)
-        fut_rev = 2 * fut_notl * FUTURES_RATE / 1e7
-        opt_rev = 2 * opt_prem * OPTIONS_RATE / 1e7
-        total_rev = fut_rev + opt_rev + NONTX_DAILY
-
-        if total_rev < 1.0 or total_rev > 50.0:
-            print(f"  ⚠ EOD: revenue {total_rev:.4f} out of range, skipping")
-            return False
-
-        eod_record = {
-            "trading_date": date_iso,
-            "fut_notl_cr": round(fut_notl, 2),
-            "opt_prem_cr": round(opt_prem, 2),
-            "fut_rev_cr": round(fut_rev, 4),
-            "opt_rev_cr": round(opt_rev, 4),
-            "nontx_rev_cr": NONTX_DAILY,
-            "total_rev_cr": round(total_rev, 4),
-            "source": "mcx_relay_eod",
-            "is_actual": True,
-            "active_futures": len(futures1),
-            "active_options": len(options1),
-        }
-
-        result = supabase_upsert("mcx_daily_revenue", eod_record)
-        print(f"  ✓ EOD {date_iso}: ₹{total_rev:.4f} Cr "
-              f"(Fut: {fut_rev:.4f} | Opt: {opt_rev:.4f}) "
-              f"→ mcx_daily_revenue [source=mcx_relay_eod]")
-        return True
-
+            if 1.0 <= total_rev <= 50.0:
+                eod_record = {
+                    "trading_date": date_iso,
+                    "fut_notl_cr": round(fut_notl, 2),
+                    "opt_prem_cr": round(opt_prem, 2),
+                    "fut_rev_cr": round(fut_rev, 4),
+                    "opt_rev_cr": round(opt_rev, 4),
+                    "nontx_rev_cr": NONTX_DAILY,
+                    "total_rev_cr": round(total_rev, 4),
+                    "source": "mcx_relay_eod",
+                    "is_actual": True,
+                    "active_futures": len(futures1),
+                    "active_options": len(options1),
+                }
+                source_tag = "mcx_relay_eod"
+            else:
+                print(f"  ⚠ Market watch revenue {total_rev:.4f} out of range")
+        else:
+            print("  ⓘ Cookie fetch failed, trying historical API...")
     except Exception as e:
-        print(f"  ✗ EOD capture error: {e}")
+        print(f"  ⓘ Market watch failed ({e}), trying historical API...")
+
+    # Priority 2: MCX Historical Detailed Report (exact PremiumTurnover)
+    if eod_record is None:
+        hist = fetch_mcx_historical(date_iso)
+        if hist and 1.0 <= hist["total_rev_cr"] <= 50.0:
+            eod_record = {
+                "trading_date": date_iso,
+                "source": "mcx_historical",
+                "is_actual": True,
+                **hist,
+            }
+            source_tag = "mcx_historical"
+        else:
+            print("  ✗ Historical API also unavailable")
+
+    if eod_record is None:
+        print(f"  ✗ EOD capture failed for {date_iso} — no source available")
         return False
+
+    result = supabase_upsert("mcx_daily_revenue", eod_record)
+    tr = eod_record["total_rev_cr"]
+    fr = eod_record["fut_rev_cr"]
+    opr = eod_record["opt_rev_cr"]
+    print(f"  ✓ EOD {date_iso}: ₹{tr:.4f} Cr "
+          f"(Fut: {fr:.4f} | Opt: {opr:.4f}) "
+          f"→ mcx_daily_revenue [source={source_tag}]")
+    return True
 
 
 def run_loop():

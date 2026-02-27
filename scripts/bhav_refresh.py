@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """
 BHAV Daily Revenue Refresh — scheduled task
-Fetches MCX BHAV copy via mcxpy, calculates revenue, upserts to Supabase.
+Fetches MCX daily revenue data and upserts to Supabase.
 Run daily after 7:30 PM IST (market close + buffer).
 
-Priority: relay EOD data (direct PremiumValue) > BHAV proxy fallback.
+Priority chain:
+  1. relay EOD data (direct PremiumValue from live API) — authoritative
+  2. MCX Historical Detailed Report (GetHistoricalDataDetails) — exact premium
+  3. BHAV copy proxy (opt_close/undl × value) — ~11% error fallback
 
 Usage:
   python3 scripts/bhav_refresh.py              # refresh today + missing last 5 days
@@ -61,6 +64,104 @@ def check_relay_eod(date_iso):
             rows = json.loads(resp.read().decode())
             return rows[0] if rows else None
     except Exception:
+        return None
+
+
+def fetch_mcx_historical(date_iso):
+    """Fetch daily revenue from MCX Historical Detailed Report API.
+    Returns revenue dict with exact PremiumTurnover (no proxy), or None on failure.
+    Endpoint: /backpage.aspx/GetHistoricalDataDetails
+    NOTE: MCX blocks cloud IPs — this only works from local machines."""
+    date_compact = date_iso.replace("-", "")  # YYYYMMDD
+
+    payload = json.dumps({
+        "GroupBy": "D",
+        "Segment": "ALL",
+        "CommodityHead": "ALL",
+        "Commodity": "ALL",
+        "Startdate": date_compact,
+        "EndDate": date_compact,
+        "InstrumentName": "ALL",
+    }).encode()
+
+    url = "https://www.mcxindia.com/backpage.aspx/GetHistoricalDataDetails"
+    headers_dict = {
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Content-Type": "application/json; charset=UTF-8",
+        "X-Requested-With": "XMLHttpRequest",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Origin": "https://www.mcxindia.com",
+        "Referer": "https://www.mcxindia.com/market-data/historical-data",
+    }
+
+    try:
+        # Get session cookie first
+        init_req = urllib.request.Request(
+            "https://www.mcxindia.com/market-data/historical-data",
+            headers={"User-Agent": headers_dict["User-Agent"]},
+        )
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
+        opener.open(init_req, timeout=10)
+
+        # Fetch detailed report
+        req = urllib.request.Request(url, data=payload, method="POST")
+        for k, v in headers_dict.items():
+            req.add_header(k, v)
+        with opener.open(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+
+        rows = data.get("d", {}).get("Data")
+        if not rows or len(rows) < 5:
+            return None
+
+        # Sum futures notional (FUTCOM + FUTIDX) and options premium (OPTFUT + OPTIDX)
+        fut_notl_lacs = 0.0
+        opt_prem_lacs = 0.0
+        opt_notl_lacs = 0.0
+        n_fut = 0
+        n_opt = 0
+
+        for r in rows:
+            inst = r.get("InstrumentName", "")
+            total_val = float(r.get("TotalValue", 0) or 0)
+            prem_str = str(r.get("PremiumTurnover", "-")).strip()
+
+            if inst in ("FUTCOM", "FUTIDX"):
+                fut_notl_lacs += total_val
+                if total_val > 0:
+                    n_fut += 1
+            elif inst in ("OPTFUT", "OPTIDX"):
+                opt_notl_lacs += total_val
+                if prem_str != "-" and prem_str != "":
+                    try:
+                        opt_prem_lacs += float(prem_str)
+                    except ValueError:
+                        pass
+                if total_val > 0:
+                    n_opt += 1
+
+        if fut_notl_lacs <= 0 and opt_prem_lacs <= 0:
+            return None
+
+        fn_cr = fut_notl_lacs / 100
+        op_cr = opt_prem_lacs / 100
+        fut_rev = 2 * fn_cr * FUTURES_RATE / 1e7
+        opt_rev = 2 * op_cr * OPTIONS_RATE / 1e7
+        total = fut_rev + opt_rev + NONTX_DAILY
+
+        return {
+            "fut_notl_cr": round(fn_cr, 2),
+            "opt_prem_cr": round(op_cr, 2),
+            "fut_rev_cr": round(fut_rev, 4),
+            "opt_rev_cr": round(opt_rev, 4),
+            "nontx_rev_cr": NONTX_DAILY,
+            "total_rev_cr": round(total, 4),
+            "active_futures": n_fut,
+            "active_options": n_opt,
+        }
+
+    except Exception as e:
+        print(f"  ⓘ Historical API unavailable: {e}")
         return None
 
 
@@ -145,16 +246,32 @@ def upsert_rows(rows):
 
 
 def fetch_and_compute(date_iso):
-    """Fetch BHAV for one date and compute revenue.
-    Checks relay EOD first; falls back to BHAV proxy if not available."""
+    """Fetch daily revenue for one date using the priority chain:
+    1. relay EOD (already in Supabase) — skip if found
+    2. MCX Historical Detailed Report — exact premium, no proxy
+    3. BHAV copy proxy — ~11% error fallback"""
 
     # Priority 1: Check if relay already captured authoritative EOD data
     relay = check_relay_eod(date_iso)
     if relay:
-        print(f"  ✓ {date_iso}: relay EOD found ({relay['total_rev_cr']} Cr) — skipping BHAV")
+        print(f"  ✓ {date_iso}: relay EOD found ({relay['total_rev_cr']} Cr) — skipping")
         return None  # Already in Supabase with correct data
 
-    # Priority 2: BHAV proxy fallback
+    # Priority 2: MCX Historical Detailed Report (exact PremiumTurnover)
+    hist = fetch_mcx_historical(date_iso)
+    if hist:
+        if hist["total_rev_cr"] < 1.0 or hist["total_rev_cr"] > 50.0:
+            print(f"  ⚠ {date_iso}: historical API revenue {hist['total_rev_cr']} out of range")
+        else:
+            return {
+                "trading_date": date_iso,
+                "source": "mcx_historical",
+                "data_source": "mcx_historical_detailed",
+                "is_actual": True,
+                **hist,
+            }
+
+    # Priority 3: BHAV copy proxy fallback (~11% error)
     parts = date_iso.split("-")
     mcx_fmt = f"{parts[2]}-{parts[1]}-{parts[0]}"  # DD-MM-YYYY
     try:
@@ -163,7 +280,7 @@ def fetch_and_compute(date_iso):
             return None
         rev = compute_revenue(bhav)
         if rev["total_rev_cr"] < 1.0 or rev["total_rev_cr"] > 50.0:
-            print(f"  ⚠ {date_iso}: revenue {rev['total_rev_cr']} out of range, skipping")
+            print(f"  ⚠ {date_iso}: BHAV proxy revenue {rev['total_rev_cr']} out of range, skipping")
             return None
         return {
             "trading_date": date_iso,
@@ -173,7 +290,7 @@ def fetch_and_compute(date_iso):
             **rev,
         }
     except Exception as e:
-        print(f"  ✗ {date_iso}: {e}")
+        print(f"  ✗ {date_iso}: BHAV fallback failed: {e}")
         return None
 
 

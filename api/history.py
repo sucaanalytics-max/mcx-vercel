@@ -347,8 +347,9 @@ def generate_history_45d():
     # Break down Supabase sources for quality tracking
     relay_eod_cnt = sum(1 for h in history if h.get("source") == "mcx_relay_eod")
     excel_cal_cnt = sum(1 for h in history if h.get("source") == "excel_calibrated")
+    mcx_hist_cnt = sum(1 for h in history if h.get("source") == "mcx_historical")
     bhav_proxy_cnt = sum(1 for h in history if h.get("source") in ("bhav_proxy", "bhav_mcxpy"))
-    official_cnt = relay_eod_cnt + excel_cal_cnt
+    official_cnt = relay_eod_cnt + excel_cal_cnt + mcx_hist_cnt
 
     return {
         "history": history,
@@ -366,6 +367,7 @@ def generate_history_45d():
             "real_pct": round(real_cnt / total_cnt * 100, 1),
             "relay_eod": relay_eod_cnt,
             "excel_calibrated": excel_cal_cnt,
+            "mcx_historical": mcx_hist_cnt,
             "bhav_proxy": bhav_proxy_cnt,
             "official_pct": round(official_cnt / total_cnt * 100, 1),
             "mcxpy_available": HAS_MCXPY,
