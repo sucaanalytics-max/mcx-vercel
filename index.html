@@ -717,6 +717,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   padding: 20px;
   margin-bottom: 20px;
   position: relative;
+  max-height: 340px;
 }
 .val-chart-title {
   font-family: var(--mono);
@@ -1327,7 +1328,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 <!-- ── Fair Value vs Price Chart ──────────────────────────────────────────── -->
 <div class="val-chart-wrap">
   <div class="val-chart-title">Fair Value vs Market Price — 60-Day History</div>
-  <canvas id="valChart" height="260"></canvas>
+  <canvas id="valChart" style="max-height:260px"></canvas>
 </div>
 
 <!-- ── P/E Gauge ──────────────────────────────────────────────────────────── -->
