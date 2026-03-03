@@ -486,9 +486,76 @@ def run_loop():
     print("MCX Relay finished.")
 
 
+def catchup_missing(days=7):
+    """Check last N days for missing revenue data and fill from Historical API.
+    Runs automatically before snapshot to self-heal gaps."""
+    t = now_ist()
+    filled = 0
+    print(f"\n  ── Catch-up: scanning last {days} days for gaps ──")
+
+    for i in range(1, days + 1):  # start at 1 to skip today
+        d = (t - timedelta(days=i)).date()
+        ds = d.strftime("%Y-%m-%d")
+
+        if not is_trading_day(d):
+            continue
+
+        # Check if we already have data for this date
+        url = (f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue"
+               f"?trading_date=eq.{ds}&limit=1")
+        req = urllib.request.Request(url, headers={
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                rows = json.loads(resp.read().decode())
+                if rows:
+                    continue  # Already have data
+        except Exception:
+            continue  # Skip on error, don't block main flow
+
+        # Missing — try Historical API
+        print(f"    Gap found: {ds} — fetching from Historical API...")
+        hist = fetch_mcx_historical(ds)
+        if hist and 0.5 <= hist["total_rev_cr"] <= 50.0:
+            record = {
+                "trading_date": ds,
+                "source": "mcx_historical",
+                "is_actual": True,
+                **hist,
+            }
+            try:
+                supabase_upsert("mcx_daily_revenue", record)
+                print(f"    ✓ {ds}: ₹{hist['total_rev_cr']:.4f} Cr (backfilled)")
+                filled += 1
+            except Exception as e:
+                print(f"    ✗ {ds}: upsert failed — {e}")
+        else:
+            print(f"    · {ds}: no data from Historical API")
+
+        time.sleep(0.5)
+
+    if filled > 0:
+        print(f"  Catch-up done — filled {filled} gaps")
+    else:
+        print(f"  Catch-up done — no gaps found")
+    return filled
+
+
 if __name__ == "__main__":
     if "--loop" in sys.argv:
+        catchup_missing(7)  # Self-heal before starting loop
         run_loop()
+    elif "--catchup" in sys.argv:
+        days = 7
+        for i, arg in enumerate(sys.argv):
+            if arg == "--catchup" and i + 1 < len(sys.argv):
+                try:
+                    days = int(sys.argv[i + 1])
+                except ValueError:
+                    pass
+        catchup_missing(days)
     else:
         try:
             success = run_snapshot()
