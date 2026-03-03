@@ -333,3 +333,12 @@ def supabase_upsert(table, data, timeout=10):
     except urllib.error.HTTPError as e:
         error_body = e.read().decode("utf-8") if e.fp else ""
         raise Exception(f"Supabase upsert {e.code}: {error_body[:200]}")
+
+
+# ─── EPS-PATH VALUATION MODEL (Model A) ────────────────────────────────────
+# Economic chain: 45DMA F&O Rev → Annualized → (+Non-F&O) → PAT → EPS → Fair Value
+PAT_MARGIN           = float(os.environ.get("MCX_PAT_MARGIN", "0.55"))        # 55% PAT margin (Excel Triangulation)
+NON_FO_REV_ANNUAL_CR = float(os.environ.get("MCX_NON_FO_REV", "527.0"))      # FY27 non-F&O revenue (₹ Cr/year)
+DILUTED_SHARES_CR    = float(os.environ.get("MCX_DILUTED_SHARES", "25.451"))  # 254.51M diluted shares
+PE_MEAN_DEFAULT      = float(os.environ.get("MCX_PE_MEAN", "35.95"))          # Dynamic PE mean (328 obs, Nov'24-Mar'26)
+PE_SD_DEFAULT        = float(os.environ.get("MCX_PE_SD", "4.23"))             # Dynamic PE std dev
