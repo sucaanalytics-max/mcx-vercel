@@ -649,7 +649,189 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 @media (max-width: 800px) {
   .scenario-row { grid-template-columns: 1fr; }
   .fc-hero-row { grid-template-columns: 1fr; }
+  .val-hero-grid { grid-template-columns: 1fr !important; }
+  .val-chain-grid { grid-template-columns: 1fr !important; }
 }
+
+/* ═══ VALUATION TAB STYLES ════════════════════════════════════════════════ */
+.val-hero-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.val-hero-card {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  padding: 24px;
+  position: relative;
+}
+.val-hero-card--signal {
+  border-width: 3px;
+}
+.val-hero-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin-bottom: 6px;
+}
+.val-hero-num {
+  font-family: var(--mono);
+  font-size: 42px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -2px;
+}
+.val-hero-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 8px;
+}
+
+/* Signal badge */
+.val-signal {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 800;
+  padding: 4px 12px;
+  border: 2px solid;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 8px;
+}
+.val-signal.DEEP_VALUE { border-color: var(--positive); color: var(--positive); background: color-mix(in srgb, var(--positive) 8%, transparent); }
+.val-signal.UNDERVALUED { border-color: #0958D9; color: #0958D9; background: color-mix(in srgb, #0958D9 8%, transparent); }
+.val-signal.FAIR { border-color: var(--text-secondary); color: var(--text-secondary); background: color-mix(in srgb, var(--text-secondary) 8%, transparent); }
+.val-signal.OVERVALUED { border-color: var(--warning); color: var(--warning); background: color-mix(in srgb, var(--warning) 8%, transparent); }
+.val-signal.STRETCHED { border-color: var(--negative); color: var(--negative); background: color-mix(in srgb, var(--negative) 8%, transparent); }
+
+/* Chart container */
+.val-chart-wrap {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  padding: 20px;
+  margin-bottom: 20px;
+  position: relative;
+}
+.val-chart-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+/* PE Gauge */
+.val-pe-gauge {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+.val-gauge-bar {
+  position: relative;
+  height: 32px;
+  border: 2px solid var(--border-heavy);
+  display: flex;
+  overflow: hidden;
+  margin: 12px 0 8px;
+}
+.val-gauge-zone {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+.val-gauge-zone.z-deep { background: var(--positive); }
+.val-gauge-zone.z-under { background: #0958D9; }
+.val-gauge-zone.z-fair { background: #888; }
+.val-gauge-zone.z-over { background: var(--warning); }
+.val-gauge-zone.z-stretch { background: var(--negative); }
+
+.val-gauge-needle {
+  position: absolute;
+  top: -6px;
+  width: 3px;
+  height: calc(100% + 12px);
+  background: var(--text);
+  z-index: 2;
+  transition: left 0.5s ease;
+}
+.val-gauge-needle::after {
+  content: '▼';
+  position: absolute;
+  top: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: var(--text);
+}
+.val-gauge-labels {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-secondary);
+}
+
+/* EPS Chain */
+.val-chain-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 2px;
+  margin: 12px 0;
+}
+.val-chain-step {
+  background: var(--surface2);
+  padding: 10px;
+  text-align: center;
+  position: relative;
+}
+.val-chain-step::after {
+  content: '→';
+  position: absolute;
+  right: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--text-secondary);
+  z-index: 1;
+}
+.val-chain-step:last-child::after { display: none; }
+.val-chain-key {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.val-chain-val {
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text);
+  margin-top: 2px;
+}
+
+/* Upside/downside coloring */
+.val-upside { color: var(--positive); }
+.val-downside { color: var(--negative); }
 </style>
 </head>
 <body>
@@ -673,6 +855,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 <div class="tab-nav">
   <button class="tab-btn active" data-tab="tabPredictor" onclick="switchTab('tabPredictor')">Daily Predictor</button>
   <button class="tab-btn" data-tab="tabForecast" onclick="switchTab('tabForecast')">Interactive Forecast</button>
+  <button class="tab-btn" data-tab="tabValuation" onclick="switchTab('tabValuation')">Fair Value</button>
 </div>
 
 <!-- ═══ TAB: DAILY PREDICTOR ════════════════════════════════════════════════ -->
@@ -1102,6 +1285,114 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 </div><!-- /wrap -->
 </div><!-- /tabForecast -->
 
+<!-- ═══ TAB: FAIR VALUE (Model A) ══════════════════════════════════════════ -->
+<div id="tabValuation" style="display:none">
+<div class="wrap">
+
+<!-- ── HERO: Price / Fair Value / Signal ──────────────────────────────────── -->
+<div class="val-hero-grid">
+  <div class="val-hero-card">
+    <div class="val-hero-label">Market Price</div>
+    <div class="val-hero-num" id="valPrice">—</div>
+    <div class="val-hero-sub" id="valPriceDate">—</div>
+  </div>
+  <div class="val-hero-card">
+    <div class="val-hero-label">Fair Value (Base)</div>
+    <div class="val-hero-num" id="valFairBase" style="color:var(--accent2)">—</div>
+    <div class="val-hero-sub" id="valFairRange">Bear — · Bull —</div>
+  </div>
+  <div class="val-hero-card val-hero-card--signal">
+    <div class="val-hero-label">Signal</div>
+    <div id="valSignalBadge"></div>
+    <div class="val-hero-sub" id="valUpside">—</div>
+    <div class="val-hero-sub" id="valImpliedPE">Implied P/E: —</div>
+  </div>
+</div>
+
+<!-- ── EPS Chain: Full Transparency ──────────────────────────────────────── -->
+<div class="card" style="margin-bottom:20px;padding:20px">
+  <div class="card-label" style="margin-bottom:8px">EPS-Path Chain — Revenue to Fair Value</div>
+  <div class="val-chain-grid" id="valChainGrid">
+    <div class="val-chain-step"><div class="val-chain-key">45D Avg Rev</div><div class="val-chain-val" id="valC_ma45">—</div></div>
+    <div class="val-chain-step"><div class="val-chain-key">Annual Rev</div><div class="val-chain-val" id="valC_annRev">—</div></div>
+    <div class="val-chain-step"><div class="val-chain-key">PAT (55%)</div><div class="val-chain-val" id="valC_pat">—</div></div>
+    <div class="val-chain-step"><div class="val-chain-key">EPS</div><div class="val-chain-val" id="valC_eps">—</div></div>
+    <div class="val-chain-step"><div class="val-chain-key">Fair Value</div><div class="val-chain-val" id="valC_fv">—</div></div>
+  </div>
+  <div style="font-family:var(--mono);font-size:9px;color:var(--text-secondary);margin-top:6px">
+    45DMA F&O Rev × 252 → Annual F&O → (+₹527 Cr non-F&O) → Total Rev × 55% margin → PAT ÷ 25.45 Cr shares → EPS × P/E → Fair Value
+  </div>
+</div>
+
+<!-- ── Fair Value vs Price Chart ──────────────────────────────────────────── -->
+<div class="val-chart-wrap">
+  <div class="val-chart-title">Fair Value vs Market Price — 60-Day History</div>
+  <canvas id="valChart" height="260"></canvas>
+</div>
+
+<!-- ── P/E Gauge ──────────────────────────────────────────────────────────── -->
+<div class="val-pe-gauge">
+  <div class="val-chart-title">P/E Positioning</div>
+  <div style="font-family:var(--mono);font-size:11px;color:var(--text-secondary);margin-bottom:4px">
+    Dynamic bands: <span id="valPeMeta">mean — · sd —</span>
+  </div>
+  <div class="val-gauge-bar" id="valGaugeBar">
+    <div class="val-gauge-zone z-deep" id="valGZ_deep" style="width:20%">Deep Value</div>
+    <div class="val-gauge-zone z-under" id="valGZ_under" style="width:20%">Undervalued</div>
+    <div class="val-gauge-zone z-fair" id="valGZ_fair" style="width:20%">Fair</div>
+    <div class="val-gauge-zone z-over" id="valGZ_over" style="width:20%">Overvalued</div>
+    <div class="val-gauge-zone z-stretch" id="valGZ_stretch" style="width:20%">Stretched</div>
+    <div class="val-gauge-needle" id="valNeedle" style="left:50%"></div>
+  </div>
+  <div class="val-gauge-labels">
+    <span id="valGaugeMin">—</span>
+    <span>Bear</span>
+    <span>Base</span>
+    <span>Bull</span>
+    <span id="valGaugeMax">—</span>
+  </div>
+</div>
+
+<!-- ── Model Methodology ──────────────────────────────────────────────────── -->
+<div class="accordion" onclick="this.classList.toggle('open')">
+  <div class="acc-header">
+    <span>Model A: EPS-Path Fair Value — Methodology</span>
+    <span class="acc-arrow">▸</span>
+  </div>
+  <div class="acc-body">
+    <div class="kv"><span class="kv-key">Model</span><span class="kv-val">EPS-Path Fair Value (45DMA Revenue → EPS → P/E Bands)</span></div>
+    <div class="kv"><span class="kv-key">Revenue Window</span><span class="kv-val">45-day moving average of daily F&O transaction revenue</span></div>
+    <div class="kv"><span class="kv-key">Annualization</span><span class="kv-val">45DMA × 252 trading days + ₹527 Cr non-F&O revenue</span></div>
+    <div class="kv"><span class="kv-key">PAT Margin</span><span class="kv-val">55% (MCX long-term structural margin)</span></div>
+    <div class="kv"><span class="kv-key">Diluted Shares</span><span class="kv-val">25.451 Cr (254.51M, post 1:5 split Jan 2026)</span></div>
+    <div class="kv"><span class="kv-key">P/E Bands</span><span class="kv-val" id="valMethodPE">Dynamic: mean —x ± —x SD (— observations)</span></div>
+    <div class="kv"><span class="kv-key">Signal Logic</span><span class="kv-val">DEEP_VALUE (&lt;Bear) · UNDERVALUED (&lt;Base−5%) · FAIR (±5%) · OVERVALUED (&gt;Base+5%) · STRETCHED (&gt;Bull)</span></div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:12px">
+      Source: MCX BHAV copy, MCX relay EOD, Yahoo Finance (price). Refreshed daily by valuation_refresh.py → Supabase.
+      Dynamic P/E derived from all dates with paired revenue + price data.
+      Not investment advice — model reflects mechanical fair value from observable revenue trends only.
+    </div>
+  </div>
+</div>
+
+<!-- ── Data Quality ──────────────────────────────────────────────────────── -->
+<div class="accordion" onclick="this.classList.toggle('open')">
+  <div class="acc-header">
+    <span>Data Quality & Diagnostics</span>
+    <span class="acc-arrow">▸</span>
+  </div>
+  <div class="acc-body" id="valDiagnostics">
+    <div class="kv"><span class="kv-key">Valuation Rows</span><span class="kv-val" id="valDQ_rows">—</span></div>
+    <div class="kv"><span class="kv-key">History Returned</span><span class="kv-val" id="valDQ_history">—</span></div>
+    <div class="kv"><span class="kv-key">Revenue Window</span><span class="kv-val" id="valDQ_window">— days</span></div>
+    <div class="kv"><span class="kv-key">Latest Valuation</span><span class="kv-val" id="valDQ_latest">—</span></div>
+    <div class="kv"><span class="kv-key">As Of</span><span class="kv-val" id="valDQ_asof">—</span></div>
+  </div>
+</div>
+
+</div><!-- /wrap -->
+</div><!-- /tabValuation -->
+
 <!-- ═══ COOKIE MODAL ═══════════════════════════════════════════════════════ -->
 <div class="modal-overlay hidden" id="cookieModal" onclick="if(event.target===this)closeCookieModal()">
   <div class="modal-box">
@@ -1122,6 +1413,9 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 //  GLOBALS
 // ════════════════════════════════════════════════════════════════════════════
 let sparkChartInst = null;
+let valChartInst = null;
+let valCache = null;
+let valLoading = false;
 let futData = [], optData = [];
 let TOTAL_FUT = 0, TOTAL_OPT = 0;
 let autoRefreshInterval = null;
@@ -1565,7 +1859,9 @@ function switchTab(tabId) {
   document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
   document.getElementById('tabPredictor').style.display = tabId === 'tabPredictor' ? 'block' : 'none';
   document.getElementById('tabForecast').style.display = tabId === 'tabForecast' ? 'block' : 'none';
+  document.getElementById('tabValuation').style.display = tabId === 'tabValuation' ? 'block' : 'none';
   if (tabId === 'tabForecast') recalcForecast();
+  if (tabId === 'tabValuation') loadValuation();
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1795,6 +2091,258 @@ async function fetchLiveCMP() {
   // Refresh CMP every 5 minutes
   setInterval(fetchLiveCMP, 5 * 60 * 1000);
 })();
+
+// ════════════════════════════════════════════════════════════════════════════
+//  VALUATION TAB — EPS-Path Fair Value Model (Model A)
+// ════════════════════════════════════════════════════════════════════════════
+
+async function loadValuation() {
+  // Use cache if fresh (< 5 min)
+  if (valCache && (Date.now() - valCache._ts < 300000)) {
+    renderValuation(valCache);
+    return;
+  }
+  if (valLoading) return;
+  valLoading = true;
+
+  try {
+    const resp = await fetch('/api/valuation');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (!data.success) throw new Error(data.error || 'No valuation data');
+    data._ts = Date.now();
+    valCache = data;
+    renderValuation(data);
+  } catch (e) {
+    console.error('Valuation load error:', e);
+    document.getElementById('valPrice').textContent = 'Error';
+    document.getElementById('valFairBase').textContent = e.message.slice(0, 60);
+  } finally {
+    valLoading = false;
+  }
+}
+
+function renderValuation(data) {
+  const s = data.snapshot;
+  const pe = data.pe_bands;
+  const dq = data.data_quality;
+
+  // ── Hero cards ──
+  const price = s.latest_price;
+  document.getElementById('valPrice').textContent = price ? `₹${Math.round(price).toLocaleString('en-IN')}` : '—';
+  document.getElementById('valPriceDate').textContent = s.latest_price_date ? `As of ${s.latest_price_date}` : '';
+
+  const fvBase = s.fair_value.base;
+  document.getElementById('valFairBase').textContent = fvBase ? `₹${Math.round(fvBase).toLocaleString('en-IN')}` : '—';
+  document.getElementById('valFairRange').textContent =
+    `Bear ₹${Math.round(s.fair_value.bear).toLocaleString('en-IN')} · Bull ₹${Math.round(s.fair_value.bull).toLocaleString('en-IN')}`;
+
+  // Signal badge
+  const signalEl = document.getElementById('valSignalBadge');
+  const sig = s.signal || 'NO_DATA';
+  const sigLabels = {
+    'DEEP_VALUE': 'Deep Value', 'UNDERVALUED': 'Undervalued', 'FAIR': 'Fair Value',
+    'OVERVALUED': 'Overvalued', 'STRETCHED': 'Stretched', 'NO_PRICE': 'No Price', 'NO_DATA': 'No Data'
+  };
+  signalEl.innerHTML = `<span class="val-signal ${sig}">${sigLabels[sig] || sig}</span>`;
+
+  // Upside
+  const upsideEl = document.getElementById('valUpside');
+  if (s.upside_to_base_pct !== null && s.upside_to_base_pct !== undefined) {
+    const pct = s.upside_to_base_pct;
+    const cls = pct >= 0 ? 'val-upside' : 'val-downside';
+    const arrow = pct >= 0 ? '↑' : '↓';
+    upsideEl.innerHTML = `<span class="${cls}" style="font-size:18px;font-weight:800">${arrow} ${Math.abs(pct).toFixed(1)}% ${pct >= 0 ? 'upside' : 'downside'} to base</span>`;
+  } else {
+    upsideEl.textContent = '—';
+  }
+  document.getElementById('valImpliedPE').textContent = s.implied_pe ? `Implied P/E: ${s.implied_pe}x` : 'Implied P/E: —';
+
+  // ── EPS Chain ──
+  const c = s.eps_chain;
+  if (c) {
+    document.getElementById('valC_ma45').textContent = `₹${c.ma45_rev_cr} Cr`;
+    document.getElementById('valC_annRev').textContent = `₹${Math.round(c.annual_total_rev_cr).toLocaleString('en-IN')} Cr`;
+    document.getElementById('valC_pat').textContent = `₹${Math.round(c.pat_cr).toLocaleString('en-IN')} Cr`;
+    document.getElementById('valC_eps').textContent = `₹${c.eps}`;
+    document.getElementById('valC_fv').textContent = `₹${Math.round(fvBase).toLocaleString('en-IN')}`;
+  }
+
+  // ── P/E Gauge ──
+  document.getElementById('valPeMeta').textContent = `mean ${pe.mean}x · sd ${pe.sd}x · ${pe.data_points} obs`;
+  document.getElementById('valMethodPE').textContent =
+    `Dynamic: mean ${pe.mean}x ± ${pe.sd}x SD (${pe.data_points} observations)`;
+
+  renderPEGauge(s, pe);
+
+  // ── Chart ──
+  renderValuationChart(data.history);
+
+  // ── Data Quality ──
+  document.getElementById('valDQ_rows').textContent = dq.valuation_rows;
+  document.getElementById('valDQ_history').textContent = dq.history_returned;
+  document.getElementById('valDQ_window').textContent = `${dq.revenue_window} days`;
+  document.getElementById('valDQ_latest').textContent = dq.latest_valuation_date;
+  document.getElementById('valDQ_asof').textContent = data.as_of;
+}
+
+function renderPEGauge(snapshot, peBands) {
+  const price = snapshot.latest_price;
+  const fvBear = snapshot.fair_value.bear;
+  const fvBull = snapshot.fair_value.bull;
+  if (!price || !fvBear || !fvBull) return;
+
+  // Gauge range: 0.7× bear to 1.3× bull
+  const gaugeMin = Math.round(fvBear * 0.7);
+  const gaugeMax = Math.round(fvBull * 1.3);
+  const range = gaugeMax - gaugeMin;
+
+  // Position needle
+  const needlePct = Math.max(0, Math.min(100, ((price - gaugeMin) / range) * 100));
+  document.getElementById('valNeedle').style.left = needlePct + '%';
+
+  // Update labels
+  document.getElementById('valGaugeMin').textContent = `₹${gaugeMin.toLocaleString('en-IN')}`;
+  document.getElementById('valGaugeMax').textContent = `₹${gaugeMax.toLocaleString('en-IN')}`;
+
+  // Set zone widths based on actual fair value positions
+  const bearPct = ((fvBear - gaugeMin) / range) * 100;
+  const baseFv = snapshot.fair_value.base;
+  const baseLow = baseFv * 0.95;
+  const baseHigh = baseFv * 1.05;
+  const underPct = ((baseLow - fvBear) / range) * 100;
+  const fairPct = ((baseHigh - baseLow) / range) * 100;
+  const overPct = ((fvBull - baseHigh) / range) * 100;
+  const stretchPct = 100 - bearPct - underPct - fairPct - overPct;
+
+  document.getElementById('valGZ_deep').style.width = Math.max(bearPct, 5) + '%';
+  document.getElementById('valGZ_under').style.width = Math.max(underPct, 5) + '%';
+  document.getElementById('valGZ_fair').style.width = Math.max(fairPct, 5) + '%';
+  document.getElementById('valGZ_over').style.width = Math.max(overPct, 5) + '%';
+  document.getElementById('valGZ_stretch').style.width = Math.max(stretchPct, 5) + '%';
+}
+
+function renderValuationChart(history) {
+  if (!history || history.length === 0) return;
+  const canvas = document.getElementById('valChart');
+  if (!canvas) return;
+
+  const labels = history.map(h => h.date.slice(5)); // MM-DD
+  const prices = history.map(h => h.price);
+  const fairBear = history.map(h => h.fair_bear);
+  const fairBase = history.map(h => h.fair_base);
+  const fairBull = history.map(h => h.fair_bull);
+
+  const isDark = document.documentElement.classList.contains('dark');
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const textColor = isDark ? '#888' : '#999';
+
+  if (valChartInst) {
+    valChartInst.destroy();
+    valChartInst = null;
+  }
+
+  valChartInst = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Market Price',
+          data: prices,
+          borderColor: isDark ? '#E0DDD8' : '#1A1A1A',
+          backgroundColor: 'transparent',
+          borderWidth: 2.5,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          tension: 0.2,
+          order: 1,
+        },
+        {
+          label: 'Fair Value (Base)',
+          data: fairBase,
+          borderColor: isDark ? '#5B9CF5' : '#0958D9',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [6, 3],
+          pointRadius: 0,
+          tension: 0.2,
+          order: 2,
+        },
+        {
+          label: 'Bear',
+          data: fairBear,
+          borderColor: isDark ? '#52C41A' : '#1B7D3A',
+          backgroundColor: 'transparent',
+          borderWidth: 1,
+          borderDash: [3, 3],
+          pointRadius: 0,
+          tension: 0.2,
+          fill: false,
+          order: 3,
+        },
+        {
+          label: 'Bull',
+          data: fairBull,
+          borderColor: isDark ? '#FF4D4F' : '#CF1322',
+          backgroundColor: 'transparent',
+          borderWidth: 1,
+          borderDash: [3, 3],
+          pointRadius: 0,
+          tension: 0.2,
+          fill: '-1', // fill between bear and bull
+          order: 4,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top',
+          align: 'end',
+          labels: {
+            font: { family: "'JetBrains Mono'", size: 10 },
+            color: textColor,
+            boxWidth: 16,
+            padding: 12,
+          },
+        },
+        tooltip: {
+          backgroundColor: isDark ? '#333' : '#1A1A1A',
+          titleFont: { family: "'JetBrains Mono'", size: 10 },
+          bodyFont: { family: "'JetBrains Mono'", size: 11 },
+          padding: 10,
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: ₹${Math.round(ctx.parsed.y).toLocaleString('en-IN')}`,
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { color: gridColor },
+          ticks: {
+            font: { family: "'JetBrains Mono'", size: 9 },
+            color: textColor,
+            maxRotation: 45,
+            maxTicksLimit: 12,
+          },
+        },
+        y: {
+          grid: { color: gridColor },
+          ticks: {
+            font: { family: "'JetBrains Mono'", size: 10 },
+            color: textColor,
+            callback: v => '₹' + v.toLocaleString('en-IN'),
+          },
+        },
+      },
+    },
+  });
+}
 </script>
 </body>
 </html>
