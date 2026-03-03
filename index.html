@@ -1025,6 +1025,66 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   font-size: 22px;
   font-weight: 800;
 }
+
+/* ⓘ Info tooltip */
+.mdl-info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-heavy);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  cursor: pointer;
+  position: relative;
+  vertical-align: middle;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+.mdl-info-tip {
+  display: none;
+  position: absolute;
+  top: 26px;
+  right: -8px;
+  width: 300px;
+  background: var(--surface);
+  border: 2px solid var(--border);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  padding: 12px 14px;
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text);
+  z-index: 20;
+  white-space: normal;
+  pointer-events: none;
+}
+.mdl-info-btn:hover .mdl-info-tip,
+.mdl-info-btn:focus .mdl-info-tip {
+  display: block;
+}
+.mdl-info-tip strong {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+/* Ensemble gauge */
+.mdl-ens-gauge {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+.mdl-ens-gauge .val-gauge-labels {
+  font-size: 10px;
+}
 </style>
 </head>
 <body>
@@ -1556,11 +1616,43 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
     <div class="mdl-ensemble-desc">
       Blended signal: Model A valuation gap (40%) + ECM reversion (30%) + Multi-Factor momentum (30%)
     </div>
-    <div id="mdlEnsembleSignalBadge" style="margin-top:8px"></div>
+    <div style="display:flex;align-items:center;margin-top:8px">
+      <div id="mdlEnsembleSignalBadge"></div>
+      <span class="mdl-info-btn" tabindex="0">i
+        <span class="mdl-info-tip">
+          <strong>Score Ranges</strong><br>
+          &gt; 1.5 → Strong Buy · &gt; 0.5 → Buy · ±0.5 → Neutral · &lt; −0.5 → Sell · &lt; −1.5 → Strong Sell<br><br>
+          <strong>Blend</strong><br>
+          Valuation gap 40% + ECM reversion 30% + Multi-Factor momentum 30%.
+          Positive score = net bullish. Negative = net bearish.
+        </span>
+      </span>
+    </div>
   </div>
   <div class="mdl-ensemble-right">
     <div class="mdl-ensemble-label">Score</div>
     <div class="mdl-ensemble-score" id="mdlEnsembleScore">—</div>
+  </div>
+</div>
+
+<!-- ── Ensemble Score Gauge ─────────────────────────────────────────────── -->
+<div class="mdl-ens-gauge">
+  <div class="val-chart-title">Ensemble Score Positioning</div>
+  <div class="val-gauge-bar" id="mdlEnsGaugeBar">
+    <div class="val-gauge-zone z-stretch" style="width:25%">Strong Sell</div>
+    <div class="val-gauge-zone z-over" style="width:16.7%">Sell</div>
+    <div class="val-gauge-zone z-fair" style="width:16.6%">Neutral</div>
+    <div class="val-gauge-zone z-under" style="width:16.7%">Buy</div>
+    <div class="val-gauge-zone z-deep" style="width:25%">Strong Buy</div>
+    <div class="val-gauge-needle" id="mdlEnsNeedle" style="left:50%"></div>
+  </div>
+  <div class="val-gauge-labels">
+    <span>−3</span>
+    <span>−1.5</span>
+    <span>−0.5</span>
+    <span>+0.5</span>
+    <span>+1.5</span>
+    <span>+3</span>
   </div>
 </div>
 
@@ -1571,7 +1663,17 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   <div class="mdl-card">
     <div class="mdl-card-header">
       <div class="mdl-card-title">Model B: Error Correction (ECM)</div>
-      <div id="mdlEcmSignalBadge"></div>
+      <div style="display:flex;align-items:center">
+        <div id="mdlEcmSignalBadge"></div>
+        <span class="mdl-info-btn" tabindex="0">i
+          <span class="mdl-info-tip">
+            <strong>Z-Score Ranges</strong><br>
+            &lt; −1.5 → Strong Revert Up · &lt; −0.5 → Mild Revert Up · ±0.5 → Neutral · &gt; 0.5 → Mild Extend Down · &gt; 1.5 → Strong Extend Down<br><br>
+            Negative z = price below fair value, reversion upward likely.
+            Positive z = price above fair value, correction risk.
+          </span>
+        </span>
+      </div>
     </div>
     <div class="mdl-ecm-stats">
       <div class="mdl-ecm-stat">
@@ -1597,7 +1699,18 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   <div class="mdl-card">
     <div class="mdl-card-header">
       <div class="mdl-card-title">Model C: Multi-Factor</div>
-      <div id="mdlMfSignalBadge"></div>
+      <div style="display:flex;align-items:center">
+        <div id="mdlMfSignalBadge"></div>
+        <span class="mdl-info-btn" tabindex="0">i
+          <span class="mdl-info-tip">
+            <strong>Composite Ranges</strong><br>
+            &gt; 1.5 → Strong Buy · &gt; 0.5 → Buy · ±0.5 → Neutral · &lt; −0.5 → Sell · &lt; −1.5 → Strong Sell<br><br>
+            <strong>Weights</strong><br>
+            Revenue 40% · Turnover 25% · Volume 20% · Inv. Volatility 15%.
+            Positive composite = bullish exchange activity.
+          </span>
+        </span>
+      </div>
     </div>
     <div id="mdlFactorBars">
       <div class="mdl-factor-row">
@@ -2585,6 +2698,7 @@ function renderValuationChart(history) {
           pointRadius: 0,
           pointHoverRadius: 4,
           tension: 0.2,
+          spanGaps: true,
           order: 1,
         },
         {
@@ -2720,6 +2834,13 @@ function renderModels(data) {
   document.getElementById('mdlEnsembleSignalBadge').innerHTML =
     `<span class="mdl-signal ${ensSig}">${ensLabels[ensSig] || ensSig}</span>`;
 
+  // ── Ensemble Gauge Needle ──
+  if (ensScore !== null && ensScore !== undefined) {
+    const clamped = Math.max(-3, Math.min(3, ensScore));
+    const needlePct = ((clamped + 3) / 6) * 100; // map [-3,+3] → [0%,100%]
+    document.getElementById('mdlEnsNeedle').style.left = needlePct + '%';
+  }
+
   // ── ECM Panel ──
   const ecm = snap.ecm;
   const ecmSig = ecm.signal || 'NO_DATA';
@@ -2851,6 +2972,7 @@ function renderECMChart(history) {
           pointRadius: 0,
           pointHoverRadius: 4,
           tension: 0.2,
+          spanGaps: true,
           order: 1,
         },
         {
