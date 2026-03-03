@@ -6,7 +6,8 @@ Run on LOCAL machine (MCX blocks cloud IPs).
 Usage:
     python3 scripts/validate_historical_api.py
 """
-import json, os, sys, urllib.request, urllib.error
+import json, os, sys
+from curl_cffi import requests as cfreq
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -14,37 +15,33 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 FUTURES_RATE = 210.0
 OPTIONS_RATE = 4180.0
 
+# Shared session for Chrome TLS impersonation (bypasses Akamai bot detection)
+_session = None
+
+def _get_session():
+    global _session
+    if _session is None:
+        _session = cfreq.Session(impersonate="chrome")
+        _session.get("https://www.mcxindia.com/market-data/historical-data", timeout=15)
+    return _session
+
 def fetch_mcx_historical(date_iso):
     """Fetch from GetHistoricalDataDetails and compute revenue."""
     date_compact = date_iso.replace("-", "")
-    payload = json.dumps({
+    payload = {
         "GroupBy": "D", "Segment": "ALL", "CommodityHead": "ALL",
         "Commodity": "ALL", "Startdate": date_compact,
         "EndDate": date_compact, "InstrumentName": "ALL",
-    }).encode()
-
-    url = "https://www.mcxindia.com/backpage.aspx/GetHistoricalDataDetails"
-    hdrs = {
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "Content-Type": "application/json; charset=UTF-8",
-        "X-Requested-With": "XMLHttpRequest",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Origin": "https://www.mcxindia.com",
-        "Referer": "https://www.mcxindia.com/market-data/historical-data",
     }
 
-    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
-    init_req = urllib.request.Request(
-        "https://www.mcxindia.com/market-data/historical-data",
-        headers={"User-Agent": hdrs["User-Agent"]},
-    )
-    opener.open(init_req, timeout=10)
-
-    req = urllib.request.Request(url, data=payload, method="POST")
-    for k, v in hdrs.items():
-        req.add_header(k, v)
-    with opener.open(req, timeout=15) as resp:
-        data = json.loads(resp.read().decode())
+    url = "https://www.mcxindia.com/backpage.aspx/GetHistoricalDataDetails"
+    session = _get_session()
+    resp = session.post(url, json=payload, headers={
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": "https://www.mcxindia.com/market-data/historical-data",
+    }, timeout=15)
+    resp.raise_for_status()
+    data = resp.json()
 
     rows = data.get("d", {}).get("Data")
     if not rows:

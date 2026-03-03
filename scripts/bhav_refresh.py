@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-BHAV Daily Revenue Refresh — scheduled task
+MCX Daily Revenue Refresh — scheduled task
 Fetches MCX daily revenue data and upserts to Supabase.
 Run daily after 7:30 PM IST (market close + buffer).
 
 Priority chain:
   1. relay EOD data (direct PremiumValue from live API) — authoritative
   2. MCX Historical Detailed Report (GetHistoricalDataDetails) — exact premium
-  3. BHAV copy proxy (opt_close/undl × value) — ~11% error fallback
+
+Uses curl_cffi with Chrome TLS impersonation to bypass Akamai bot detection.
 
 Usage:
   python3 scripts/bhav_refresh.py              # refresh today + missing last 5 days
@@ -15,17 +16,11 @@ Usage:
   python3 scripts/bhav_refresh.py --backfill 30 # backfill last 30 days
 """
 import sys, os, json, urllib.request
+from curl_cffi import requests as cfreq
 from datetime import datetime, timedelta, timezone
 
 # Add parent to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-try:
-    import mcxpy as mcx
-    import pandas as pd
-except ImportError:
-    print("ERROR: mcxpy and pandas required. pip install mcxpy pandas")
-    sys.exit(1)
 
 # ── Config ──────────────────────────────────────────────────────────────────
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supabase.co")
@@ -67,14 +62,23 @@ def check_relay_eod(date_iso):
         return None
 
 
+# Shared curl_cffi session for Chrome TLS impersonation (bypasses Akamai)
+_hist_session = None
+
+def _get_hist_session():
+    global _hist_session
+    if _hist_session is None:
+        _hist_session = cfreq.Session(impersonate="chrome")
+        _hist_session.get("https://www.mcxindia.com/market-data/historical-data", timeout=15)
+    return _hist_session
+
 def fetch_mcx_historical(date_iso):
     """Fetch daily revenue from MCX Historical Detailed Report API.
     Returns revenue dict with exact PremiumTurnover (no proxy), or None on failure.
-    Endpoint: /backpage.aspx/GetHistoricalDataDetails
-    NOTE: MCX blocks cloud IPs — this only works from local machines."""
+    Uses curl_cffi with Chrome TLS impersonation to bypass Akamai bot detection."""
     date_compact = date_iso.replace("-", "")  # YYYYMMDD
 
-    payload = json.dumps({
+    payload = {
         "GroupBy": "D",
         "Segment": "ALL",
         "CommodityHead": "ALL",
@@ -82,33 +86,18 @@ def fetch_mcx_historical(date_iso):
         "Startdate": date_compact,
         "EndDate": date_compact,
         "InstrumentName": "ALL",
-    }).encode()
-
-    url = "https://www.mcxindia.com/backpage.aspx/GetHistoricalDataDetails"
-    headers_dict = {
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "Content-Type": "application/json; charset=UTF-8",
-        "X-Requested-With": "XMLHttpRequest",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Origin": "https://www.mcxindia.com",
-        "Referer": "https://www.mcxindia.com/market-data/historical-data",
     }
 
-    try:
-        # Get session cookie first
-        init_req = urllib.request.Request(
-            "https://www.mcxindia.com/market-data/historical-data",
-            headers={"User-Agent": headers_dict["User-Agent"]},
-        )
-        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
-        opener.open(init_req, timeout=10)
+    url = "https://www.mcxindia.com/backpage.aspx/GetHistoricalDataDetails"
 
-        # Fetch detailed report
-        req = urllib.request.Request(url, data=payload, method="POST")
-        for k, v in headers_dict.items():
-            req.add_header(k, v)
-        with opener.open(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode())
+    try:
+        session = _get_hist_session()
+        resp = session.post(url, json=payload, headers={
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": "https://www.mcxindia.com/market-data/historical-data",
+        }, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
 
         rows = data.get("d", {}).get("Data")
         if not rows or len(rows) < 5:
@@ -165,60 +154,6 @@ def fetch_mcx_historical(date_iso):
         return None
 
 
-def compute_revenue(bhav_df):
-    """Compute daily revenue from mcxpy BHAV DataFrame.
-    NOTE: Options premium uses proxy formula (opt_close/undl_close × Value_Lacs).
-    This introduces ~11% random error vs MCX's actual PremiumValue.
-    Prefer relay EOD data when available."""
-    df = bhav_df.copy()
-    for col in ["Value(Lacs)", "Volume(Lots)", "Close"]:
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-    df["Symbol"] = df["Symbol"].str.strip()
-    df["Expiry Date"] = pd.to_datetime(df["Expiry Date"], errors="coerce")
-
-    active = df[df["Volume(Lots)"] > 0]
-    futcom = active[active["Instrument Name"] == "FUTCOM"]
-    optfut = active[active["Instrument Name"] == "OPTFUT"]
-
-    fut_notl_lacs = futcom["Value(Lacs)"].sum()
-
-    # Build underlying price lookup from futures
-    underlying = {}
-    for _, r in futcom.iterrows():
-        underlying[(r["Symbol"], r["Expiry Date"])] = r["Close"]
-
-    # Options premium proxy: (opt_close / underlying_close) × value_lacs
-    # ⚠ This is an approximation — actual PremiumValue from MCX is more accurate
-    opt_prem_lacs = 0
-    for _, r in optfut.iterrows():
-        if r["Close"] <= 0 or r["Value(Lacs)"] <= 0:
-            continue
-        undl = underlying.get((r["Symbol"], r["Expiry Date"]))
-        if undl is None:
-            matches = [(k, v) for k, v in underlying.items() if k[0] == r["Symbol"]]
-            if matches:
-                undl = matches[0][1]
-        if undl and undl > 0:
-            opt_prem_lacs += (r["Close"] / undl) * r["Value(Lacs)"]
-
-    fn_cr = fut_notl_lacs / 100
-    op_cr = opt_prem_lacs / 100
-    fut_rev = 2 * fn_cr * FUTURES_RATE / 1e7
-    opt_rev = 2 * op_cr * OPTIONS_RATE / 1e7
-    total = fut_rev + opt_rev + NONTX_DAILY
-
-    return {
-        "fut_notl_cr": round(fn_cr, 2),
-        "opt_prem_cr": round(op_cr, 2),
-        "fut_rev_cr": round(fut_rev, 4),
-        "opt_rev_cr": round(opt_rev, 4),
-        "nontx_rev_cr": NONTX_DAILY,
-        "total_rev_cr": round(total, 4),
-        "active_futures": len(futcom),
-        "active_options": len(optfut),
-    }
-
-
 def get_existing_dates():
     """Fetch all dates already in Supabase."""
     url = f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue?select=trading_date,source&order=trading_date.desc&limit=200"
@@ -248,8 +183,7 @@ def upsert_rows(rows):
 def fetch_and_compute(date_iso):
     """Fetch daily revenue for one date using the priority chain:
     1. relay EOD (already in Supabase) — skip if found
-    2. MCX Historical Detailed Report — exact premium, no proxy
-    3. BHAV copy proxy — ~11% error fallback"""
+    2. MCX Historical Detailed Report — exact premium, no proxy"""
 
     # Priority 1: Check if relay already captured authoritative EOD data
     relay = check_relay_eod(date_iso)
@@ -271,27 +205,8 @@ def fetch_and_compute(date_iso):
                 **hist,
             }
 
-    # Priority 3: BHAV copy proxy fallback (~11% error)
-    parts = date_iso.split("-")
-    mcx_fmt = f"{parts[2]}-{parts[1]}-{parts[0]}"  # DD-MM-YYYY
-    try:
-        bhav = mcx.mcx_bhavcopy(mcx_fmt)
-        if bhav is None or len(bhav) < 100:
-            return None
-        rev = compute_revenue(bhav)
-        if rev["total_rev_cr"] < 1.0 or rev["total_rev_cr"] > 50.0:
-            print(f"  ⚠ {date_iso}: BHAV proxy revenue {rev['total_rev_cr']} out of range, skipping")
-            return None
-        return {
-            "trading_date": date_iso,
-            "source": "bhav_proxy",
-            "data_source": "bhav_mcxpy_proxy",
-            "is_actual": True,
-            **rev,
-        }
-    except Exception as e:
-        print(f"  ✗ {date_iso}: BHAV fallback failed: {e}")
-        return None
+    print(f"  ✗ {date_iso}: no source available (relay EOD + historical API both missed)")
+    return None
 
 
 def refresh(lookback_days=5, force_dates=None):

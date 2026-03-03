@@ -13,6 +13,7 @@ Usage:
   python3 scripts/mcx_relay.py --loop   # loop every 15 min until session ends
 """
 import sys, os, json, math, time, urllib.request, urllib.error
+from curl_cffi import requests as cfreq
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
@@ -127,51 +128,46 @@ def calc_uncertainty(time_pct, day_type, dual_call=False):
     return min(base, 0.40)
 
 
-# ── MCX API ─────────────────────────────────────────────────────────────────
-
-def fetch_cookies(timeout=12):
-    """Get fresh MCX session cookies."""
-    import http.cookiejar
-    cj = http.cookiejar.CookieJar()
-    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
-    req = urllib.request.Request(
-        "https://www.mcxindia.com/market-data/market-watch",
-        headers={
-            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        },
-    )
-    opener.open(req, timeout=timeout)
-    parts = [f"{c.name}={c.value}" for c in cj]
-    cookie_str = "; ".join(parts)
-    if "ASP.NET_SessionId" in cookie_str or len(parts) >= 2:
-        return cookie_str
-    return ""
+# ── MCX API (curl_cffi with Chrome TLS impersonation) ───────────────────────
+_mw_session = None
+_hist_session = None
 
 
-def fetch_market_watch(cookie, timeout=18):
-    """Call MCX GetMarketWatch API."""
-    req = urllib.request.Request(
+def _get_mw_session():
+    """Shared curl_cffi session for MarketWatch API (bypasses Akamai)."""
+    global _mw_session
+    if _mw_session is None:
+        _mw_session = cfreq.Session(impersonate="chrome")
+        _mw_session.get("https://www.mcxindia.com/market-data/market-watch", timeout=15)
+    return _mw_session
+
+
+def _get_hist_session():
+    """Shared curl_cffi session for Historical API (bypasses Akamai)."""
+    global _hist_session
+    if _hist_session is None:
+        _hist_session = cfreq.Session(impersonate="chrome")
+        _hist_session.get("https://www.mcxindia.com/market-data/historical-data", timeout=15)
+    return _hist_session
+
+
+def fetch_market_watch(session=None, timeout=18):
+    """Call MCX GetMarketWatch API via curl_cffi."""
+    if session is None:
+        session = _get_mw_session()
+    resp = session.post(
         "https://www.mcxindia.com/backpage.aspx/GetMarketWatch",
-        data=b"",
-        method="POST",
+        data="",
         headers={
-            "accept": "application/json, text/javascript, */*; q=0.01",
-            "content-type": "application/json",
-            "origin": "https://www.mcxindia.com",
-            "referer": "https://www.mcxindia.com/market-data/market-watch",
-            "x-requested-with": "XMLHttpRequest",
-            "cookie": cookie,
-            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Content-Type": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": "https://www.mcxindia.com/market-data/market-watch",
         },
+        timeout=timeout,
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read()
-        enc = resp.info().get("Content-Encoding", "")
-        if "gzip" in enc:
-            import gzip
-            raw = gzip.decompress(raw)
-        return json.loads(raw.decode("utf-8"))
+    resp.raise_for_status()
+    return resp.json()
 
 
 def extract_notionals(raw_json):
@@ -210,22 +206,17 @@ def run_snapshot():
     elapsed = max(0, min(current_min - SESSION_START, SESSION_TOTAL))
     time_pct = elapsed / SESSION_TOTAL
 
-    # Fetch cookies + market data
-    print(f"  Fetching MCX cookies...")
-    cookie = fetch_cookies()
-    if not cookie:
-        print(f"  ✗ Cookie fetch failed")
-        return False
-
+    # Fetch market data via curl_cffi session
     print(f"  Fetching market data...")
-    raw1 = fetch_market_watch(cookie)
+    session = _get_mw_session()
+    raw1 = fetch_market_watch(session)
 
     # Dual call for late session
     raw2 = None
     if time_pct > 0.80:
         try:
             time.sleep(2)
-            raw2 = fetch_market_watch(cookie)
+            raw2 = fetch_market_watch(session)
         except Exception:
             pass
 
@@ -306,39 +297,26 @@ def run_snapshot():
 
 def fetch_mcx_historical(date_iso):
     """Fetch daily revenue from MCX Historical Detailed Report API.
-    Returns revenue dict with exact PremiumTurnover, or None on failure.
-    Endpoint: /backpage.aspx/GetHistoricalDataDetails"""
+    Returns revenue dict with exact PremiumTurnover (no proxy), or None on failure.
+    Uses curl_cffi with Chrome TLS impersonation to bypass Akamai bot detection."""
     date_compact = date_iso.replace("-", "")
 
-    payload = json.dumps({
+    payload = {
         "GroupBy": "D", "Segment": "ALL", "CommodityHead": "ALL",
         "Commodity": "ALL", "Startdate": date_compact,
         "EndDate": date_compact, "InstrumentName": "ALL",
-    }).encode()
-
-    url = "https://www.mcxindia.com/backpage.aspx/GetHistoricalDataDetails"
-    hdrs = {
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "Content-Type": "application/json; charset=UTF-8",
-        "X-Requested-With": "XMLHttpRequest",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Origin": "https://www.mcxindia.com",
-        "Referer": "https://www.mcxindia.com/market-data/historical-data",
     }
 
-    try:
-        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
-        init_req = urllib.request.Request(
-            "https://www.mcxindia.com/market-data/historical-data",
-            headers={"User-Agent": hdrs["User-Agent"]},
-        )
-        opener.open(init_req, timeout=10)
+    url = "https://www.mcxindia.com/backpage.aspx/GetHistoricalDataDetails"
 
-        req = urllib.request.Request(url, data=payload, method="POST")
-        for k, v in hdrs.items():
-            req.add_header(k, v)
-        with opener.open(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode())
+    try:
+        session = _get_hist_session()
+        resp = session.post(url, json=payload, headers={
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": "https://www.mcxindia.com/market-data/historical-data",
+        }, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
 
         rows = data.get("d", {}).get("Data")
         if not rows or len(rows) < 5:
@@ -402,40 +380,37 @@ def capture_eod():
 
     # Priority 1: Market watch API (direct PremiumValue)
     try:
-        cookie = fetch_cookies()
-        if cookie:
-            raw = fetch_market_watch(cookie)
-            time.sleep(2)
-            raw2 = fetch_market_watch(cookie)
+        session = _get_mw_session()
+        raw = fetch_market_watch(session)
+        time.sleep(2)
+        raw2 = fetch_market_watch(session)
 
-            fut_n1, opt_n1, opt_p1, futures1, options1 = extract_notionals(raw)
-            fut_n2, opt_n2, opt_p2, _, _ = extract_notionals(raw2)
-            fut_notl = max(fut_n1, fut_n2)
-            opt_prem = max(opt_p1, opt_p2)
+        fut_n1, opt_n1, opt_p1, futures1, options1 = extract_notionals(raw)
+        fut_n2, opt_n2, opt_p2, _, _ = extract_notionals(raw2)
+        fut_notl = max(fut_n1, fut_n2)
+        opt_prem = max(opt_p1, opt_p2)
 
-            fut_rev = 2 * fut_notl * FUTURES_RATE / 1e7
-            opt_rev = 2 * opt_prem * OPTIONS_RATE / 1e7
-            total_rev = fut_rev + opt_rev + NONTX_DAILY
+        fut_rev = 2 * fut_notl * FUTURES_RATE / 1e7
+        opt_rev = 2 * opt_prem * OPTIONS_RATE / 1e7
+        total_rev = fut_rev + opt_rev + NONTX_DAILY
 
-            if 1.0 <= total_rev <= 50.0:
-                eod_record = {
-                    "trading_date": date_iso,
-                    "fut_notl_cr": round(fut_notl, 2),
-                    "opt_prem_cr": round(opt_prem, 2),
-                    "fut_rev_cr": round(fut_rev, 4),
-                    "opt_rev_cr": round(opt_rev, 4),
-                    "nontx_rev_cr": NONTX_DAILY,
-                    "total_rev_cr": round(total_rev, 4),
-                    "source": "mcx_relay_eod",
-                    "is_actual": True,
-                    "active_futures": len(futures1),
-                    "active_options": len(options1),
-                }
-                source_tag = "mcx_relay_eod"
-            else:
-                print(f"  ⚠ Market watch revenue {total_rev:.4f} out of range")
+        if 1.0 <= total_rev <= 50.0:
+            eod_record = {
+                "trading_date": date_iso,
+                "fut_notl_cr": round(fut_notl, 2),
+                "opt_prem_cr": round(opt_prem, 2),
+                "fut_rev_cr": round(fut_rev, 4),
+                "opt_rev_cr": round(opt_rev, 4),
+                "nontx_rev_cr": NONTX_DAILY,
+                "total_rev_cr": round(total_rev, 4),
+                "source": "mcx_relay_eod",
+                "is_actual": True,
+                "active_futures": len(futures1),
+                "active_options": len(options1),
+            }
+            source_tag = "mcx_relay_eod"
         else:
-            print("  ⓘ Cookie fetch failed, trying historical API...")
+            print(f"  ⚠ Market watch revenue {total_rev:.4f} out of range")
     except Exception as e:
         print(f"  ⓘ Market watch failed ({e}), trying historical API...")
 
