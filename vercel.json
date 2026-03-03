@@ -6,7 +6,9 @@
     "api/commodities.py":     { "maxDuration": 15 },
     "api/mcxprice.py":        { "maxDuration": 15 },
     "api/valuation.py":       { "maxDuration": 15 },
-    "api/cron_valuation.py":  { "maxDuration": 60 }
+    "api/models.py":          { "maxDuration": 15 },
+    "api/cron_valuation.py":  { "maxDuration": 60 },
+    "api/cron_models.py":     { "maxDuration": 60 }
   },
   "rewrites": [
     { "source": "/api/refresh",         "destination": "/api/refresh" },
@@ -15,13 +17,19 @@
     { "source": "/api/commodities",     "destination": "/api/commodities" },
     { "source": "/api/mcxprice",        "destination": "/api/mcxprice" },
     { "source": "/api/valuation",       "destination": "/api/valuation" },
+    { "source": "/api/models",          "destination": "/api/models" },
     { "source": "/api/cron_valuation",  "destination": "/api/cron_valuation" },
+    { "source": "/api/cron_models",     "destination": "/api/cron_models" },
     { "source": "/(.*)",                "destination": "/index.html" }
   ],
   "crons": [
     {
       "path": "/api/cron_valuation?mode=recent",
       "schedule": "30 19 * * 1-5"
+    },
+    {
+      "path": "/api/cron_models?mode=recent",
+      "schedule": "45 19 * * 1-5"
     }
   ]
 }

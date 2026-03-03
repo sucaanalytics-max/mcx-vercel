@@ -833,6 +833,198 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 /* Upside/downside coloring */
 .val-upside { color: var(--positive); }
 .val-downside { color: var(--negative); }
+
+/* ═══ MODELS B + C + ENSEMBLE STYLES ═════════════════════════════════════ */
+
+/* Section divider */
+.mdl-divider {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  color: var(--text-secondary);
+  border-top: 2px solid var(--border-heavy);
+  padding-top: 16px;
+  margin: 32px 0 20px;
+}
+
+/* Ensemble banner */
+.mdl-ensemble-banner {
+  background: var(--surface);
+  border: 3px solid var(--border-heavy);
+  padding: 24px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 20px;
+  align-items: center;
+  margin-bottom: 20px;
+}
+.mdl-ensemble-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--text-secondary);
+}
+.mdl-ensemble-desc {
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+.mdl-ensemble-right {
+  text-align: right;
+}
+.mdl-ensemble-score {
+  font-family: var(--mono);
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -1px;
+}
+
+/* Model signal badge (reuses val-signal pattern) */
+.mdl-signal {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 800;
+  padding: 3px 10px;
+  border: 2px solid;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 6px;
+}
+.mdl-signal.STRONG_BUY, .mdl-signal.STRONG_REVERT_UP { border-color: var(--positive); color: var(--positive); background: color-mix(in srgb, var(--positive) 8%, transparent); }
+.mdl-signal.BUY, .mdl-signal.MILD_REVERT_UP { border-color: #0958D9; color: #0958D9; background: color-mix(in srgb, #0958D9 8%, transparent); }
+.mdl-signal.NEUTRAL { border-color: var(--text-secondary); color: var(--text-secondary); background: color-mix(in srgb, var(--text-secondary) 8%, transparent); }
+.mdl-signal.SELL, .mdl-signal.MILD_EXTEND_DOWN { border-color: var(--warning); color: var(--warning); background: color-mix(in srgb, var(--warning) 8%, transparent); }
+.mdl-signal.STRONG_SELL, .mdl-signal.STRONG_EXTEND_DOWN { border-color: var(--negative); color: var(--negative); background: color-mix(in srgb, var(--negative) 8%, transparent); }
+.mdl-signal.NO_DATA { border-color: var(--border); color: var(--text-secondary); background: transparent; }
+
+/* ECM + MF side-by-side grid */
+.mdl-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+@media (max-width: 800px) {
+  .mdl-two-col { grid-template-columns: 1fr; }
+}
+
+/* Model card (ECM / MF) */
+.mdl-card {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  padding: 20px;
+}
+.mdl-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.mdl-card-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+}
+
+/* ECM stats row */
+.mdl-ecm-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.mdl-ecm-stat {
+  text-align: center;
+}
+.mdl-ecm-stat-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.mdl-ecm-stat-val {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+/* Factor bars */
+.mdl-factor-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 50px;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.mdl-factor-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.mdl-factor-bar-wrap {
+  height: 16px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+}
+.mdl-factor-bar-center {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  background: var(--border-heavy);
+}
+.mdl-factor-bar-fill {
+  position: absolute;
+  top: 2px;
+  height: calc(100% - 4px);
+  transition: all 0.4s ease;
+}
+.mdl-factor-bar-fill.pos { background: var(--positive); }
+.mdl-factor-bar-fill.neg { background: var(--negative); }
+.mdl-factor-val {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: right;
+}
+.mdl-factor-composite {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 2px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.mdl-factor-composite-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.mdl-factor-composite-val {
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 800;
+}
 </style>
 </head>
 <body>
@@ -1354,6 +1546,98 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   </div>
 </div>
 
+<!-- ═══ MODELS B + C + ENSEMBLE ════════════════════════════════════════════ -->
+<div class="mdl-divider">Multi-Model Signals</div>
+
+<!-- ── Ensemble Banner ──────────────────────────────────────────────────── -->
+<div class="mdl-ensemble-banner" id="mdlEnsembleBanner">
+  <div>
+    <div class="mdl-ensemble-label">Ensemble Recommendation</div>
+    <div class="mdl-ensemble-desc">
+      Blended signal: Model A valuation gap (40%) + ECM reversion (30%) + Multi-Factor momentum (30%)
+    </div>
+    <div id="mdlEnsembleSignalBadge" style="margin-top:8px"></div>
+  </div>
+  <div class="mdl-ensemble-right">
+    <div class="mdl-ensemble-label">Score</div>
+    <div class="mdl-ensemble-score" id="mdlEnsembleScore">—</div>
+  </div>
+</div>
+
+<!-- ── ECM + Multi-Factor Side by Side ─────────────────────────────────── -->
+<div class="mdl-two-col">
+
+  <!-- ECM Panel -->
+  <div class="mdl-card">
+    <div class="mdl-card-header">
+      <div class="mdl-card-title">Model B: Error Correction (ECM)</div>
+      <div id="mdlEcmSignalBadge"></div>
+    </div>
+    <div class="mdl-ecm-stats">
+      <div class="mdl-ecm-stat">
+        <div class="mdl-ecm-stat-label">Spread %</div>
+        <div class="mdl-ecm-stat-val" id="mdlEcmSpreadPct">—</div>
+      </div>
+      <div class="mdl-ecm-stat">
+        <div class="mdl-ecm-stat-label">Z-Score</div>
+        <div class="mdl-ecm-stat-val" id="mdlEcmZscore">—</div>
+      </div>
+      <div class="mdl-ecm-stat">
+        <div class="mdl-ecm-stat-label">Half-Life</div>
+        <div class="mdl-ecm-stat-val" id="mdlEcmHalfLife">—</div>
+      </div>
+    </div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--text-secondary)">
+      Price deviation from fair value, z-scored over 60 days.<br>
+      Extreme negative z → undervalued reversion. Extreme positive z → overvalued extension.
+    </div>
+  </div>
+
+  <!-- Multi-Factor Panel -->
+  <div class="mdl-card">
+    <div class="mdl-card-header">
+      <div class="mdl-card-title">Model C: Multi-Factor</div>
+      <div id="mdlMfSignalBadge"></div>
+    </div>
+    <div id="mdlFactorBars">
+      <div class="mdl-factor-row">
+        <div class="mdl-factor-label">Revenue</div>
+        <div class="mdl-factor-bar-wrap"><div class="mdl-factor-bar-center"></div><div class="mdl-factor-bar-fill" id="mdlBar_rev"></div></div>
+        <div class="mdl-factor-val" id="mdlVal_rev">—</div>
+      </div>
+      <div class="mdl-factor-row">
+        <div class="mdl-factor-label">Turnover</div>
+        <div class="mdl-factor-bar-wrap"><div class="mdl-factor-bar-center"></div><div class="mdl-factor-bar-fill" id="mdlBar_turn"></div></div>
+        <div class="mdl-factor-val" id="mdlVal_turn">—</div>
+      </div>
+      <div class="mdl-factor-row">
+        <div class="mdl-factor-label">Volume</div>
+        <div class="mdl-factor-bar-wrap"><div class="mdl-factor-bar-center"></div><div class="mdl-factor-bar-fill" id="mdlBar_vol"></div></div>
+        <div class="mdl-factor-val" id="mdlVal_vol">—</div>
+      </div>
+      <div class="mdl-factor-row">
+        <div class="mdl-factor-label">Inv. Vol</div>
+        <div class="mdl-factor-bar-wrap"><div class="mdl-factor-bar-center"></div><div class="mdl-factor-bar-fill" id="mdlBar_ivol"></div></div>
+        <div class="mdl-factor-val" id="mdlVal_ivol">—</div>
+      </div>
+    </div>
+    <div class="mdl-factor-composite">
+      <div class="mdl-factor-composite-label">Composite</div>
+      <div class="mdl-factor-composite-val" id="mdlMfComposite">—</div>
+    </div>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--text-secondary);margin-top:8px">
+      Weights: Rev 40% · Turn 25% · Vol 20% · Inv.Vol 15%. Rolling 60-day z-scores.
+    </div>
+  </div>
+
+</div><!-- /mdl-two-col -->
+
+<!-- ── ECM Spread Chart ────────────────────────────────────────────────── -->
+<div class="val-chart-wrap">
+  <div class="val-chart-title">ECM Spread % — 60-Day History (with ±1σ / ±1.5σ bands)</div>
+  <canvas id="ecmChart" style="max-height:220px"></canvas>
+</div>
+
 <!-- ── Model Methodology ──────────────────────────────────────────────────── -->
 <div class="accordion" onclick="this.classList.toggle('open')">
   <div class="acc-header">
@@ -1376,6 +1660,44 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   </div>
 </div>
 
+<!-- ── Model B Methodology ─────────────────────────────────────────────── -->
+<div class="accordion" onclick="this.classList.toggle('open')">
+  <div class="acc-header">
+    <span>Model B: Error Correction Model (ECM) — Methodology</span>
+    <span class="acc-arrow">▸</span>
+  </div>
+  <div class="acc-body">
+    <div class="kv"><span class="kv-key">Model</span><span class="kv-val">Error Correction Model — price deviation from Model A fair value</span></div>
+    <div class="kv"><span class="kv-key">Spread</span><span class="kv-val">(Close Price − Fair Value Base) / Fair Value Base × 100</span></div>
+    <div class="kv"><span class="kv-key">Z-Score Window</span><span class="kv-val">60-day rolling (population std dev, min 30 observations)</span></div>
+    <div class="kv"><span class="kv-key">Half-Life</span><span class="kv-val">Estimated days to mean-revert: 60 / (1 + |z|)</span></div>
+    <div class="kv"><span class="kv-key">Signal Logic</span><span class="kv-val">z &lt; -1.5 → STRONG_REVERT_UP · z &lt; -0.5 → MILD_REVERT_UP · |z| ≤ 0.5 → NEUTRAL · z &gt; 0.5 → MILD_EXTEND_DOWN · z &gt; 1.5 → STRONG_EXTEND_DOWN</span></div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:12px">
+      Concept: When price deviates far from fair value, a correcting force pulls it back. Large negative z-scores = undervalued, likely to revert upward.
+    </div>
+  </div>
+</div>
+
+<!-- ── Model C Methodology ─────────────────────────────────────────────── -->
+<div class="accordion" onclick="this.classList.toggle('open')">
+  <div class="acc-header">
+    <span>Model C: Multi-Factor Momentum — Methodology</span>
+    <span class="acc-arrow">▸</span>
+  </div>
+  <div class="acc-body">
+    <div class="kv"><span class="kv-key">Model</span><span class="kv-val">Composite z-score from 4 exchange-level activity factors</span></div>
+    <div class="kv"><span class="kv-key">Factor 1</span><span class="kv-val">Daily Revenue z-score (weight: 40%) — MCX F&O transaction revenue</span></div>
+    <div class="kv"><span class="kv-key">Factor 2</span><span class="kv-val">Turnover z-score (weight: 25%) — futures notional + options premium</span></div>
+    <div class="kv"><span class="kv-key">Factor 3</span><span class="kv-val">Share Volume z-score (weight: 20%) — MCX share trading volume</span></div>
+    <div class="kv"><span class="kv-key">Factor 4</span><span class="kv-val">Inverse Intraday Volatility z-score (weight: 15%) — lower intraday range = bullish</span></div>
+    <div class="kv"><span class="kv-key">Z-Score Window</span><span class="kv-val">60-day rolling (population std dev, min 30 observations)</span></div>
+    <div class="kv"><span class="kv-key">Signal Logic</span><span class="kv-val">composite &gt; 1.5 → STRONG_BUY · &gt; 0.5 → BUY · ±0.5 → NEUTRAL · &lt; -0.5 → SELL · &lt; -1.5 → STRONG_SELL</span></div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:12px">
+      Rising revenue + turnover + volume with low intraday price volatility = bullish exchange activity momentum for MCX stock.
+    </div>
+  </div>
+</div>
+
 <!-- ── Data Quality ──────────────────────────────────────────────────────── -->
 <div class="accordion" onclick="this.classList.toggle('open')">
   <div class="acc-header">
@@ -1387,6 +1709,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
     <div class="kv"><span class="kv-key">History Returned</span><span class="kv-val" id="valDQ_history">—</span></div>
     <div class="kv"><span class="kv-key">Revenue Window</span><span class="kv-val" id="valDQ_window">— days</span></div>
     <div class="kv"><span class="kv-key">Latest Valuation</span><span class="kv-val" id="valDQ_latest">—</span></div>
+    <div class="kv"><span class="kv-key">Model Signal Rows</span><span class="kv-val" id="valDQ_mdlRows">—</span></div>
     <div class="kv"><span class="kv-key">As Of</span><span class="kv-val" id="valDQ_asof">—</span></div>
   </div>
 </div>
@@ -1417,6 +1740,9 @@ let sparkChartInst = null;
 let valChartInst = null;
 let valCache = null;
 let valLoading = false;
+let ecmChartInst = null;
+let mdlCache = null;
+let mdlLoading = false;
 let futData = [], optData = [];
 let TOTAL_FUT = 0, TOTAL_OPT = 0;
 let autoRefreshInterval = null;
@@ -2121,6 +2447,8 @@ async function loadValuation() {
   } finally {
     valLoading = false;
   }
+  // Also load Models B + C + Ensemble (parallel, non-blocking)
+  loadModels();
 }
 
 function renderValuation(data) {
@@ -2338,6 +2666,295 @@ function renderValuationChart(history) {
             font: { family: "'JetBrains Mono'", size: 10 },
             color: textColor,
             callback: v => '₹' + v.toLocaleString('en-IN'),
+          },
+        },
+      },
+    },
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MODELS B + C + ENSEMBLE — Multi-Model Signal Dashboard
+// ════════════════════════════════════════════════════════════════════════════
+
+async function loadModels() {
+  if (mdlCache && (Date.now() - mdlCache._ts < 300000)) {
+    renderModels(mdlCache);
+    return;
+  }
+  if (mdlLoading) return;
+  mdlLoading = true;
+
+  try {
+    const resp = await fetch('/api/models');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (!data.success) throw new Error(data.error || 'No model data');
+    data._ts = Date.now();
+    mdlCache = data;
+    renderModels(data);
+  } catch (e) {
+    console.error('Models load error:', e);
+    document.getElementById('mdlEnsembleScore').textContent = 'N/A';
+  } finally {
+    mdlLoading = false;
+  }
+}
+
+function renderModels(data) {
+  const snap = data.snapshot;
+  if (!snap) return;
+
+  // ── Ensemble Banner ──
+  const ensScore = snap.ensemble.score;
+  const ensSig = snap.ensemble.signal || 'NO_DATA';
+  document.getElementById('mdlEnsembleScore').textContent =
+    ensScore !== null && ensScore !== undefined ? ensScore.toFixed(3) : '—';
+  document.getElementById('mdlEnsembleScore').style.color =
+    ensScore > 0.5 ? 'var(--positive)' : ensScore < -0.5 ? 'var(--negative)' : 'var(--text)';
+
+  const ensLabels = {
+    'STRONG_BUY': 'Strong Buy', 'BUY': 'Buy', 'NEUTRAL': 'Neutral',
+    'SELL': 'Sell', 'STRONG_SELL': 'Strong Sell', 'NO_DATA': 'No Data'
+  };
+  document.getElementById('mdlEnsembleSignalBadge').innerHTML =
+    `<span class="mdl-signal ${ensSig}">${ensLabels[ensSig] || ensSig}</span>`;
+
+  // ── ECM Panel ──
+  const ecm = snap.ecm;
+  const ecmSig = ecm.signal || 'NO_DATA';
+  const ecmLabels = {
+    'STRONG_REVERT_UP': 'Strong Revert Up', 'MILD_REVERT_UP': 'Mild Revert Up',
+    'NEUTRAL': 'Neutral', 'MILD_EXTEND_DOWN': 'Mild Extend Down',
+    'STRONG_EXTEND_DOWN': 'Strong Extend Down', 'NO_DATA': 'No Data'
+  };
+  document.getElementById('mdlEcmSignalBadge').innerHTML =
+    `<span class="mdl-signal ${ecmSig}">${ecmLabels[ecmSig] || ecmSig}</span>`;
+
+  const spreadPct = ecm.spread_pct;
+  document.getElementById('mdlEcmSpreadPct').textContent =
+    spreadPct !== null && spreadPct !== undefined ? `${spreadPct > 0 ? '+' : ''}${spreadPct.toFixed(1)}%` : '—';
+  document.getElementById('mdlEcmSpreadPct').style.color =
+    spreadPct < 0 ? 'var(--positive)' : spreadPct > 0 ? 'var(--negative)' : 'var(--text)';
+
+  const ecmZ = ecm.z_score;
+  document.getElementById('mdlEcmZscore').textContent =
+    ecmZ !== null && ecmZ !== undefined ? ecmZ.toFixed(3) : '—';
+  document.getElementById('mdlEcmZscore').style.color =
+    ecmZ < -1 ? 'var(--positive)' : ecmZ > 1 ? 'var(--negative)' : 'var(--text)';
+
+  const halfLife = ecm.half_life_days;
+  document.getElementById('mdlEcmHalfLife').textContent =
+    halfLife !== null && halfLife !== undefined ? `${halfLife}d` : '—';
+
+  // ── Multi-Factor Panel ──
+  const mf = snap.multi_factor;
+  const mfSig = mf.signal || 'NO_DATA';
+  const mfLabels = {
+    'STRONG_BUY': 'Strong Buy', 'BUY': 'Buy', 'NEUTRAL': 'Neutral',
+    'SELL': 'Sell', 'STRONG_SELL': 'Strong Sell', 'NO_DATA': 'No Data'
+  };
+  document.getElementById('mdlMfSignalBadge').innerHTML =
+    `<span class="mdl-signal ${mfSig}">${mfLabels[mfSig] || mfSig}</span>`;
+
+  renderFactorBar('rev', mf.revenue_z, 40);
+  renderFactorBar('turn', mf.turnover_z, 25);
+  renderFactorBar('vol', mf.volume_z, 20);
+  renderFactorBar('ivol', mf.volatility_z, 15);
+
+  const comp = mf.composite_z;
+  document.getElementById('mdlMfComposite').textContent =
+    comp !== null && comp !== undefined ? comp.toFixed(3) : '—';
+  document.getElementById('mdlMfComposite').style.color =
+    comp > 0.5 ? 'var(--positive)' : comp < -0.5 ? 'var(--negative)' : 'var(--text)';
+
+  // ── Data Quality extension ──
+  if (data.data_quality) {
+    document.getElementById('valDQ_mdlRows').textContent = data.data_quality.total_rows || '—';
+  }
+
+  // ── ECM Chart ──
+  renderECMChart(data.history);
+}
+
+function renderFactorBar(key, z, weight) {
+  const bar = document.getElementById(`mdlBar_${key}`);
+  const val = document.getElementById(`mdlVal_${key}`);
+  if (!bar || !val) return;
+
+  if (z === null || z === undefined) {
+    bar.style.width = '0';
+    val.textContent = '—';
+    return;
+  }
+
+  val.textContent = z.toFixed(2);
+  val.style.color = z > 0 ? 'var(--positive)' : z < 0 ? 'var(--negative)' : 'var(--text)';
+
+  // Bar fill: center = 50%, max z display ±3
+  const clampZ = Math.max(-3, Math.min(3, z));
+  const pct = Math.abs(clampZ) / 3 * 50; // 0-50% of the bar width
+  bar.className = `mdl-factor-bar-fill ${z >= 0 ? 'pos' : 'neg'}`;
+
+  if (z >= 0) {
+    bar.style.left = '50%';
+    bar.style.width = pct + '%';
+  } else {
+    bar.style.left = (50 - pct) + '%';
+    bar.style.width = pct + '%';
+  }
+}
+
+function renderECMChart(history) {
+  if (!history || history.length === 0) return;
+  const canvas = document.getElementById('ecmChart');
+  if (!canvas) return;
+
+  const labels = history.map(h => h.date.slice(5));
+  const spreadPcts = history.map(h => h.ecm_spread_pct);
+  const ecmZs = history.map(h => h.ecm_z);
+
+  // Compute mean and SD of spread_pct for band lines
+  const validSpreads = spreadPcts.filter(v => v !== null && v !== undefined);
+  const mean = validSpreads.length > 0 ? validSpreads.reduce((a, b) => a + b, 0) / validSpreads.length : 0;
+  const variance = validSpreads.length > 1
+    ? validSpreads.reduce((s, v) => s + (v - mean) ** 2, 0) / validSpreads.length
+    : 0;
+  const sd = Math.sqrt(variance);
+
+  const band1up = history.map(() => +(mean + sd).toFixed(2));
+  const band1dn = history.map(() => +(mean - sd).toFixed(2));
+  const band15up = history.map(() => +(mean + 1.5 * sd).toFixed(2));
+  const band15dn = history.map(() => +(mean - 1.5 * sd).toFixed(2));
+  const meanLine = history.map(() => +mean.toFixed(2));
+
+  const isDark = document.documentElement.classList.contains('dark');
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const textColor = isDark ? '#888' : '#999';
+
+  if (ecmChartInst) {
+    ecmChartInst.destroy();
+    ecmChartInst = null;
+  }
+
+  ecmChartInst = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Spread %',
+          data: spreadPcts,
+          borderColor: isDark ? '#E0DDD8' : '#1A1A1A',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          tension: 0.2,
+          order: 1,
+        },
+        {
+          label: 'Mean',
+          data: meanLine,
+          borderColor: isDark ? '#5B9CF5' : '#0958D9',
+          borderWidth: 1,
+          borderDash: [4, 4],
+          pointRadius: 0,
+          fill: false,
+          order: 5,
+        },
+        {
+          label: '+1σ',
+          data: band1up,
+          borderColor: isDark ? 'rgba(250,173,20,0.4)' : 'rgba(173,104,0,0.3)',
+          borderWidth: 1,
+          borderDash: [3, 3],
+          pointRadius: 0,
+          fill: false,
+          order: 4,
+        },
+        {
+          label: '−1σ',
+          data: band1dn,
+          borderColor: isDark ? 'rgba(250,173,20,0.4)' : 'rgba(173,104,0,0.3)',
+          borderWidth: 1,
+          borderDash: [3, 3],
+          pointRadius: 0,
+          fill: '-1',
+          backgroundColor: isDark ? 'rgba(250,173,20,0.04)' : 'rgba(173,104,0,0.04)',
+          order: 3,
+        },
+        {
+          label: '+1.5σ',
+          data: band15up,
+          borderColor: isDark ? 'rgba(255,77,79,0.3)' : 'rgba(207,19,34,0.2)',
+          borderWidth: 1,
+          borderDash: [2, 4],
+          pointRadius: 0,
+          fill: false,
+          order: 6,
+        },
+        {
+          label: '−1.5σ',
+          data: band15dn,
+          borderColor: isDark ? 'rgba(255,77,79,0.3)' : 'rgba(207,19,34,0.2)',
+          borderWidth: 1,
+          borderDash: [2, 4],
+          pointRadius: 0,
+          fill: false,
+          order: 6,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top',
+          align: 'end',
+          labels: {
+            font: { family: "'JetBrains Mono'", size: 9 },
+            color: textColor,
+            boxWidth: 12,
+            padding: 8,
+            filter: item => ['Spread %', 'Mean', '+1σ', '+1.5σ'].includes(item.text),
+          },
+        },
+        tooltip: {
+          backgroundColor: isDark ? '#333' : '#1A1A1A',
+          titleFont: { family: "'JetBrains Mono'", size: 10 },
+          bodyFont: { family: "'JetBrains Mono'", size: 11 },
+          padding: 10,
+          callbacks: {
+            label: ctx => {
+              if (ctx.dataset.label === 'Spread %') {
+                const z = ecmZs[ctx.dataIndex];
+                return `Spread: ${ctx.parsed.y?.toFixed(2)}% (z: ${z !== null ? z.toFixed(3) : '—'})`;
+              }
+              return `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(2)}%`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { color: gridColor },
+          ticks: {
+            font: { family: "'JetBrains Mono'", size: 9 },
+            color: textColor,
+            maxRotation: 45,
+            maxTicksLimit: 12,
+          },
+        },
+        y: {
+          grid: { color: gridColor },
+          ticks: {
+            font: { family: "'JetBrains Mono'", size: 10 },
+            color: textColor,
+            callback: v => v.toFixed(1) + '%',
           },
         },
       },
