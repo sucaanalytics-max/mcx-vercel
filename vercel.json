@@ -1,17 +1,27 @@
 {
   "functions": {
-    "api/refresh.py":     { "maxDuration": 30 },
-    "api/history.py":     { "maxDuration": 30 },
-    "api/mcxlive.py":     { "maxDuration": 30 },
-    "api/commodities.py": { "maxDuration": 15 },
-    "api/mcxprice.py":    { "maxDuration": 15 }
+    "api/refresh.py":         { "maxDuration": 30 },
+    "api/history.py":         { "maxDuration": 30 },
+    "api/mcxlive.py":         { "maxDuration": 30 },
+    "api/commodities.py":     { "maxDuration": 15 },
+    "api/mcxprice.py":        { "maxDuration": 15 },
+    "api/valuation.py":       { "maxDuration": 15 },
+    "api/cron_valuation.py":  { "maxDuration": 60 }
   },
   "rewrites": [
-    { "source": "/api/refresh",     "destination": "/api/refresh" },
-    { "source": "/api/history",     "destination": "/api/history" },
-    { "source": "/api/mcxlive",     "destination": "/api/mcxlive" },
-    { "source": "/api/commodities", "destination": "/api/commodities" },
-    { "source": "/api/mcxprice",    "destination": "/api/mcxprice" },
-    { "source": "/(.*)",            "destination": "/index.html" }
+    { "source": "/api/refresh",         "destination": "/api/refresh" },
+    { "source": "/api/history",         "destination": "/api/history" },
+    { "source": "/api/mcxlive",         "destination": "/api/mcxlive" },
+    { "source": "/api/commodities",     "destination": "/api/commodities" },
+    { "source": "/api/mcxprice",        "destination": "/api/mcxprice" },
+    { "source": "/api/valuation",       "destination": "/api/valuation" },
+    { "source": "/api/cron_valuation",  "destination": "/api/cron_valuation" },
+    { "source": "/(.*)",                "destination": "/index.html" }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron_valuation?mode=recent",
+      "schedule": "30 19 * * 1-5"
+    }
   ]
 }
