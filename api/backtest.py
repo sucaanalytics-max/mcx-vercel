@@ -189,14 +189,16 @@ def generate_backtest(period="all"):
     COST_BPS = 30  # 30 bps round-trip (conservative for Indian equities)
 
     # ── 3. Cumulative PnL (signal-following vs buy-and-hold) ──
-    # Now applies circuit breaker in-loop and transaction costs
+    # Circuit breaker uses RAW (unconstrained) P&L for level determination,
+    # but applies multiplier to ACTUAL positions. Costs use effective positions.
     cum_pnl = []
-    signal_cum = 0.0
+    signal_cum = 0.0          # actual (CB-adjusted) cumulative P&L
+    raw_cum = 0.0             # raw (no CB) cumulative — for CB level determination
+    raw_peak = 0.0            # peak of raw P&L
     bh_cum = 0.0
     first_price = None
-    peak_cum = 0.0
     cb_multiplier = 1.0
-    prev_pos = 0.0
+    prev_eff_pos = 0.0        # previous EFFECTIVE position (after CB)
     sum_abs_pos = 0.0
     pos_count = 0
     total_cost_pct = 0.0
@@ -212,7 +214,7 @@ def generate_backtest(period="all"):
         # Buy and hold cumulative return
         bh_cum = (price - first_price) / first_price * 100
 
-        # Signal-following: next-day return × position × circuit breaker
+        # Signal-following: next-day return × effective position
         ens = _f(s.get("ensemble_score"))
         try:
             idx = price_dates.index(dt)
@@ -225,28 +227,32 @@ def generate_backtest(period="all"):
             p1 = price_map[price_dates[idx + 1]]
             daily_ret = (p1 - p0) / p0 * 100
             pos = _pos(s)
+            eff_pos = pos * cb_multiplier
 
-            # Transaction cost on position change
-            turnover = abs(pos - prev_pos)
+            # Transaction cost on EFFECTIVE position change (no phantom costs)
+            turnover = abs(eff_pos - prev_eff_pos)
             cost_pct = turnover * COST_BPS / 100  # as percentage points
             total_cost_pct += cost_pct
-            prev_pos = pos
+            prev_eff_pos = eff_pos
 
-            # Apply circuit breaker multiplier
-            signal_cum += daily_ret * pos * cb_multiplier - cost_pct
+            # Actual P&L uses effective position
+            signal_cum += daily_ret * eff_pos - cost_pct
+
+            # Raw P&L (no CB) for determining CB levels — avoids death spiral
+            raw_cum += daily_ret * pos
+            raw_peak = max(raw_peak, raw_cum)
+            raw_dd = raw_cum - raw_peak
 
             # Track exposure
-            sum_abs_pos += abs(pos)
+            sum_abs_pos += abs(eff_pos)
             pos_count += 1
 
-            # Update peak & circuit breaker for next iteration
-            peak_cum = max(peak_cum, signal_cum)
-            dd_pct = signal_cum - peak_cum
-            if dd_pct < -10:
+            # Update circuit breaker from RAW drawdown (not CB-adjusted)
+            if raw_dd < -10:
                 cb_multiplier = 0.0
-            elif dd_pct < -5:
+            elif raw_dd < -5:
                 cb_multiplier = 0.50
-            elif dd_pct < -2:
+            elif raw_dd < -2:
                 cb_multiplier = 0.75
             else:
                 cb_multiplier = 1.0
@@ -265,12 +271,12 @@ def generate_backtest(period="all"):
         cum_pnl_chart.append(cum_pnl[-1])
 
     # ── 4. Overall Statistics ──
-    # Recompute daily_rets with new position sizing + circuit breaker
+    # Uses same CB logic as section 3: raw P&L for levels, effective positions for costs
     daily_rets = []
-    stat_cum = 0.0
-    stat_peak = 0.0
+    stat_raw_cum = 0.0
+    stat_raw_peak = 0.0
     stat_cb = 1.0
-    stat_prev_pos = 0.0
+    stat_prev_eff = 0.0
     for s in signals:
         dt = s["trading_date"]
         ens = _f(s.get("ensemble_score"))
@@ -284,20 +290,21 @@ def generate_backtest(period="all"):
             p0 = price_map[dt]
             p1 = price_map[price_dates[idx + 1]]
             pos = _pos(s)
-            turnover = abs(pos - stat_prev_pos)
+            eff_pos = pos * stat_cb
+            turnover = abs(eff_pos - stat_prev_eff)
             cost = turnover * COST_BPS / 10000  # as decimal
-            stat_prev_pos = pos
-            r = (p1 - p0) / p0 * pos * stat_cb - cost
+            stat_prev_eff = eff_pos
+            r = (p1 - p0) / p0 * eff_pos - cost
             daily_rets.append(r)
-            # Track circuit breaker state for stats consistency
-            stat_cum += r
-            stat_peak = max(stat_peak, stat_cum)
-            dd = stat_cum - stat_peak
-            if dd < -0.10:
+            # Track RAW P&L for circuit breaker (avoids death spiral)
+            stat_raw_cum += (p1 - p0) / p0 * pos
+            stat_raw_peak = max(stat_raw_peak, stat_raw_cum)
+            raw_dd = stat_raw_cum - stat_raw_peak
+            if raw_dd < -0.10:
                 stat_cb = 0.0
-            elif dd < -0.05:
+            elif raw_dd < -0.05:
                 stat_cb = 0.50
-            elif dd < -0.02:
+            elif raw_dd < -0.02:
                 stat_cb = 0.75
             else:
                 stat_cb = 1.0
@@ -352,8 +359,12 @@ def generate_backtest(period="all"):
         dd_series.append(dd_series_full[-1])
 
     # ── 5. Monthly Returns ──
+    # Now includes circuit breaker for consistency with cumulative PnL
     monthly = {}
-    mo_prev_pos = 0.0
+    mo_prev_eff = 0.0
+    mo_raw_cum = 0.0
+    mo_raw_peak = 0.0
+    mo_cb = 1.0
     for s in signals:
         dt = s["trading_date"]
         ens = _f(s.get("ensemble_score"))
@@ -367,10 +378,23 @@ def generate_backtest(period="all"):
             p0 = price_map[dt]
             p1 = price_map[price_dates[idx + 1]]
             pos = _pos(s)
-            turnover = abs(pos - mo_prev_pos)
+            eff_pos = pos * mo_cb
+            turnover = abs(eff_pos - mo_prev_eff)
             cost = turnover * COST_BPS / 10000
-            mo_prev_pos = pos
-            daily_ret = (p1 - p0) / p0 * pos - cost
+            mo_prev_eff = eff_pos
+            daily_ret = (p1 - p0) / p0 * eff_pos - cost
+            # Track raw P&L for CB
+            mo_raw_cum += (p1 - p0) / p0 * pos
+            mo_raw_peak = max(mo_raw_peak, mo_raw_cum)
+            mo_raw_dd = mo_raw_cum - mo_raw_peak
+            if mo_raw_dd < -0.10:
+                mo_cb = 0.0
+            elif mo_raw_dd < -0.05:
+                mo_cb = 0.50
+            elif mo_raw_dd < -0.02:
+                mo_cb = 0.75
+            else:
+                mo_cb = 1.0
             month_key = dt[:7]  # "YYYY-MM"
             if month_key not in monthly:
                 monthly[month_key] = {"total": 0, "count": 0}
