@@ -3900,7 +3900,7 @@ async function loadCommodity() {
   if (commCache && (Date.now() - commCache._ts < 300000)) { renderCommodity(commCache); return; }
   document.getElementById('commAsOf').textContent = 'Loading commodity data…';
   try {
-    const resp = await fetch(API + '/api/commodity_analytics');
+    const resp = await fetch(API + '/api/commodities?view=signals');
     const data = await resp.json();
     if (data.success) {
       data._ts = Date.now();

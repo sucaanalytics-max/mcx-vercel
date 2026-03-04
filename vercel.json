@@ -3,7 +3,7 @@
     "api/refresh.py":         { "maxDuration": 30 },
     "api/history.py":         { "maxDuration": 30 },
     "api/mcxlive.py":         { "maxDuration": 30 },
-    "api/commodities.py":     { "maxDuration": 15 },
+    "api/commodities.py":     { "maxDuration": 30 },
     "api/mcxprice.py":        { "maxDuration": 15 },
     "api/valuation.py":       { "maxDuration": 15 },
     "api/models.py":          { "maxDuration": 15 },
@@ -11,7 +11,6 @@
     "api/cron_models.py":     { "maxDuration": 60 },
     "api/analytics.py":       { "maxDuration": 30 },
     "api/backtest.py":        { "maxDuration": 30 },
-    "api/commodity_analytics.py": { "maxDuration": 30 },
     "api/cron_commodity_signals.py": { "maxDuration": 60 }
   },
   "rewrites": [
@@ -26,7 +25,6 @@
     { "source": "/api/cron_models",     "destination": "/api/cron_models" },
     { "source": "/api/analytics",       "destination": "/api/analytics" },
     { "source": "/api/backtest",        "destination": "/api/backtest" },
-    { "source": "/api/commodity_analytics", "destination": "/api/commodity_analytics" },
     { "source": "/api/cron_commodity_signals", "destination": "/api/cron_commodity_signals" },
     { "source": "/(.*)",                "destination": "/index.html" }
   ],
