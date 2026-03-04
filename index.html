@@ -122,6 +122,12 @@ body {
 .btn.loading .btn-spin { display: inline-block; }
 .btn-spin { display: none; animation: spin 0.5s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg) } }
+@keyframes priceFlash {
+  0%   { background-color: transparent; }
+  15%  { background-color: rgba(27,125,58,0.15); }
+  100% { background-color: transparent; }
+}
+.price-flash { animation: priceFlash 1.2s ease-out; }
 
 .theme-toggle {
   width: 32px; height: 32px;
@@ -1418,6 +1424,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
       EPS (TTM): ₹36.75 · PE: 65.2x · MCap: ₹61,090 Cr
     </div>
     <div class="fc-hero-sub" id="fcCmpSource" style="margin-top:4px;font-size:11px;opacity:0.6"></div>
+    <div class="fc-hero-sub" id="fcCmpLastUpdated" style="margin-top:2px;font-size:10px;opacity:0.5"></div>
   </div>
   <div class="fc-hero-card fc-hero-card--model">
     <h3>Model Prediction</h3>
@@ -2851,6 +2858,9 @@ function seedForecastFromAPI(totalRev) {
 }
 
 // ── Auto-fetch CMP from /api/mcxprice (indianapi.in → Yahoo fallback) ────
+let _lastCMPPrice = null;
+let _lastCMPTimer = null;
+
 async function fetchLiveCMP() {
   try {
     const resp = await fetch('/api/mcxprice');
@@ -2859,8 +2869,18 @@ async function fetchLiveCMP() {
     if (data.error) { console.warn('CMP fetch:', data.error); return; }
 
     const price = Math.round(data.price);
+    const priceChanged = (_lastCMPPrice !== null && _lastCMPPrice !== price);
+    _lastCMPPrice = price;
+
     // Update hero CMP display
-    document.getElementById('fcCmpPrice').textContent = '₹' + price.toLocaleString('en-IN');
+    const fcPriceEl = document.getElementById('fcCmpPrice');
+    fcPriceEl.textContent = '₹' + price.toLocaleString('en-IN');
+    if (priceChanged) {
+      fcPriceEl.classList.remove('price-flash');
+      void fcPriceEl.offsetWidth;
+      fcPriceEl.classList.add('price-flash');
+    }
+
     // Update advanced CMP input + FC constant
     document.getElementById('fcAdvCMP').value = price;
     FC.currentPrice = price;
@@ -2874,6 +2894,23 @@ async function fetchLiveCMP() {
       srcEl.textContent = `Live: ${src}${cached}${changeTxt}`;
     }
 
+    // "Last updated" relative timestamp
+    const updEl = document.getElementById('fcCmpLastUpdated');
+    if (updEl) {
+      const fetchedAt = data.fetched_at ? new Date(data.fetched_at) : new Date();
+      const formatAgo = () => {
+        const secs = Math.round((Date.now() - fetchedAt.getTime()) / 1000);
+        if (secs < 5) return 'just now';
+        if (secs < 60) return secs + 's ago';
+        if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+        return Math.floor(secs / 3600) + 'h ago';
+      };
+      updEl.textContent = 'Updated ' + formatAgo();
+      updEl.style.color = '';
+      if (_lastCMPTimer) clearInterval(_lastCMPTimer);
+      _lastCMPTimer = setInterval(() => { updEl.textContent = 'Updated ' + formatAgo(); }, 10000);
+    }
+
     // Recalculate model with new CMP
     recalcForecast();
 
@@ -2881,9 +2918,17 @@ async function fetchLiveCMP() {
     const valPriceEl = document.getElementById('valPrice');
     if (valPriceEl) {
       valPriceEl.textContent = '₹' + price.toLocaleString('en-IN');
+      if (priceChanged) {
+        valPriceEl.classList.remove('price-flash');
+        void valPriceEl.offsetWidth;
+        valPriceEl.classList.add('price-flash');
+      }
       const src = data.source || '?';
       const cached = data.cached ? ' (cached)' : '';
-      document.getElementById('valPriceDate').textContent = `Live · ${src}${cached}`;
+      const fetchedAt = data.fetched_at ? new Date(data.fetched_at) : new Date();
+      const secs = Math.round((Date.now() - fetchedAt.getTime()) / 1000);
+      const ago = secs < 5 ? 'just now' : secs < 60 ? secs + 's ago' : Math.floor(secs / 60) + 'm ago';
+      document.getElementById('valPriceDate').textContent = `Live · ${src}${cached} · ${ago}`;
     }
     // Recalculate Fair Value metrics with live price
     if (valCache && valCache.snapshot) {
@@ -2921,7 +2966,11 @@ async function fetchLiveCMP() {
     console.log(`CMP updated: ₹${price} (${data.source})`);
   } catch (e) {
     console.warn('CMP auto-fetch failed:', e.message);
-    // Keep hardcoded default — no user-visible error
+    const updEl = document.getElementById('fcCmpLastUpdated');
+    if (updEl && updEl.textContent) {
+      updEl.style.color = 'var(--warning, #e67e22)';
+      updEl.textContent = updEl.textContent.replace('Updated', 'Stale ·');
+    }
   }
 }
 
@@ -2938,8 +2987,8 @@ async function fetchLiveCMP() {
   renderIntradayChart();
   // Auto-fetch live CMP on page load
   fetchLiveCMP();
-  // Refresh CMP every 5 minutes
-  setInterval(fetchLiveCMP, 5 * 60 * 1000);
+  // Refresh CMP every 30 seconds
+  setInterval(fetchLiveCMP, 30 * 1000);
 })();
 
 // ════════════════════════════════════════════════════════════════════════════

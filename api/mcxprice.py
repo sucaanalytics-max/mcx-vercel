@@ -20,7 +20,7 @@ INDIANAPI_KEY = os.environ.get("INDIANAPI_KEY", "")
 INDIANAPI_URL = "https://stock.indianapi.in/stock?name=MCX"
 YAHOO_URL = "https://query1.finance.yahoo.com/v8/finance/chart/MCX.NS?range=1d&interval=1d"
 
-CACHE_TTL_MINUTES = 5
+CACHE_TTL_MINUTES = 1
 
 
 def _now_utc():
@@ -230,7 +230,7 @@ class handler(BaseHTTPRequestHandler):
             self.send_header(k, v)
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Cache-Control", "public, max-age=300")
+        self.send_header("Cache-Control", "public, max-age=30, s-maxage=30")
 
     def do_OPTIONS(self):
         self.send_response(204)
