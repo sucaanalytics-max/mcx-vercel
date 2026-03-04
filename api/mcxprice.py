@@ -1,6 +1,6 @@
 """
 /api/mcxprice — MCX CMP (Current Market Price) endpoint.
-Primary: indianapi.in  |  Fallback: Yahoo Finance  |  Cache: Supabase
+Primary: yfinance  |  Fallback: indianapi.in, Yahoo Finance  |  Cache: Supabase
 Single-purpose: returns latest MCX Ltd share price for frontend auto-update.
 """
 from http.server import BaseHTTPRequestHandler
@@ -140,7 +140,7 @@ def _write_cache(price, source, change_pct=None):
 
 
 def _get_price():
-    """Fetch MCX price with cache → indianapi → yahoo fallback chain."""
+    """Fetch MCX price with cache → yfinance → indianapi → yahoo fallback chain."""
     # 1. Check Supabase cache
     cached = _read_cache()
     if cached:
@@ -160,22 +160,8 @@ def _get_price():
         except Exception:
             pass
 
-    # 2. Try indianapi.in (primary)
+    # 2. Try yfinance library (primary, reliable)
     errors = []
-    try:
-        price, change_pct, source = _fetch_indianapi()
-        _write_cache(price, source, change_pct)
-        return {
-            "price": price,
-            "change_pct": change_pct,
-            "source": source,
-            "cached": False,
-            "fetched_at": _now_utc().isoformat(),
-        }
-    except Exception as e:
-        errors.append(f"indianapi: {e}")
-
-    # 3. Try yfinance library (reliable, already in requirements.txt)
     try:
         price, change_pct, source = _fetch_yfinance()
         _write_cache(price, source, change_pct)
@@ -188,6 +174,20 @@ def _get_price():
         }
     except Exception as e:
         errors.append(f"yfinance: {e}")
+
+    # 3. Try indianapi.in (fallback)
+    try:
+        price, change_pct, source = _fetch_indianapi()
+        _write_cache(price, source, change_pct)
+        return {
+            "price": price,
+            "change_pct": change_pct,
+            "source": source,
+            "cached": False,
+            "fetched_at": _now_utc().isoformat(),
+        }
+    except Exception as e:
+        errors.append(f"indianapi: {e}")
 
     # 4. Fallback to raw Yahoo Finance HTTP
     try:
