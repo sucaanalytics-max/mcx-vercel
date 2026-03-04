@@ -1,6 +1,6 @@
 """
 /api/mcxprice — MCX CMP (Current Market Price) endpoint.
-Primary: yfinance  |  Fallback: indianapi.in, Yahoo Finance  |  Cache: Supabase
+Primary: yfinance (live intraday)  |  Fallback: Yahoo Finance, indianapi.in  |  Cache: Supabase
 Single-purpose: returns latest MCX Ltd share price for frontend auto-update.
 """
 from http.server import BaseHTTPRequestHandler
@@ -64,14 +64,14 @@ def _fetch_indianapi():
 
 
 def _fetch_yfinance():
-    """Fetch MCX.NS price using yfinance library (already in requirements.txt)."""
+    """Fetch MCX.NS live intraday price using yfinance fast_info."""
     import yfinance as yf
     ticker = yf.Ticker("MCX.NS")
-    hist = ticker.history(period="1d")
-    if hist.empty:
-        raise ValueError("yfinance returned no data for MCX.NS")
-    price = float(hist["Close"].iloc[-1])
-    prev = float(hist["Open"].iloc[0]) if "Open" in hist.columns else price
+    info = ticker.fast_info
+    price = float(info["last_price"])
+    prev = float(info["previous_close"])
+    if price <= 0:
+        raise ValueError("yfinance fast_info returned invalid price")
     change_pct = round(((price - prev) / prev * 100), 2) if prev > 0 else 0
     return price, change_pct, "yfinance"
 
@@ -140,7 +140,7 @@ def _write_cache(price, source, change_pct=None):
 
 
 def _get_price():
-    """Fetch MCX price with cache → yfinance → indianapi → yahoo fallback chain."""
+    """Fetch MCX price with cache → yfinance → yahoo → indianapi fallback chain."""
     # 1. Check Supabase cache
     cached = _read_cache()
     if cached:
@@ -171,25 +171,12 @@ def _get_price():
             "source": source,
             "cached": False,
             "fetched_at": _now_utc().isoformat(),
+            "tried": errors,
         }
     except Exception as e:
         errors.append(f"yfinance: {e}")
 
-    # 3. Try indianapi.in (fallback)
-    try:
-        price, change_pct, source = _fetch_indianapi()
-        _write_cache(price, source, change_pct)
-        return {
-            "price": price,
-            "change_pct": change_pct,
-            "source": source,
-            "cached": False,
-            "fetched_at": _now_utc().isoformat(),
-        }
-    except Exception as e:
-        errors.append(f"indianapi: {e}")
-
-    # 4. Fallback to raw Yahoo Finance HTTP
+    # 3. Try raw Yahoo Finance HTTP (live regularMarketPrice)
     try:
         price, change_pct, source = _fetch_yahoo()
         _write_cache(price, source, change_pct)
@@ -199,9 +186,25 @@ def _get_price():
             "source": source,
             "cached": False,
             "fetched_at": _now_utc().isoformat(),
+            "tried": errors,
         }
     except Exception as e:
         errors.append(f"yahoo: {e}")
+
+    # 4. Try indianapi.in (returns EOD close, last resort)
+    try:
+        price, change_pct, source = _fetch_indianapi()
+        _write_cache(price, source, change_pct)
+        return {
+            "price": price,
+            "change_pct": change_pct,
+            "source": source,
+            "cached": False,
+            "fetched_at": _now_utc().isoformat(),
+            "tried": errors,
+        }
+    except Exception as e:
+        errors.append(f"indianapi: {e}")
 
     # 4. Serve stale cache if available
     if cached:
