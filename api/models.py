@@ -9,7 +9,7 @@ Returns:
 Data: pre-computed in mcx_model_signals table (refreshed by cron_models.py).
 """
 from http.server import BaseHTTPRequestHandler
-import json
+import json, math
 
 try:
     from api.mcx_config import (
@@ -73,7 +73,7 @@ MODEL_META = {
 }
 
 
-def _fetch_model_signals(limit=90):
+def _fetch_model_signals(limit=120):
     """Fetch pre-computed model signals from Supabase."""
     if not SUPABASE_ANON_KEY:
         return []
@@ -93,7 +93,7 @@ def _fetch_model_signals(limit=90):
 
 def generate_models_response():
     ist_now = now_ist()
-    rows = _fetch_model_signals(limit=90)
+    rows = _fetch_model_signals(limit=120)
 
     if not rows:
         return {"success": False, "error": "No model signals available. Run cron_models first."}
@@ -127,9 +127,14 @@ def generate_models_response():
     }
 
     # Build history (last 60 entries for charting)
+    # Pre-extract all spreads from the full 90-row fetch for rolling band computation
+    all_spreads = [_f(r.get("ecm_spread_pct")) for r in rows]
+    display_rows = rows[-60:]
+    offset = len(rows) - len(display_rows)   # index offset into full array
+
     history = []
-    for r in rows[-60:]:
-        history.append({
+    for i, r in enumerate(display_rows):
+        entry = {
             "date": r["trading_date"],
             "price": _f(r.get("close_price")),
             "fair_value": _f(r.get("fair_value_base")),
@@ -144,7 +149,22 @@ def generate_models_response():
             "mf_signal": r.get("mf_signal"),
             "ensemble_score": _f(r.get("ensemble_score")),
             "ensemble_signal": r.get("ensemble_signal"),
-        })
+        }
+
+        # Rolling 60-day ±σ bands matching backend z-score window
+        gi = offset + i                       # global index in all_spreads
+        ws = max(0, gi - 59)                   # window start (60 obs max)
+        window = [v for v in all_spreads[ws:gi + 1] if v is not None]
+        if len(window) >= 30:
+            m = sum(window) / len(window)
+            sd = math.sqrt(sum((v - m) ** 2 for v in window) / len(window))
+            entry["ecm_band_mean"] = round(m, 3)
+            entry["ecm_band_1up"]  = round(m + sd, 3)
+            entry["ecm_band_1dn"]  = round(m - sd, 3)
+            entry["ecm_band_15up"] = round(m + 1.5 * sd, 3)
+            entry["ecm_band_15dn"] = round(m - 1.5 * sd, 3)
+
+        history.append(entry)
 
     return {
         "success": True,

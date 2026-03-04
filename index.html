@@ -2935,19 +2935,12 @@ function renderECMChart(history) {
   const spreadPcts = history.map(h => h.ecm_spread_pct);
   const ecmZs = history.map(h => h.ecm_z);
 
-  // Compute mean and SD of spread_pct for band lines
-  const validSpreads = spreadPcts.filter(v => v !== null && v !== undefined);
-  const mean = validSpreads.length > 0 ? validSpreads.reduce((a, b) => a + b, 0) / validSpreads.length : 0;
-  const variance = validSpreads.length > 1
-    ? validSpreads.reduce((s, v) => s + (v - mean) ** 2, 0) / validSpreads.length
-    : 0;
-  const sd = Math.sqrt(variance);
-
-  const band1up = history.map(() => +(mean + sd).toFixed(2));
-  const band1dn = history.map(() => +(mean - sd).toFixed(2));
-  const band15up = history.map(() => +(mean + 1.5 * sd).toFixed(2));
-  const band15dn = history.map(() => +(mean - 1.5 * sd).toFixed(2));
-  const meanLine = history.map(() => +mean.toFixed(2));
+  // Use server-computed rolling 60-day bands (per-point, matching backend z-scores)
+  const band1up  = history.map(h => h.ecm_band_1up  ?? null);
+  const band1dn  = history.map(h => h.ecm_band_1dn  ?? null);
+  const band15up = history.map(h => h.ecm_band_15up ?? null);
+  const band15dn = history.map(h => h.ecm_band_15dn ?? null);
+  const meanLine = history.map(h => h.ecm_band_mean ?? null);
 
   const isDark = document.documentElement.classList.contains('dark');
   const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
@@ -2983,6 +2976,7 @@ function renderECMChart(history) {
           borderDash: [4, 4],
           pointRadius: 0,
           fill: false,
+          spanGaps: true,
           order: 5,
         },
         {
@@ -2993,6 +2987,7 @@ function renderECMChart(history) {
           borderDash: [3, 3],
           pointRadius: 0,
           fill: false,
+          spanGaps: true,
           order: 4,
         },
         {
@@ -3004,6 +2999,7 @@ function renderECMChart(history) {
           pointRadius: 0,
           fill: '-1',
           backgroundColor: isDark ? 'rgba(250,173,20,0.04)' : 'rgba(173,104,0,0.04)',
+          spanGaps: true,
           order: 3,
         },
         {
@@ -3014,6 +3010,7 @@ function renderECMChart(history) {
           borderDash: [2, 4],
           pointRadius: 0,
           fill: false,
+          spanGaps: true,
           order: 6,
         },
         {
@@ -3024,6 +3021,7 @@ function renderECMChart(history) {
           borderDash: [2, 4],
           pointRadius: 0,
           fill: false,
+          spanGaps: true,
           order: 6,
         },
       ],
