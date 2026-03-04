@@ -1,0 +1,160 @@
+From 4588c80c3276e6f1737448e959efeb7d5a1fc4c1 Mon Sep 17 00:00:00 2001
+From: JVB <jay.bansal@tuskinvest.com>
+Date: Wed, 4 Mar 2026 03:42:40 +0000
+Subject: [PATCH] Fix critical PE computation bug + update dashboard weight
+ descriptions
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+PE Bug: After commodity backfill extended revenue to 2022, dynamic PE
+mean dropped from 35.95x to 22.05x (contaminated by 2022 era PE ~10x).
+This caused FV to show ~₹1,730 instead of ~₹2,728, falsely signaling
+OVERVALUED when stock was actually UNDERVALUED.
+
+Fix: Add PE_LOOKBACK=252 (trailing 1yr window) + replace mean±SD with
+robust median + scaled MAD (1.4826 factor). Prevents historical regime
+shifts from contaminating current valuation bands.
+
+Dashboard HTML: Updated 4 stale weight descriptions to reflect Phase 3
+factor decomposition (ECM 30% + MF 70%, Rev 43% + Turn 57%). Added
+opacity + "(ref)" labels to Vol/InvVol factor bars (excluded from composite).
+
+bhav_refresh: Add on_conflict=trading_date to upsert query.
+
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+---
+ api/cron_valuation.py   | 23 ++++++++++++++++++-----
+ api/mcx_config.py       |  4 ++--
+ index.html              | 16 ++++++++--------
+ scripts/bhav_refresh.py |  2 +-
+ 4 files changed, 29 insertions(+), 16 deletions(-)
+
+diff --git a/api/cron_valuation.py b/api/cron_valuation.py
+index f364163..c55deaa 100644
+--- a/api/cron_valuation.py
++++ b/api/cron_valuation.py
+@@ -32,6 +32,7 @@ import os
+ 
+ CRON_SECRET = os.environ.get("CRON_SECRET", "")
+ MA_WINDOW = 45
++PE_LOOKBACK = 252   # trailing trading days for dynamic PE computation (1 year)
+ 
+ 
+ # ─── Supabase helpers (self-contained, no external deps) ─────────────────
+@@ -116,12 +117,24 @@ def compute_valuations(rev_rows, price_rows, pe_mean=None, pe_sd=None):
+             "implied_pe": round(price / eps, 2) if (price and eps > 0) else None,
+         })
+ 
+-    # Dynamic P/E
++    # Dynamic P/E — trailing window + robust quantile bands
++    # Uses trailing PE_LOOKBACK observations to avoid regime-shift contamination
++    # (e.g. MCX PE was 10x in 2022, 35x in 2025 — full-history mean is misleading)
+     if pe_mean is None or pe_sd is None:
+-        valid_pes = [e["implied_pe"] for e in eps_series if e["implied_pe"] is not None]
+-        if len(valid_pes) >= 30:
+-            pe_mean = sum(valid_pes) / len(valid_pes)
+-            pe_sd = math.sqrt(sum((p - pe_mean) ** 2 for p in valid_pes) / len(valid_pes))
++        all_pes = [e["implied_pe"] for e in eps_series if e["implied_pe"] is not None]
++        # Use only trailing PE_LOOKBACK observations
++        recent_pes = all_pes[-PE_LOOKBACK:] if len(all_pes) > PE_LOOKBACK else all_pes
++        if len(recent_pes) >= 30:
++            # Robust: median + scaled MAD (resistant to outliers and skew)
++            recent_sorted = sorted(recent_pes)
++            n = len(recent_sorted)
++            pe_median = recent_sorted[n // 2] if n % 2 else (recent_sorted[n // 2 - 1] + recent_sorted[n // 2]) / 2
++            abs_devs = sorted(abs(p - pe_median) for p in recent_sorted)
++            mad_raw = abs_devs[len(abs_devs) // 2] if len(abs_devs) % 2 else (abs_devs[len(abs_devs) // 2 - 1] + abs_devs[len(abs_devs) // 2]) / 2
++            mad_scaled = mad_raw * 1.4826  # scale factor for normal-equivalent SD
++
++            pe_mean = round(pe_median, 2)
++            pe_sd = round(mad_scaled, 2) if mad_scaled > 0.5 else round(math.sqrt(sum((p - pe_median) ** 2 for p in recent_pes) / n), 2)
+         else:
+             pe_mean = PE_MEAN_DEFAULT
+             pe_sd = PE_SD_DEFAULT
+diff --git a/api/mcx_config.py b/api/mcx_config.py
+index 382c713..542f254 100644
+--- a/api/mcx_config.py
++++ b/api/mcx_config.py
+@@ -340,5 +340,5 @@ def supabase_upsert(table, data, timeout=10):
+ PAT_MARGIN           = float(os.environ.get("MCX_PAT_MARGIN", "0.55"))        # 55% PAT margin (Excel Triangulation)
+ NON_FO_REV_ANNUAL_CR = float(os.environ.get("MCX_NON_FO_REV", "527.0"))      # FY27 non-F&O revenue (₹ Cr/year)
+ DILUTED_SHARES_CR    = float(os.environ.get("MCX_DILUTED_SHARES", "25.451"))  # 254.51M diluted shares
+-PE_MEAN_DEFAULT      = float(os.environ.get("MCX_PE_MEAN", "35.95"))          # Dynamic PE mean (328 obs, Nov'24-Mar'26)
+-PE_SD_DEFAULT        = float(os.environ.get("MCX_PE_SD", "4.23"))             # Dynamic PE std dev
++PE_MEAN_DEFAULT      = float(os.environ.get("MCX_PE_MEAN", "34.79"))          # Dynamic PE median (trailing 252 obs)
++PE_SD_DEFAULT        = float(os.environ.get("MCX_PE_SD", "3.49"))             # Scaled MAD (robust PE dispersion)
+diff --git a/index.html b/index.html
+index a528530..b8e4dac 100644
+--- a/index.html
++++ b/index.html
+@@ -1614,7 +1614,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
+   <div>
+     <div class="mdl-ensemble-label">Ensemble Recommendation</div>
+     <div class="mdl-ensemble-desc">
+-      Blended signal: Model A valuation gap (40%) + ECM reversion (30%) + Multi-Factor momentum (30%)
++      Blended signal: ECM reversion (30%) + Multi-Factor momentum (70%). Expands to: Revenue 30% + Turnover 40% + ECM 30%.
+     </div>
+     <div style="display:flex;align-items:center;margin-top:8px">
+       <div id="mdlEnsembleSignalBadge"></div>
+@@ -1623,7 +1623,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
+           <strong>Score Ranges</strong><br>
+           &gt; 1.5 → Strong Buy · &gt; 0.5 → Buy · ±0.5 → Neutral · &lt; −0.5 → Sell · &lt; −1.5 → Strong Sell<br><br>
+           <strong>Blend</strong><br>
+-          Valuation gap 40% + ECM reversion 30% + Multi-Factor momentum 30%.
++          ECM reversion 30% + Multi-Factor momentum 70% (Rev 43% · TO 57%).
+           Positive score = net bullish. Negative = net bearish.
+         </span>
+       </span>
+@@ -1706,7 +1706,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
+             <strong>Composite Ranges</strong><br>
+             &gt; 1.5 → Strong Buy · &gt; 0.5 → Buy · ±0.5 → Neutral · &lt; −0.5 → Sell · &lt; −1.5 → Strong Sell<br><br>
+             <strong>Weights</strong><br>
+-            Revenue 40% · Turnover 25% · Volume 20% · Inv. Volatility 15%.
++            Revenue 43% · Turnover 57% (Vol &amp; Inv.Vol displayed but excluded from composite per Phase 3 factor decomposition).
+             Positive composite = bullish exchange activity.
+           </span>
+         </span>
+@@ -1723,13 +1723,13 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
+         <div class="mdl-factor-bar-wrap"><div class="mdl-factor-bar-center"></div><div class="mdl-factor-bar-fill" id="mdlBar_turn"></div></div>
+         <div class="mdl-factor-val" id="mdlVal_turn">—</div>
+       </div>
+-      <div class="mdl-factor-row">
+-        <div class="mdl-factor-label">Volume</div>
++      <div class="mdl-factor-row" style="opacity:0.45">
++        <div class="mdl-factor-label">Volume <span style="font-size:8px;color:var(--text-secondary)">(ref)</span></div>
+         <div class="mdl-factor-bar-wrap"><div class="mdl-factor-bar-center"></div><div class="mdl-factor-bar-fill" id="mdlBar_vol"></div></div>
+         <div class="mdl-factor-val" id="mdlVal_vol">—</div>
+       </div>
+-      <div class="mdl-factor-row">
+-        <div class="mdl-factor-label">Inv. Vol</div>
++      <div class="mdl-factor-row" style="opacity:0.45">
++        <div class="mdl-factor-label">Inv. Vol <span style="font-size:8px;color:var(--text-secondary)">(ref)</span></div>
+         <div class="mdl-factor-bar-wrap"><div class="mdl-factor-bar-center"></div><div class="mdl-factor-bar-fill" id="mdlBar_ivol"></div></div>
+         <div class="mdl-factor-val" id="mdlVal_ivol">—</div>
+       </div>
+@@ -1739,7 +1739,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
+       <div class="mdl-factor-composite-val" id="mdlMfComposite">—</div>
+     </div>
+     <div style="font-family:var(--mono);font-size:9px;color:var(--text-secondary);margin-top:8px">
+-      Weights: Rev 40% · Turn 25% · Vol 20% · Inv.Vol 15%. Rolling 60-day z-scores.
++      Weights: Rev 43% · Turn 57%. Vol &amp; Inv.Vol shown for reference only. Rolling 60-day z-scores.
+     </div>
+   </div>
+ 
+diff --git a/scripts/bhav_refresh.py b/scripts/bhav_refresh.py
+index 2d3d477..bbc3f41 100755
+--- a/scripts/bhav_refresh.py
++++ b/scripts/bhav_refresh.py
+@@ -168,7 +168,7 @@ def get_existing_dates():
+ 
+ def upsert_rows(rows):
+     """Upsert revenue rows to Supabase."""
+-    url = f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue"
++    url = f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue?on_conflict=trading_date"
+     body = json.dumps(rows).encode()
+     req = urllib.request.Request(url, data=body, method="POST", headers={
+         "apikey": SUPABASE_ANON_KEY,
+-- 
+2.34.1
+
