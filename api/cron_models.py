@@ -26,11 +26,13 @@ import os
 CRON_SECRET = os.environ.get("CRON_SECRET", "")
 ROLLING_WINDOW = 60
 
-# Factor weights for Model C
-W_REV = 0.40
-W_TURN = 0.25
-W_VOL = 0.20
-W_IVOL = 0.15
+# Factor weights for Model C  (Phase 3 optimised — Vol/InvVol dropped per factor decomposition)
+# Within MF composite: Rev 30 / TO 40 → normalised to 3:4 ratio
+W_REV  = 3 / 7   # ≈ 0.4286
+W_TURN = 4 / 7   # ≈ 0.5714
+# Ensemble blend: ECM 30 % + MF 70 %  (expands to Rev 30 % + TO 40 % + ECM 30 %)
+W_ECM  = 0.30
+W_MF   = 0.70
 
 
 def sb_get(table, params=""):
@@ -189,11 +191,11 @@ def compute_signals(mode="recent"):
         # Half-life estimate
         half_life = round(60.0 / (1.0 + abs(ecm_z)), 1) if ecm_z is not None else None
 
-        # MF composite
+        # MF composite (Rev + Turnover only — Vol/InvVol kept for display)
         mf_composite = None
         mf_signal = "NO_DATA"
-        if all(x is not None for x in [rev_z, turn_z, vol_z, ivol_z]):
-            mf_composite = round(rev_z * W_REV + turn_z * W_TURN + vol_z * W_VOL + ivol_z * W_IVOL, 3)
+        if all(x is not None for x in [rev_z, turn_z]):
+            mf_composite = round(rev_z * W_REV + turn_z * W_TURN, 3)
             if mf_composite > 1.5:
                 mf_signal = "STRONG_BUY"
             elif mf_composite > 0.5:
@@ -209,7 +211,7 @@ def compute_signals(mode="recent"):
         ens_score = None
         ens_signal = "NO_DATA"
         if ecm_z is not None and mf_composite is not None:
-            ens_score = round((-ecm_z * 0.40) + (-ecm_z * 0.30) + (mf_composite * 0.30), 3)
+            ens_score = round((-ecm_z * W_ECM) + (mf_composite * W_MF), 3)
             if ens_score > 1.5:
                 ens_signal = "STRONG_BUY"
             elif ens_score > 0.5:

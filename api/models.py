@@ -42,12 +42,13 @@ MODEL_META = {
     },
     "C": {
         "name": "Multi-Factor Momentum",
-        "description": "Composite score from 4 exchange-level factors: "
-                       "daily revenue (40%), total turnover (25%), share volume (20%), "
-                       "and inverse intraday volatility (15%). "
+        "description": "Composite score from 2 exchange-level factors: "
+                       "daily revenue (43%) and total turnover (57%). "
+                       "Phase 3 analysis dropped volume and intraday volatility "
+                       "(zero marginal IC contribution). "
                        "Positive composite = bullish exchange activity momentum.",
         "window": 60,
-        "weights": {"revenue": 0.40, "turnover": 0.25, "volume": 0.20, "volatility": 0.15},
+        "weights": {"revenue": 0.4286, "turnover": 0.5714},
         "signals": {
             "STRONG_BUY": "All factors strongly positive",
             "BUY": "Net positive factor momentum",
@@ -58,8 +59,9 @@ MODEL_META = {
     },
     "ensemble": {
         "name": "Ensemble Signal",
-        "description": "Blended recommendation: Model A valuation gap (40%) + "
-                       "ECM reversion (30%) + Multi-Factor momentum (30%).",
+        "description": "Blended recommendation: ECM reversion (30%) + "
+                       "Multi-Factor momentum (70%). "
+                       "Expands to: Revenue 30% + Turnover 40% + ECM 30%.",
         "signals": {
             "STRONG_BUY": "Undervalued + reversion likely + positive momentum",
             "BUY": "Net positive across models",
