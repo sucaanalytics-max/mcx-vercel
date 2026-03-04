@@ -1085,6 +1085,67 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 .mdl-ens-gauge .val-gauge-labels {
   font-size: 10px;
 }
+
+/* ── Position & Conviction Panel (3D-2) ── */
+.mdl-position-panel {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+.mdl-position-gauge-wrap {
+  margin-bottom: 12px;
+}
+.mdl-pos-gauge-bar {
+  position: relative;
+  height: 28px;
+  border-radius: 14px;
+  overflow: hidden;
+  display: flex;
+  margin-bottom: 4px;
+  border: 1px solid var(--border);
+}
+.mdl-pos-fill {
+  height: 100%;
+}
+.mdl-pos-fill.mdl-pos-sell {
+  width: 30%;
+  background: linear-gradient(90deg, #c0392b 0%, #e74c3c 60%, #e67e22 100%);
+}
+.mdl-pos-fill.mdl-pos-neutral {
+  width: 40%;
+  background: linear-gradient(90deg, #e67e22 0%, #f1c40f 35%, #f1c40f 65%, #2ecc71 100%);
+}
+.mdl-pos-fill.mdl-pos-buy {
+  width: 30%;
+  background: linear-gradient(90deg, #2ecc71 0%, #27ae60 40%, #1a7a42 100%);
+}
+.mdl-pos-needle {
+  position: absolute;
+  top: -3px; bottom: -3px;
+  width: 3px;
+  background: var(--text);
+  border: 2px solid var(--surface);
+  border-radius: 2px;
+  margin-left: -1px;
+  transition: left 0.4s ease;
+  z-index: 2;
+}
+.mdl-pos-gauge-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: var(--text-secondary);
+  font-family: var(--mono);
+  padding: 0 2px;
+}
+.mdl-position-metrics {
+  margin-top: 8px;
+}
+.mdl-position-metrics .dtable td {
+  padding: 4px 8px;
+  font-size: 12px;
+}
 </style>
 </head>
 <body>
@@ -1653,6 +1714,33 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
     <span>+0.5</span>
     <span>+1.5</span>
     <span>+3</span>
+  </div>
+</div>
+
+<!-- ── Position & Conviction Panel (3D-2) ─────────────────────────────── -->
+<div class="mdl-position-panel" id="mdlPositionPanel">
+  <div class="val-chart-title">Continuous Position & Conviction</div>
+  <div class="mdl-position-gauge-wrap">
+    <div class="mdl-pos-gauge-bar">
+      <div class="mdl-pos-fill mdl-pos-sell"></div>
+      <div class="mdl-pos-fill mdl-pos-neutral"></div>
+      <div class="mdl-pos-fill mdl-pos-buy"></div>
+      <div class="mdl-pos-needle" id="mdlPosNeedle" style="left:50%"></div>
+    </div>
+    <div class="mdl-pos-gauge-labels">
+      <span>−1.0</span><span>−0.6</span><span>−0.25</span><span>0</span><span>+0.25</span><span>+0.6</span><span>+1.0</span>
+    </div>
+  </div>
+  <div class="mdl-position-metrics">
+    <table class="dtable" style="margin:0">
+      <tbody>
+        <tr><td>Position Score</td><td id="mdlPosScore" style="font-weight:700;font-family:var(--mono)">—</td></tr>
+        <tr><td>Conviction</td><td id="mdlPosConviction" style="font-weight:700;font-family:var(--mono)">—</td></tr>
+        <tr><td>Signal Momentum</td><td id="mdlPosMomentum" style="font-family:var(--mono)">—</td></tr>
+        <tr><td>1-Day Velocity</td><td id="mdlPosVelocity" style="font-family:var(--mono)">—</td></tr>
+        <tr><td>Conviction 2D MA</td><td id="mdlPosConvMA" style="font-family:var(--mono)">—</td></tr>
+      </tbody>
+    </table>
   </div>
 </div>
 
@@ -2889,6 +2977,44 @@ function renderModels(data) {
   document.getElementById('mdlMfComposite').style.color =
     comp > 0.5 ? 'var(--positive)' : comp < -0.5 ? 'var(--negative)' : 'var(--text)';
 
+  // ── Position & Conviction Panel (3D-2) ──
+  const pos = snap.position || {};
+  const posScore = pos.score;
+  const posConv = pos.conviction;
+  const posMom = pos.momentum;
+  const posVel = pos.velocity_1d;
+  const posConvMA = pos.conviction_2d_ma;
+
+  document.getElementById('mdlPosScore').textContent =
+    posScore !== null && posScore !== undefined ? (posScore > 0 ? '+' : '') + posScore.toFixed(4) : '—';
+  document.getElementById('mdlPosScore').style.color =
+    posScore > 0.25 ? 'var(--positive)' : posScore < -0.25 ? 'var(--negative)' : 'var(--text)';
+
+  document.getElementById('mdlPosConviction').textContent =
+    posConv !== null && posConv !== undefined ? (posConv * 100).toFixed(1) + '%' : '—';
+  document.getElementById('mdlPosConviction').style.color =
+    posConv > 0.5 ? 'var(--positive)' : 'var(--text)';
+
+  document.getElementById('mdlPosMomentum').textContent =
+    posMom !== null && posMom !== undefined ? (posMom > 0 ? '+' : '') + posMom.toFixed(3) : '—';
+  document.getElementById('mdlPosMomentum').style.color =
+    posMom > 0.5 ? 'var(--positive)' : posMom < -0.5 ? 'var(--negative)' : 'var(--text)';
+
+  document.getElementById('mdlPosVelocity').textContent =
+    posVel !== null && posVel !== undefined ? (posVel > 0 ? '+' : '') + posVel.toFixed(4) : '—';
+  document.getElementById('mdlPosVelocity').style.color =
+    posVel > 0.01 ? 'var(--positive)' : posVel < -0.01 ? 'var(--negative)' : 'var(--text)';
+
+  document.getElementById('mdlPosConvMA').textContent =
+    posConvMA !== null && posConvMA !== undefined ? (posConvMA * 100).toFixed(1) + '%' : '—';
+
+  // Position gauge needle: map [-1, +1] → [0%, 100%]
+  if (posScore !== null && posScore !== undefined) {
+    const clamped = Math.max(-1, Math.min(1, posScore));
+    const needlePct = ((clamped + 1) / 2) * 100;
+    document.getElementById('mdlPosNeedle').style.left = needlePct + '%';
+  }
+
   // ── Data Quality extension ──
   if (data.data_quality) {
     document.getElementById('valDQ_mdlRows').textContent = data.data_quality.total_rows || '—';
@@ -2934,6 +3060,7 @@ function renderECMChart(history) {
   const labels = history.map(h => h.date.slice(5));
   const spreadPcts = history.map(h => h.ecm_spread_pct);
   const ecmZs = history.map(h => h.ecm_z);
+  const posScores = history.map(h => h.position_score);
 
   // Use server-computed rolling 60-day bands (per-point, matching backend z-scores)
   const band1up  = history.map(h => h.ecm_band_1up  ?? null);
@@ -3024,6 +3151,20 @@ function renderECMChart(history) {
           spanGaps: true,
           order: 6,
         },
+        {
+          label: 'Position',
+          data: posScores,
+          borderColor: isDark ? '#b39ddb' : '#7e57c2',
+          backgroundColor: isDark ? 'rgba(179,157,219,0.08)' : 'rgba(126,87,194,0.08)',
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHoverRadius: 3,
+          tension: 0.3,
+          fill: true,
+          spanGaps: true,
+          yAxisID: 'y1',
+          order: 2,
+        },
       ],
     },
     options: {
@@ -3040,7 +3181,7 @@ function renderECMChart(history) {
             color: textColor,
             boxWidth: 12,
             padding: 8,
-            filter: item => ['Spread %', 'Mean', '+1σ', '+1.5σ'].includes(item.text),
+            filter: item => ['Spread %', 'Mean', '+1σ', '+1.5σ', 'Position'].includes(item.text),
           },
         },
         tooltip: {
@@ -3053,6 +3194,9 @@ function renderECMChart(history) {
               if (ctx.dataset.label === 'Spread %') {
                 const z = ecmZs[ctx.dataIndex];
                 return `Spread: ${ctx.parsed.y?.toFixed(2)}% (z: ${z !== null ? z.toFixed(3) : '—'})`;
+              }
+              if (ctx.dataset.label === 'Position') {
+                return `Position: ${ctx.parsed.y?.toFixed(4)}`;
               }
               return `${ctx.dataset.label}: ${ctx.parsed.y?.toFixed(2)}%`;
             },
@@ -3075,6 +3219,23 @@ function renderECMChart(history) {
             font: { family: "'JetBrains Mono'", size: 10 },
             color: textColor,
             callback: v => v.toFixed(1) + '%',
+          },
+        },
+        y1: {
+          position: 'right',
+          grid: { drawOnChartArea: false },
+          min: -1, max: 1,
+          ticks: {
+            font: { family: "'JetBrains Mono'", size: 9 },
+            color: isDark ? '#b39ddb' : '#7e57c2',
+            stepSize: 0.5,
+            callback: v => v.toFixed(1),
+          },
+          title: {
+            display: true,
+            text: 'Position [-1,+1]',
+            font: { family: "'JetBrains Mono'", size: 9 },
+            color: isDark ? '#b39ddb' : '#7e57c2',
           },
         },
       },
