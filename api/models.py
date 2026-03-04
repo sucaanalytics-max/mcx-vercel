@@ -12,12 +12,12 @@ from http.server import BaseHTTPRequestHandler
 import json, math
 
 try:
-    from api.mcx_config import (
+    from api._mcx_config import (
         SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read,
         now_ist, make_cors_headers,
     )
 except ImportError:
-    from mcx_config import (
+    from _mcx_config import (
         SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read,
         now_ist, make_cors_headers,
     )

@@ -11,12 +11,12 @@ from datetime import datetime, timedelta
 from urllib.parse import urlparse, parse_qs
 
 try:
-    from api.mcx_config import (
+    from api._mcx_config import (
         AV_KEY, make_cors_headers, now_ist,
         SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_upsert,
     )
 except ImportError:
-    from mcx_config import (
+    from _mcx_config import (
         AV_KEY, make_cors_headers, now_ist,
         SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_upsert,
     )

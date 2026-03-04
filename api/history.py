@@ -9,7 +9,7 @@ import json, math, random
 from datetime import datetime, timedelta
 
 try:
-    from api.mcx_config import (
+    from api._mcx_config import (
         FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY, TRADING_DAYS,
         AV_KEY, MCX_HOLIDAYS_2026,
         get_day_type, calc_revenue, now_ist, make_cors_headers,
@@ -17,7 +17,7 @@ try:
         SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_upsert,
     )
 except ImportError:
-    from mcx_config import (
+    from _mcx_config import (
         FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY, TRADING_DAYS,
         AV_KEY, MCX_HOLIDAYS_2026,
         get_day_type, calc_revenue, now_ist, make_cors_headers,

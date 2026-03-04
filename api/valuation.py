@@ -17,14 +17,14 @@ from http.server import BaseHTTPRequestHandler
 import json
 
 try:
-    from api.mcx_config import (
+    from api._mcx_config import (
         TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
         PE_MEAN_DEFAULT, PE_SD_DEFAULT,
         SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read,
         now_ist, make_cors_headers,
     )
 except ImportError:
-    from mcx_config import (
+    from _mcx_config import (
         TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
         PE_MEAN_DEFAULT, PE_SD_DEFAULT,
         SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read,
