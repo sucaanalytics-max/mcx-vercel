@@ -178,11 +178,29 @@ def generate_backtest(period="all"):
             "win_loss_ratio": round(wl, 2),
         }
 
+    # ── Helper: recompute position_score from ensemble_score ──
+    # Uses clipped linear (replaced tanh(x/2) which compressed 76% of positions < 0.5x)
+    def _pos(s):
+        ens = _f(s.get("ensemble_score"))
+        if ens is None:
+            return 0
+        return max(-1.0, min(1.0, ens / 2.0))
+
+    COST_BPS = 30  # 30 bps round-trip (conservative for Indian equities)
+
     # ── 3. Cumulative PnL (signal-following vs buy-and-hold) ──
+    # Now applies circuit breaker in-loop and transaction costs
     cum_pnl = []
     signal_cum = 0.0
     bh_cum = 0.0
     first_price = None
+    peak_cum = 0.0
+    cb_multiplier = 1.0
+    prev_pos = 0.0
+    sum_abs_pos = 0.0
+    pos_count = 0
+    total_cost_pct = 0.0
+
     for s in signals:
         dt = s["trading_date"]
         if dt not in price_map:
@@ -194,7 +212,7 @@ def generate_backtest(period="all"):
         # Buy and hold cumulative return
         bh_cum = (price - first_price) / first_price * 100
 
-        # Signal-following: next-day return × signal direction
+        # Signal-following: next-day return × position × circuit breaker
         ens = _f(s.get("ensemble_score"))
         try:
             idx = price_dates.index(dt)
@@ -206,9 +224,32 @@ def generate_backtest(period="all"):
             p0 = price_map[dt]
             p1 = price_map[price_dates[idx + 1]]
             daily_ret = (p1 - p0) / p0 * 100
-            # Scale by position score (continuous sizing)
-            pos = _f(s.get("position_score")) or 0
-            signal_cum += daily_ret * pos
+            pos = _pos(s)
+
+            # Transaction cost on position change
+            turnover = abs(pos - prev_pos)
+            cost_pct = turnover * COST_BPS / 100  # as percentage points
+            total_cost_pct += cost_pct
+            prev_pos = pos
+
+            # Apply circuit breaker multiplier
+            signal_cum += daily_ret * pos * cb_multiplier - cost_pct
+
+            # Track exposure
+            sum_abs_pos += abs(pos)
+            pos_count += 1
+
+            # Update peak & circuit breaker for next iteration
+            peak_cum = max(peak_cum, signal_cum)
+            dd_pct = signal_cum - peak_cum
+            if dd_pct < -10:
+                cb_multiplier = 0.0
+            elif dd_pct < -5:
+                cb_multiplier = 0.50
+            elif dd_pct < -2:
+                cb_multiplier = 0.75
+            else:
+                cb_multiplier = 1.0
 
         cum_pnl.append({
             "date": dt,
@@ -216,17 +257,23 @@ def generate_backtest(period="all"):
             "buy_hold_cum": round(bh_cum, 2),
         })
 
+    avg_abs_pos = sum_abs_pos / pos_count if pos_count > 0 else 0
+
     # Downsample cumulative PnL for chart (every 5th point)
     cum_pnl_chart = cum_pnl[::5]
     if cum_pnl and cum_pnl[-1] not in cum_pnl_chart:
         cum_pnl_chart.append(cum_pnl[-1])
 
     # ── 4. Overall Statistics ──
+    # Recompute daily_rets with new position sizing + circuit breaker
     daily_rets = []
+    stat_cum = 0.0
+    stat_peak = 0.0
+    stat_cb = 1.0
+    stat_prev_pos = 0.0
     for s in signals:
         dt = s["trading_date"]
         ens = _f(s.get("ensemble_score"))
-        pos = _f(s.get("position_score")) or 0
         if ens is None or dt not in price_map:
             continue
         try:
@@ -236,30 +283,48 @@ def generate_backtest(period="all"):
         if idx + 1 < len(price_dates):
             p0 = price_map[dt]
             p1 = price_map[price_dates[idx + 1]]
-            daily_rets.append((p1 - p0) / p0 * pos)
+            pos = _pos(s)
+            turnover = abs(pos - stat_prev_pos)
+            cost = turnover * COST_BPS / 10000  # as decimal
+            stat_prev_pos = pos
+            r = (p1 - p0) / p0 * pos * stat_cb - cost
+            daily_rets.append(r)
+            # Track circuit breaker state for stats consistency
+            stat_cum += r
+            stat_peak = max(stat_peak, stat_cum)
+            dd = stat_cum - stat_peak
+            if dd < -0.10:
+                stat_cb = 0.0
+            elif dd < -0.05:
+                stat_cb = 0.50
+            elif dd < -0.02:
+                stat_cb = 0.75
+            else:
+                stat_cb = 1.0
 
     stats = {}
+    dd_series_full = []
     if daily_rets:
         n = len(daily_rets)
         mean_r = sum(daily_rets) / n
         std_r = math.sqrt(sum((r - mean_r) ** 2 for r in daily_rets) / n) if n > 1 else 0
         wins = [r for r in daily_rets if r > 0]
         losses = [r for r in daily_rets if r < 0]
-        downside = [r for r in daily_rets if r < 0]
-        downside_std = math.sqrt(sum(r ** 2 for r in downside) / len(downside)) if downside else 0
 
-        # Drawdown series
+        # Fix 4: Correct Sortino — downside deviation of ALL returns
+        downside_sq = [min(r, 0) ** 2 for r in daily_rets]
+        downside_std = math.sqrt(sum(downside_sq) / n) if n > 0 else 0
+
+        # Fix 3: Full drawdown series (no downsampling during computation)
         cum = 0
         peak = 0
-        dd_series = []
         max_dd = 0
         for i, r in enumerate(daily_rets):
             cum += r
             peak = max(peak, cum)
             dd = cum - peak
             max_dd = min(max_dd, dd)
-            if i % 5 == 0:  # downsample
-                dd_series.append({"idx": i, "drawdown": round(dd * 100, 2)})
+            dd_series_full.append({"idx": i, "drawdown": round(dd * 100, 2)})
 
         sharpe = (mean_r / std_r * math.sqrt(252)) if std_r > 0 else 0
         sortino = (mean_r / downside_std * math.sqrt(252)) if downside_std > 0 else 0
@@ -280,15 +345,18 @@ def generate_backtest(period="all"):
             "best_day_pct": round(max(daily_rets) * 100, 3),
             "worst_day_pct": round(min(daily_rets) * 100, 3),
         }
-    else:
-        dd_series = []
+
+    # Downsample drawdown for chart (every 3rd point, always include last)
+    dd_series = dd_series_full[::3]
+    if dd_series_full and dd_series_full[-1] not in dd_series:
+        dd_series.append(dd_series_full[-1])
 
     # ── 5. Monthly Returns ──
     monthly = {}
+    mo_prev_pos = 0.0
     for s in signals:
         dt = s["trading_date"]
         ens = _f(s.get("ensemble_score"))
-        pos = _f(s.get("position_score")) or 0
         if ens is None or dt not in price_map:
             continue
         try:
@@ -298,7 +366,11 @@ def generate_backtest(period="all"):
         if idx + 1 < len(price_dates):
             p0 = price_map[dt]
             p1 = price_map[price_dates[idx + 1]]
-            daily_ret = (p1 - p0) / p0 * pos
+            pos = _pos(s)
+            turnover = abs(pos - mo_prev_pos)
+            cost = turnover * COST_BPS / 10000
+            mo_prev_pos = pos
+            daily_ret = (p1 - p0) / p0 * pos - cost
             month_key = dt[:7]  # "YYYY-MM"
             if month_key not in monthly:
                 monthly[month_key] = {"total": 0, "count": 0}
@@ -335,11 +407,10 @@ def generate_backtest(period="all"):
         }
 
     # ── 7. Drawdown Controls / Circuit Breaker (3F-4) ──
+    # Now uses full drawdown series (not downsampled) for accurate current state
     circuit_breaker = {"level": 0, "position_multiplier": 1.0, "status": "NORMAL"}
-    if stats and stats.get("max_drawdown_pct") is not None:
-        current_dd = 0
-        if dd_series:
-            current_dd = dd_series[-1].get("drawdown", 0) if dd_series[-1] else 0
+    if dd_series_full:
+        current_dd = dd_series_full[-1].get("drawdown", 0)
         if current_dd < -10:
             circuit_breaker = {"level": 3, "position_multiplier": 0.0, "status": "LIQUIDATE",
                                "message": "Max drawdown exceeded -10%. All positions closed."}
@@ -350,6 +421,19 @@ def generate_backtest(period="all"):
             circuit_breaker = {"level": 1, "position_multiplier": 0.75, "status": "CAUTION",
                                "message": "Drawdown > -2%. Position sizes reduced 25%."}
         circuit_breaker["current_drawdown_pct"] = round(current_dd, 2)
+
+    # ── 8. Benchmark Comparison ──
+    benchmark = {
+        "strategy_total_return_pct": round(signal_cum, 2),
+        "buy_hold_total_return_pct": round(bh_cum, 2),
+        "avg_exposure_pct": round(avg_abs_pos * 100, 1),
+        "exposure_adjusted_bh_pct": round(bh_cum * avg_abs_pos, 2) if bh_cum else 0,
+        "transaction_costs_pct": round(total_cost_pct, 2),
+    }
+    if bh_cum and avg_abs_pos > 0:
+        benchmark["alpha_vs_exposure_adj_bh_pct"] = round(
+            signal_cum - bh_cum * avg_abs_pos, 2
+        )
 
     return {
         "success": True,
@@ -369,6 +453,7 @@ def generate_backtest(period="all"):
         "drawdown_series": dd_series,
         "kelly_sizing": kelly_sizing,
         "circuit_breaker": circuit_breaker,
+        "benchmark_comparison": benchmark,
     }
 
 

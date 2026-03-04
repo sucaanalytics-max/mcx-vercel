@@ -2135,6 +2135,24 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   </div>
 </div>
 
+<!-- Benchmark Comparison -->
+<div class="mdl-card" style="margin-bottom:20px" id="benchmarkCard">
+  <div class="mdl-card-header"><div class="mdl-card-title">Benchmark Comparison</div></div>
+  <div style="padding:12px">
+    <table class="dtable" style="max-width:500px">
+      <tr><td>Strategy Total Return</td><td id="bmStrategy" style="font-family:var(--mono);font-weight:600">—</td></tr>
+      <tr><td>Buy & Hold Total Return</td><td id="bmBuyHold" style="font-family:var(--mono);font-weight:600">—</td></tr>
+      <tr><td>Avg Exposure</td><td id="bmExposure" style="font-family:var(--mono)">—</td></tr>
+      <tr><td>Exposure-Adjusted B&H</td><td id="bmAdjBH" style="font-family:var(--mono)">—</td></tr>
+      <tr><td>Transaction Costs (cumulative)</td><td id="bmCosts" style="font-family:var(--mono)">—</td></tr>
+      <tr><td style="font-weight:600">Alpha vs Adj. B&H</td><td id="bmAlpha" style="font-family:var(--mono);font-weight:700">—</td></tr>
+    </table>
+    <p style="font-size:10px;color:var(--text-secondary);margin-top:8px">
+      Exposure-adjusted B&H scales buy-and-hold by the strategy's average absolute position size, giving a fairer apples-to-apples comparison.
+    </p>
+  </div>
+</div>
+
 </div><!-- /wrap -->
 </div><!-- /tabBacktest -->
 
@@ -4021,6 +4039,23 @@ function renderBacktest(data) {
   document.getElementById('cbDrawdown').textContent = cb.current_drawdown_pct != null ? cb.current_drawdown_pct.toFixed(2) + '%' : '—';
   document.getElementById('cbLevel').textContent = cb.level != null ? 'L' + cb.level : '—';
   document.getElementById('cbMultiplier').textContent = cb.position_multiplier != null ? (cb.position_multiplier * 100).toFixed(0) + '%' : '—';
+
+  // ── Benchmark Comparison ──
+  const bm = data.benchmark_comparison || {};
+  const fmtPct = (v, dp=2) => v != null ? v.toFixed(dp) + '%' : '—';
+  const colorPct = (el, v) => { if (v != null) el.style.color = v >= 0 ? 'var(--positive)' : 'var(--negative)'; };
+  const bmStrat = document.getElementById('bmStrategy');
+  const bmBH = document.getElementById('bmBuyHold');
+  const bmAlpha = document.getElementById('bmAlpha');
+  bmStrat.textContent = fmtPct(bm.strategy_total_return_pct);
+  colorPct(bmStrat, bm.strategy_total_return_pct);
+  bmBH.textContent = fmtPct(bm.buy_hold_total_return_pct);
+  colorPct(bmBH, bm.buy_hold_total_return_pct);
+  document.getElementById('bmExposure').textContent = fmtPct(bm.avg_exposure_pct, 1);
+  document.getElementById('bmAdjBH').textContent = fmtPct(bm.exposure_adjusted_bh_pct);
+  document.getElementById('bmCosts').textContent = fmtPct(bm.transaction_costs_pct);
+  bmAlpha.textContent = fmtPct(bm.alpha_vs_exposure_adj_bh_pct);
+  colorPct(bmAlpha, bm.alpha_vs_exposure_adj_bh_pct);
 }
 
 // ════════════════════════════════════════════════════════════════════════════

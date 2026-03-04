@@ -224,8 +224,9 @@ def compute_signals(mode="recent"):
                 ens_signal = "STRONG_SELL"
 
         # ── Continuous positioning (3D-2) ────────────────────────────
-        # Map ensemble_score → position_score [-1, +1] via tanh
-        pos_score = round(math.tanh(ens_score / 2.0), 4) if ens_score is not None else None
+        # Map ensemble_score → position_score [-1, +1] via clipped linear
+        # (replaced tanh(x/2) which compressed 76% of positions below 0.5x)
+        pos_score = round(max(-1.0, min(1.0, ens_score / 2.0)), 4) if ens_score is not None else None
         conviction = round(abs(pos_score), 4) if pos_score is not None else None
 
         results.append({
