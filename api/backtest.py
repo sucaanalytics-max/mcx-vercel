@@ -187,12 +187,13 @@ def generate_backtest(period="all"):
         return max(-1.0, min(1.0, ens / 2.0))
 
     COST_BPS = 30  # 30 bps round-trip (conservative for Indian equities)
-    REBALANCE_THRESHOLD = 0.05  # minimum position change to trigger rebalance
+    REBALANCE_THRESHOLD = 0.25  # minimum position change to trigger rebalance
 
     # ── Circuit Breaker thresholds (percentage points of raw drawdown) ──
-    CB_L1_PCT = -7.0    # CAUTION: 75% position sizing (~3σ of MCX daily vol)
-    CB_L2_PCT = -12.0   # RESTRICT: 50% position sizing (~5σ)
-    CB_L3_PCT = -20.0   # LIQUIDATE: 0% position sizing (~8σ)
+    # Empirically calibrated: tight CB works best given limited raw alpha (35pp)
+    CB_L1_PCT = -2.0    # CAUTION: 75% position sizing
+    CB_L2_PCT = -5.0    # RESTRICT: 50% position sizing
+    CB_L3_PCT = -10.0   # LIQUIDATE: 0% position sizing
 
     def _cb_mult(raw_dd_pct):
         """Return CB position multiplier given raw drawdown in percentage points."""
