@@ -2980,35 +2980,60 @@ function renderValuation(data) {
   const dq = data.data_quality;
 
   // ── Hero cards ──
-  const price = s.latest_price;
-  document.getElementById('valPrice').textContent = price ? `₹${Math.round(price).toLocaleString('en-IN')}` : '—';
-  document.getElementById('valPriceDate').textContent = s.latest_price_date ? `As of ${s.latest_price_date}` : '';
+  // Use live CMP if available (from fetchLiveCMP), else fall back to EOD price from API
+  const livePrice = FC.currentPrice;
+  const price = livePrice || s.latest_price;
+  if (livePrice) {
+    document.getElementById('valPrice').textContent = `₹${Math.round(livePrice).toLocaleString('en-IN')}`;
+    document.getElementById('valPriceDate').textContent = `Live · ${document.getElementById('fcCmpSource')?.textContent?.replace('Live: ', '') || 'auto'}`;
+  } else {
+    document.getElementById('valPrice').textContent = price ? `₹${Math.round(price).toLocaleString('en-IN')}` : '—';
+    document.getElementById('valPriceDate').textContent = s.latest_price_date ? `As of ${s.latest_price_date}` : '';
+  }
 
   const fvBase = s.fair_value.base;
   document.getElementById('valFairBase').textContent = fvBase ? `₹${Math.round(fvBase).toLocaleString('en-IN')}` : '—';
   document.getElementById('valFairRange').textContent =
     `Bear ₹${Math.round(s.fair_value.bear).toLocaleString('en-IN')} · Bull ₹${Math.round(s.fair_value.bull).toLocaleString('en-IN')}`;
 
-  // Signal badge
-  const signalEl = document.getElementById('valSignalBadge');
-  const sig = s.signal || 'NO_DATA';
+  // Signal badge + Upside — recalculate with live price if available
+  const fvBear = s.fair_value.bear;
+  const fvBull = s.fair_value.bull;
+  const eps = s.current_eps;
   const sigLabels = {
     'DEEP_VALUE': 'Deep Value', 'UNDERVALUED': 'Undervalued', 'FAIR': 'Fair Value',
     'OVERVALUED': 'Overvalued', 'STRETCHED': 'Stretched', 'NO_PRICE': 'No Price', 'NO_DATA': 'No Data'
   };
+
+  let sig = s.signal || 'NO_DATA';
+  let upsidePct = s.upside_to_base_pct;
+  let impliedPE = s.implied_pe;
+
+  // Recalculate with live price (mirrors valuation.py classify_signal)
+  if (livePrice && fvBase > 0) {
+    upsidePct = (fvBase - livePrice) / livePrice * 100;
+    if (eps > 0) impliedPE = (livePrice / eps).toFixed(1);
+    if (livePrice < fvBear) sig = 'DEEP_VALUE';
+    else if (livePrice < fvBase * 0.95) sig = 'UNDERVALUED';
+    else if (livePrice <= fvBase * 1.05) sig = 'FAIR';
+    else if (livePrice <= fvBull) sig = 'OVERVALUED';
+    else sig = 'STRETCHED';
+  }
+
+  const signalEl = document.getElementById('valSignalBadge');
   signalEl.innerHTML = `<span class="val-signal ${sig}">${sigLabels[sig] || sig}</span>`;
 
   // Upside
   const upsideEl = document.getElementById('valUpside');
-  if (s.upside_to_base_pct !== null && s.upside_to_base_pct !== undefined) {
-    const pct = s.upside_to_base_pct;
+  if (upsidePct !== null && upsidePct !== undefined) {
+    const pct = upsidePct;
     const cls = pct >= 0 ? 'val-upside' : 'val-downside';
     const arrow = pct >= 0 ? '↑' : '↓';
     upsideEl.innerHTML = `<span class="${cls}" style="font-size:18px;font-weight:800">${arrow} ${Math.abs(pct).toFixed(1)}% ${pct >= 0 ? 'upside' : 'downside'} to base</span>`;
   } else {
     upsideEl.textContent = '—';
   }
-  document.getElementById('valImpliedPE').textContent = s.implied_pe ? `Implied P/E: ${s.implied_pe}x` : 'Implied P/E: —';
+  document.getElementById('valImpliedPE').textContent = impliedPE ? `Implied P/E: ${impliedPE}x` : 'Implied P/E: —';
 
   // ── EPS Chain ──
   const c = s.eps_chain;
