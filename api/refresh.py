@@ -9,7 +9,7 @@ import json, math, os, time, urllib.request, urllib.error
 from datetime import datetime, timedelta
 from collections import defaultdict
 try:
-    from api._mcx_config import (
+    from lib.mcx_config import (
         FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY, TRADING_DAYS,
         SESSION_START, SESSION_END, SESSION_TOTAL, INTRADAY_BUCKETS,
         DAY_MULTIPLIER, DAY_DESCRIPTION,
@@ -19,7 +19,7 @@ try:
         supabase_read, supabase_upsert,
     )
 except (ImportError, Exception):
-    from _mcx_config import (  # type: ignore
+    from lib.mcx_config import (  # type: ignore
         FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY, TRADING_DAYS,
         SESSION_START, SESSION_END, SESSION_TOTAL, INTRADAY_BUCKETS,
         DAY_MULTIPLIER, DAY_DESCRIPTION,

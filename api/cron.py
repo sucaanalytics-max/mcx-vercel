@@ -12,13 +12,13 @@ from urllib.parse import urlparse, parse_qs
 
 # Import the actual handler classes from underscore-prefixed modules
 try:
-    from api._cron_valuation import handler as valuation_handler
-    from api._cron_models import handler as models_handler
-    from api._cron_commodity_signals import handler as signals_handler
+    from lib.cron_valuation import handler as valuation_handler
+    from lib.cron_models import handler as models_handler
+    from lib.cron_commodity_signals import handler as signals_handler
 except ImportError:
-    from _cron_valuation import handler as valuation_handler
-    from _cron_models import handler as models_handler
-    from _cron_commodity_signals import handler as signals_handler
+    from lib.cron_valuation import handler as valuation_handler
+    from lib.cron_models import handler as models_handler
+    from lib.cron_commodity_signals import handler as signals_handler
 
 # Map job names to handler classes
 _HANDLERS = {

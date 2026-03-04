@@ -8,11 +8,11 @@ import json, os, urllib.request, urllib.error
 from datetime import datetime, timedelta, timezone
 
 try:
-    from api._mcx_config import (
+    from lib.mcx_config import (
         SUPABASE_URL, SUPABASE_ANON_KEY, make_cors_headers
     )
 except ImportError:
-    from _mcx_config import (
+    from lib.mcx_config import (
         SUPABASE_URL, SUPABASE_ANON_KEY, make_cors_headers
     )
 

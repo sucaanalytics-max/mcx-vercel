@@ -9,13 +9,13 @@ import json
 from datetime import datetime, timedelta
 
 try:
-    from api._mcx_config import (
+    from lib.mcx_config import (
         FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY,
         calc_revenue, now_ist, is_market_open, make_cors_headers,
         SUPABASE_ANON_KEY, supabase_read, supabase_upsert,
     )
 except ImportError:
-    from _mcx_config import (
+    from lib.mcx_config import (
         FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY,
         calc_revenue, now_ist, is_market_open, make_cors_headers,
         SUPABASE_ANON_KEY, supabase_read, supabase_upsert,

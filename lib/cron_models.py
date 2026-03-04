@@ -11,12 +11,12 @@ import json, math, urllib.request, urllib.error
 from urllib.parse import urlparse, parse_qs
 
 try:
-    from api._mcx_config import (
+    from lib.mcx_config import (
         SUPABASE_URL, SUPABASE_ANON_KEY,
         now_ist, make_cors_headers,
     )
 except ImportError:
-    from _mcx_config import (
+    from lib.mcx_config import (
         SUPABASE_URL, SUPABASE_ANON_KEY,
         now_ist, make_cors_headers,
     )

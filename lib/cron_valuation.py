@@ -14,14 +14,14 @@ import json, math, urllib.request, urllib.error
 from urllib.parse import urlparse, parse_qs
 
 try:
-    from api._mcx_config import (
+    from lib.mcx_config import (
         TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
         PE_MEAN_DEFAULT, PE_SD_DEFAULT,
         SUPABASE_URL, SUPABASE_ANON_KEY,
         now_ist, make_cors_headers,
     )
 except ImportError:
-    from _mcx_config import (
+    from lib.mcx_config import (
         TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
         PE_MEAN_DEFAULT, PE_SD_DEFAULT,
         SUPABASE_URL, SUPABASE_ANON_KEY,
