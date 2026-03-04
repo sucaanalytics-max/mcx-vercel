@@ -295,6 +295,47 @@ def generate_backtest():
         for k, v in sorted(monthly.items())
     ]
 
+    # ── 6. Kelly Criterion Position Sizing (3F-3) ──
+    kelly_sizing = {}
+    for sig, info in attribution.items():
+        if info["count"] < 10:
+            kelly_sizing[sig] = {"kelly_fraction": 0, "quarter_kelly_pct": 0, "edge": "Insufficient data"}
+            continue
+        p = info["hit_rate"]
+        q = 1 - p
+        b = info["win_loss_ratio"] if info["win_loss_ratio"] > 0 else 0.001
+        if b > 0:
+            f_star = (p * b - q) / b
+        else:
+            f_star = 0
+        # Apply 1/4 Kelly for safety
+        quarter_kelly = max(0, f_star / 4)
+        edge = "Favorable" if f_star > 0 else "Unfavorable"
+        kelly_sizing[sig] = {
+            "full_kelly_pct": round(f_star * 100, 2),
+            "quarter_kelly_pct": round(quarter_kelly * 100, 2),
+            "win_prob": round(p, 3),
+            "odds_ratio": round(b, 3),
+            "edge": edge,
+        }
+
+    # ── 7. Drawdown Controls / Circuit Breaker (3F-4) ──
+    circuit_breaker = {"level": 0, "position_multiplier": 1.0, "status": "NORMAL"}
+    if stats and stats.get("max_drawdown_pct") is not None:
+        current_dd = 0
+        if dd_series:
+            current_dd = dd_series[-1].get("drawdown", 0) if dd_series[-1] else 0
+        if current_dd < -10:
+            circuit_breaker = {"level": 3, "position_multiplier": 0.0, "status": "LIQUIDATE",
+                               "message": "Max drawdown exceeded -10%. All positions closed."}
+        elif current_dd < -5:
+            circuit_breaker = {"level": 2, "position_multiplier": 0.50, "status": "RESTRICT",
+                               "message": "Drawdown > -5%. Position sizes halved."}
+        elif current_dd < -2:
+            circuit_breaker = {"level": 1, "position_multiplier": 0.75, "status": "CAUTION",
+                               "message": "Drawdown > -2%. Position sizes reduced 25%."}
+        circuit_breaker["current_drawdown_pct"] = round(current_dd, 2)
+
     return {
         "success": True,
         "as_of": ist_now.strftime("%Y-%m-%d %H:%M IST"),
@@ -309,6 +350,8 @@ def generate_backtest():
         "statistics": stats,
         "monthly_returns": monthly_returns,
         "drawdown_series": dd_series,
+        "kelly_sizing": kelly_sizing,
+        "circuit_breaker": circuit_breaker,
     }
 
 

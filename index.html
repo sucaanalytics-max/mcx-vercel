@@ -1988,6 +1988,36 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
     </table>
   </div>
 </div>
+
+<!-- HMM Regime Detection (3F-1) -->
+<div class="mdl-card" style="margin-bottom:20px">
+  <div class="mdl-card-header"><div class="mdl-card-title">Regime Detection (HMM-like)</div></div>
+  <div style="padding:12px">
+    <div id="hmmCurrentState" style="font-size:16px;font-weight:700;margin-bottom:8px">—</div>
+    <table class="dtable" style="max-width:500px;margin-bottom:12px">
+      <tr><td>Confidence</td><td id="hmmConfidence" style="font-family:var(--mono)">—</td></tr>
+      <tr><td>Avg Position (20d)</td><td id="hmmAvgPos" style="font-family:var(--mono)">—</td></tr>
+      <tr><td>Position Volatility (20d)</td><td id="hmmPosVol" style="font-family:var(--mono)">—</td></tr>
+    </table>
+    <div style="position:relative;height:200px">
+      <canvas id="hmmChart"></canvas>
+    </div>
+    <p style="font-size:10px;color:var(--text-secondary);margin-top:6px">BULL = positive drift, low vol. BEAR = negative drift. TRANSITION = high volatility, regime change likely.</p>
+  </div>
+</div>
+
+<!-- Weight Sensitivity Analysis (3F-2) -->
+<div class="mdl-card" style="margin-bottom:20px">
+  <div class="mdl-card-header"><div class="mdl-card-title">Factor Weight Sensitivity</div></div>
+  <div style="padding:12px;overflow-x:auto">
+    <table class="dtable" id="weightSensTable">
+      <thead><tr><th>ECM Weight</th><th>MF Weight</th><th>IC</th><th>Hit Rate</th><th>Current?</th></tr></thead>
+      <tbody id="weightSensBody"></tbody>
+    </table>
+    <p style="font-size:10px;color:var(--text-secondary);margin-top:8px">Tests alternative ECM/MF blends against forward 5d returns. Current weights: ECM 30% / MF 70%.</p>
+  </div>
+</div>
+
 </div><!-- /wrap -->
 </div><!-- /tabAnalytics -->
 
@@ -2062,6 +2092,35 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
     Loading...
   </div>
 </div>
+
+<!-- Kelly Criterion Position Sizing (3F-3) -->
+<div class="mdl-card" style="margin-bottom:20px">
+  <div class="mdl-card-header"><div class="mdl-card-title">Kelly Criterion Position Sizing</div></div>
+  <div style="padding:12px;overflow-x:auto">
+    <table class="dtable" id="kellyTable">
+      <thead><tr><th>Signal</th><th>Win Prob</th><th>Odds Ratio</th><th>Full Kelly %</th><th>¼ Kelly %</th><th>Edge</th></tr></thead>
+      <tbody id="kellyTableBody"></tbody>
+    </table>
+    <p style="font-size:10px;color:var(--text-secondary);margin-top:8px">Quarter Kelly recommended for conservative sizing. Negative full Kelly = unfavorable edge.</p>
+  </div>
+</div>
+
+<!-- Circuit Breaker Status (3F-4) -->
+<div class="mdl-card" style="margin-bottom:20px" id="circuitBreakerCard">
+  <div class="mdl-card-header"><div class="mdl-card-title">Circuit Breaker Status</div></div>
+  <div style="padding:12px">
+    <div id="circuitBreakerStatus" style="font-size:14px;font-weight:600;margin-bottom:8px">—</div>
+    <table class="dtable" style="max-width:400px">
+      <tr><td>Current Drawdown</td><td id="cbDrawdown" style="font-family:var(--mono)">—</td></tr>
+      <tr><td>Level</td><td id="cbLevel" style="font-family:var(--mono)">—</td></tr>
+      <tr><td>Position Multiplier</td><td id="cbMultiplier" style="font-family:var(--mono)">—</td></tr>
+    </table>
+    <p style="font-size:10px;color:var(--text-secondary);margin-top:8px">
+      L0: Normal (100%) | L1: Caution >-2% (75%) | L2: Restrict >-5% (50%) | L3: Liquidate >-10% (0%)
+    </p>
+  </div>
+</div>
+
 </div><!-- /wrap -->
 </div><!-- /tabBacktest -->
 
@@ -3484,6 +3543,8 @@ async function loadAnalytics() {
 
 function renderAnalytics(data) {
   const isDark = document.documentElement.classList.contains('dark');
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const txtColor = isDark ? '#888' : '#999';
 
   // ── Correlation Matrix ──
   const corr = data.factor_correlation;
@@ -3579,6 +3640,77 @@ function renderAnalytics(data) {
   document.getElementById('anDecompRev').textContent = fmtDec(dec.mf_revenue_part);
   document.getElementById('anDecompTurn').textContent = fmtDec(dec.mf_turnover_part);
   document.getElementById('anDecompTotal').textContent = fmtDec(dec.ensemble_score);
+
+  // ── HMM Regime Detection (3F-1) ──
+  const hmm = data.hmm_regime || {};
+  const hmmCur = hmm.current || {};
+  const hmmState = hmmCur.state || 'UNKNOWN';
+  const hmmEl = document.getElementById('hmmCurrentState');
+  hmmEl.textContent = hmmState;
+  hmmEl.style.color = hmmState === 'BULL' ? 'var(--positive)' : hmmState === 'BEAR' ? 'var(--negative)' : hmmState === 'TRANSITION' ? '#f39c12' : 'var(--text)';
+  document.getElementById('hmmConfidence').textContent = hmmCur.confidence != null ? (hmmCur.confidence * 100).toFixed(0) + '%' : '—';
+  document.getElementById('hmmAvgPos').textContent = hmmCur.avg_position != null ? hmmCur.avg_position.toFixed(4) : '—';
+  document.getElementById('hmmPosVol').textContent = hmmCur.position_vol != null ? hmmCur.position_vol.toFixed(4) : '—';
+
+  // HMM history chart
+  const hmmHist = hmm.history || [];
+  if (hmmHist.length > 0) {
+    const canvas = document.getElementById('hmmChart');
+    if (window._hmmChartInst) { window._hmmChartInst.destroy(); window._hmmChartInst = null; }
+    const stateMap = { 'BULL': 1, 'NEUTRAL': 0, 'BEAR': -1, 'TRANSITION': 0.5, 'UNKNOWN': 0 };
+    const stateColors = hmmHist.map(h => {
+      const s = h.state;
+      return s === 'BULL' ? 'rgba(39,174,96,0.5)' : s === 'BEAR' ? 'rgba(231,76,60,0.5)' : s === 'TRANSITION' ? 'rgba(243,156,18,0.5)' : 'rgba(149,165,166,0.3)';
+    });
+    window._hmmChartInst = new Chart(canvas.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels: hmmHist.map(h => h.date.slice(5)),
+        datasets: [{
+          label: 'Regime',
+          data: hmmHist.map(h => stateMap[h.state] || 0),
+          backgroundColor: stateColors,
+          borderWidth: 0,
+        }, {
+          label: 'Confidence',
+          data: hmmHist.map(h => h.confidence || 0),
+          type: 'line',
+          borderColor: '#9b59b6',
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.3,
+          yAxisID: 'y1',
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { font: { size: 9 }, color: txtColor, boxWidth: 10 } } },
+        scales: {
+          x: { grid: { color: gridColor }, ticks: { font: { size: 8 }, color: txtColor, maxTicksLimit: 10 } },
+          y: { grid: { color: gridColor }, min: -1.2, max: 1.2, ticks: { font: { size: 9 }, color: txtColor, callback: v => v === 1 ? 'BULL' : v === -1 ? 'BEAR' : v === 0.5 ? 'TRANS' : v === 0 ? 'NEUT' : '' } },
+          y1: { position: 'right', grid: { drawOnChartArea: false }, min: 0, max: 1, ticks: { font: { size: 9 }, color: txtColor, callback: v => (v * 100).toFixed(0) + '%' }, title: { display: true, text: 'Confidence', font: { size: 9 }, color: txtColor } },
+        },
+      },
+    });
+  }
+
+  // ── Weight Sensitivity (3F-2) ──
+  const ws = data.weight_sensitivity || [];
+  if (ws.length > 0) {
+    let wsHtml = '';
+    for (const w of ws) {
+      const isCurrent = w.is_current;
+      const rowStyle = isCurrent ? 'font-weight:700;background:rgba(39,174,96,0.08)' : '';
+      wsHtml += `<tr style="${rowStyle}">
+        <td>${(w.ecm_weight * 100).toFixed(0)}%</td>
+        <td>${(w.mf_weight * 100).toFixed(0)}%</td>
+        <td style="font-family:var(--mono)">${w.ic != null ? w.ic.toFixed(4) : '—'}</td>
+        <td style="font-family:var(--mono)">${w.hit_rate ? (w.hit_rate * 100).toFixed(1) + '%' : '—'}</td>
+        <td>${isCurrent ? '✓ Current' : ''}</td>
+      </tr>`;
+    }
+    document.getElementById('weightSensBody').innerHTML = wsHtml;
+  }
 }
 
 function corrColor(v, isDark) {
@@ -3726,6 +3858,36 @@ function renderBacktest(data) {
     tbl += '</tbody></table>';
     document.getElementById('monthlyHeatmap').innerHTML = tbl;
   }
+
+  // ── Kelly Criterion Position Sizing (3F-3) ──
+  const kelly = data.kelly_sizing || {};
+  const kellyOrder = ['STRONG_BUY', 'BUY', 'NEUTRAL', 'SELL', 'STRONG_SELL'];
+  const kellyLabels = { STRONG_BUY: 'Strong Buy', BUY: 'Buy', NEUTRAL: 'Neutral', SELL: 'Sell', STRONG_SELL: 'Strong Sell' };
+  let kellyHtml = '';
+  for (const sig of kellyOrder) {
+    const k = kelly[sig] || {};
+    const edgeColor = k.edge === 'Favorable' ? 'color:var(--positive)' : k.edge === 'Unfavorable' ? 'color:var(--negative)' : '';
+    kellyHtml += `<tr>
+      <td>${kellyLabels[sig]}</td>
+      <td style="font-family:var(--mono)">${k.win_prob != null ? (k.win_prob * 100).toFixed(1) + '%' : '—'}</td>
+      <td style="font-family:var(--mono)">${k.odds_ratio != null ? k.odds_ratio.toFixed(3) : '—'}</td>
+      <td style="font-family:var(--mono)">${k.full_kelly_pct != null ? k.full_kelly_pct.toFixed(1) + '%' : '—'}</td>
+      <td style="font-family:var(--mono);font-weight:600">${k.quarter_kelly_pct != null ? k.quarter_kelly_pct.toFixed(1) + '%' : '—'}</td>
+      <td style="${edgeColor};font-weight:600">${k.edge || '—'}</td>
+    </tr>`;
+  }
+  document.getElementById('kellyTableBody').innerHTML = kellyHtml;
+
+  // ── Circuit Breaker (3F-4) ──
+  const cb = data.circuit_breaker || {};
+  const cbStatusEl = document.getElementById('circuitBreakerStatus');
+  const statusColors = { 'NORMAL': 'var(--positive)', 'CAUTION': '#f39c12', 'RESTRICT': '#e67e22', 'LIQUIDATE': 'var(--negative)' };
+  cbStatusEl.textContent = cb.status || 'UNKNOWN';
+  cbStatusEl.style.color = statusColors[cb.status] || 'var(--text)';
+  if (cb.message) cbStatusEl.textContent += ' — ' + cb.message;
+  document.getElementById('cbDrawdown').textContent = cb.current_drawdown_pct != null ? cb.current_drawdown_pct.toFixed(2) + '%' : '—';
+  document.getElementById('cbLevel').textContent = cb.level != null ? 'L' + cb.level : '—';
+  document.getElementById('cbMultiplier').textContent = cb.position_multiplier != null ? (cb.position_multiplier * 100).toFixed(0) + '%' : '—';
 }
 
 // ════════════════════════════════════════════════════════════════════════════

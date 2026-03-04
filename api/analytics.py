@@ -258,6 +258,80 @@ def generate_analytics():
         "mf_turnover_part": round(turn_z_val * 4 / 7 * 0.70, 3),
     }
 
+    # ── 6. HMM-like Regime Detection (3F-1 simplified) ──
+    # Pure-Python regime detection using position score + volatility
+    # 3 states: BULL (positive drift), BEAR (negative drift), TRANSITION (high vol)
+    regime_history = []
+    if len(pos_all) >= 20:
+        for i in range(20, len(pos_all)):
+            window = pos_all[max(0, i - 20):i + 1]
+            avg_ps = sum(window) / len(window)
+            ps_std = math.sqrt(sum((p - avg_ps) ** 2 for p in window) / len(window))
+
+            if ps_std > 0.3:
+                state = "TRANSITION"
+                confidence = min(1.0, ps_std / 0.5)
+            elif avg_ps > 0.15:
+                state = "BULL"
+                confidence = min(1.0, avg_ps / 0.5)
+            elif avg_ps < -0.15:
+                state = "BEAR"
+                confidence = min(1.0, abs(avg_ps) / 0.5)
+            else:
+                state = "NEUTRAL"
+                confidence = 1.0 - abs(avg_ps) / 0.15
+
+            # Only keep last 60 entries
+            if i >= len(pos_all) - 60:
+                sig_idx = len(signals) - len(pos_all) + i
+                if 0 <= sig_idx < len(signals):
+                    regime_history.append({
+                        "date": signals[sig_idx]["trading_date"],
+                        "state": state,
+                        "confidence": round(confidence, 3),
+                        "avg_position": round(avg_ps, 4),
+                        "position_vol": round(ps_std, 4),
+                    })
+
+    # Current regime state
+    hmm_current = regime_history[-1] if regime_history else {
+        "state": "UNKNOWN", "confidence": 0, "avg_position": 0, "position_vol": 0
+    }
+
+    # ── 7. Factor Weight Sensitivity (3F-2 simplified) ──
+    # Test alternative ECM/MF weight blends against forward returns
+    weight_sensitivity = []
+    if fwd_5d and len(signals) > 60:
+        for ecm_w in [0.1, 0.2, 0.3, 0.4, 0.5]:
+            mf_w = 1.0 - ecm_w
+            # Compute alternative ensemble scores
+            alt_scores = []
+            fwd_rets = []
+            for s in signals:
+                dt = s["trading_date"]
+                ecm_z = _f(s.get("ecm_spread_zscore"))
+                comp_z = _f(s.get("mf_composite_z"))
+                ret = fwd_5d.get(dt)
+                if ecm_z is not None and comp_z is not None and ret is not None:
+                    alt_ens = (-ecm_z * ecm_w) + (comp_z * mf_w)
+                    alt_scores.append(alt_ens)
+                    fwd_rets.append(ret)
+
+            if len(alt_scores) >= 30:
+                ic = _pearson(alt_scores, fwd_rets)
+                # Hit rate: sign(signal) matches sign(return)
+                hits = sum(1 for a, r in zip(alt_scores, fwd_rets)
+                           if (a > 0 and r > 0) or (a < 0 and r < 0))
+                hit_rate = hits / len(alt_scores) if alt_scores else 0
+
+                weight_sensitivity.append({
+                    "ecm_weight": ecm_w,
+                    "mf_weight": round(mf_w, 2),
+                    "ic": ic,
+                    "hit_rate": round(hit_rate, 3),
+                    "is_current": abs(ecm_w - 0.3) < 0.01,
+                })
+
     return {
         "success": True,
         "as_of": ist_now.strftime("%Y-%m-%d %H:%M IST"),
@@ -279,8 +353,13 @@ def generate_analytics():
                 "regime": vol_regime,
             },
         },
+        "hmm_regime": {
+            "current": hmm_current,
+            "history": regime_history,
+        },
         "rolling_metrics": rolling_metrics,
         "factor_decomposition": decomposition,
+        "weight_sensitivity": weight_sensitivity,
         "data_quality": {
             "signal_rows": len(signals),
             "price_rows": len(prices),
