@@ -187,6 +187,22 @@ def generate_backtest(period="all"):
         return max(-1.0, min(1.0, ens / 2.0))
 
     COST_BPS = 30  # 30 bps round-trip (conservative for Indian equities)
+    REBALANCE_THRESHOLD = 0.05  # minimum position change to trigger rebalance
+
+    # ── Circuit Breaker thresholds (percentage points of raw drawdown) ──
+    CB_L1_PCT = -7.0    # CAUTION: 75% position sizing (~3σ of MCX daily vol)
+    CB_L2_PCT = -12.0   # RESTRICT: 50% position sizing (~5σ)
+    CB_L3_PCT = -20.0   # LIQUIDATE: 0% position sizing (~8σ)
+
+    def _cb_mult(raw_dd_pct):
+        """Return CB position multiplier given raw drawdown in percentage points."""
+        if raw_dd_pct < CB_L3_PCT:
+            return 0.0
+        if raw_dd_pct < CB_L2_PCT:
+            return 0.50
+        if raw_dd_pct < CB_L1_PCT:
+            return 0.75
+        return 1.0
 
     # ── 3. Cumulative PnL (signal-following vs buy-and-hold) ──
     # Circuit breaker uses RAW (unconstrained) P&L for level determination,
@@ -199,6 +215,7 @@ def generate_backtest(period="all"):
     first_price = None
     cb_multiplier = 1.0
     prev_eff_pos = 0.0        # previous EFFECTIVE position (after CB)
+    held_pos = 0.0            # last rebalanced position (rebalance threshold)
     sum_abs_pos = 0.0
     pos_count = 0
     total_cost_pct = 0.0
@@ -226,7 +243,9 @@ def generate_backtest(period="all"):
             p0 = price_map[dt]
             p1 = price_map[price_dates[idx + 1]]
             daily_ret = (p1 - p0) / p0 * 100
-            pos = _pos(s)
+            raw_pos = _pos(s)
+            pos = raw_pos if abs(raw_pos - held_pos) >= REBALANCE_THRESHOLD else held_pos
+            held_pos = pos
             eff_pos = pos * cb_multiplier
 
             # Transaction cost on EFFECTIVE position change (no phantom costs)
@@ -238,8 +257,8 @@ def generate_backtest(period="all"):
             # Actual P&L uses effective position
             signal_cum += daily_ret * eff_pos - cost_pct
 
-            # Raw P&L (no CB) for determining CB levels — avoids death spiral
-            raw_cum += daily_ret * pos
+            # Raw P&L (no CB) uses raw_pos for CB level determination
+            raw_cum += daily_ret * raw_pos
             raw_peak = max(raw_peak, raw_cum)
             raw_dd = raw_cum - raw_peak
 
@@ -247,15 +266,8 @@ def generate_backtest(period="all"):
             sum_abs_pos += abs(eff_pos)
             pos_count += 1
 
-            # Update circuit breaker from RAW drawdown (not CB-adjusted)
-            if raw_dd < -10:
-                cb_multiplier = 0.0
-            elif raw_dd < -5:
-                cb_multiplier = 0.50
-            elif raw_dd < -2:
-                cb_multiplier = 0.75
-            else:
-                cb_multiplier = 1.0
+            # Update circuit breaker from RAW drawdown
+            cb_multiplier = _cb_mult(raw_dd)
 
         cum_pnl.append({
             "date": dt,
@@ -277,6 +289,7 @@ def generate_backtest(period="all"):
     stat_raw_peak = 0.0
     stat_cb = 1.0
     stat_prev_eff = 0.0
+    stat_held_pos = 0.0
     for s in signals:
         dt = s["trading_date"]
         ens = _f(s.get("ensemble_score"))
@@ -289,7 +302,9 @@ def generate_backtest(period="all"):
         if idx + 1 < len(price_dates):
             p0 = price_map[dt]
             p1 = price_map[price_dates[idx + 1]]
-            pos = _pos(s)
+            raw_pos = _pos(s)
+            pos = raw_pos if abs(raw_pos - stat_held_pos) >= REBALANCE_THRESHOLD else stat_held_pos
+            stat_held_pos = pos
             eff_pos = pos * stat_cb
             turnover = abs(eff_pos - stat_prev_eff)
             cost = turnover * COST_BPS / 10000  # as decimal
@@ -297,17 +312,13 @@ def generate_backtest(period="all"):
             r = (p1 - p0) / p0 * eff_pos - cost
             daily_rets.append(r)
             # Track RAW P&L for circuit breaker (avoids death spiral)
-            stat_raw_cum += (p1 - p0) / p0 * pos
+            stat_raw_cum += (p1 - p0) / p0 * raw_pos
             stat_raw_peak = max(stat_raw_peak, stat_raw_cum)
             raw_dd = stat_raw_cum - stat_raw_peak
-            if raw_dd < -0.10:
-                stat_cb = 0.0
-            elif raw_dd < -0.05:
-                stat_cb = 0.50
-            elif raw_dd < -0.02:
-                stat_cb = 0.75
-            else:
-                stat_cb = 1.0
+            stat_cb = _cb_mult(raw_dd * 100)
+
+    # Track final raw drawdown for section 7 (CB status display)
+    raw_dd_final_pct = round((stat_raw_cum - stat_raw_peak) * 100, 2)
 
     stats = {}
     dd_series_full = []
@@ -365,6 +376,7 @@ def generate_backtest(period="all"):
     mo_raw_cum = 0.0
     mo_raw_peak = 0.0
     mo_cb = 1.0
+    mo_held_pos = 0.0
     for s in signals:
         dt = s["trading_date"]
         ens = _f(s.get("ensemble_score"))
@@ -377,24 +389,19 @@ def generate_backtest(period="all"):
         if idx + 1 < len(price_dates):
             p0 = price_map[dt]
             p1 = price_map[price_dates[idx + 1]]
-            pos = _pos(s)
+            raw_pos = _pos(s)
+            pos = raw_pos if abs(raw_pos - mo_held_pos) >= REBALANCE_THRESHOLD else mo_held_pos
+            mo_held_pos = pos
             eff_pos = pos * mo_cb
             turnover = abs(eff_pos - mo_prev_eff)
             cost = turnover * COST_BPS / 10000
             mo_prev_eff = eff_pos
             daily_ret = (p1 - p0) / p0 * eff_pos - cost
             # Track raw P&L for CB
-            mo_raw_cum += (p1 - p0) / p0 * pos
+            mo_raw_cum += (p1 - p0) / p0 * raw_pos
             mo_raw_peak = max(mo_raw_peak, mo_raw_cum)
             mo_raw_dd = mo_raw_cum - mo_raw_peak
-            if mo_raw_dd < -0.10:
-                mo_cb = 0.0
-            elif mo_raw_dd < -0.05:
-                mo_cb = 0.50
-            elif mo_raw_dd < -0.02:
-                mo_cb = 0.75
-            else:
-                mo_cb = 1.0
+            mo_cb = _cb_mult(mo_raw_dd * 100)
             month_key = dt[:7]  # "YYYY-MM"
             if month_key not in monthly:
                 monthly[month_key] = {"total": 0, "count": 0}
@@ -432,19 +439,20 @@ def generate_backtest(period="all"):
 
     # ── 7. Drawdown Controls / Circuit Breaker (3F-4) ──
     # Now uses full drawdown series (not downsampled) for accurate current state
+    # Use raw drawdown (not CB-adjusted) for status — matches trading loop logic
     circuit_breaker = {"level": 0, "position_multiplier": 1.0, "status": "NORMAL"}
-    if dd_series_full:
-        current_dd = dd_series_full[-1].get("drawdown", 0)
-        if current_dd < -10:
-            circuit_breaker = {"level": 3, "position_multiplier": 0.0, "status": "LIQUIDATE",
-                               "message": "Max drawdown exceeded -10%. All positions closed."}
-        elif current_dd < -5:
-            circuit_breaker = {"level": 2, "position_multiplier": 0.50, "status": "RESTRICT",
-                               "message": "Drawdown > -5%. Position sizes halved."}
-        elif current_dd < -2:
-            circuit_breaker = {"level": 1, "position_multiplier": 0.75, "status": "CAUTION",
-                               "message": "Drawdown > -2%. Position sizes reduced 25%."}
-        circuit_breaker["current_drawdown_pct"] = round(current_dd, 2)
+    current_dd = raw_dd_final_pct if daily_rets else 0
+    cb_mult_now = _cb_mult(current_dd)
+    if cb_mult_now == 0.0:
+        circuit_breaker = {"level": 3, "position_multiplier": 0.0, "status": "LIQUIDATE",
+                           "message": f"Raw drawdown {current_dd}% exceeded {CB_L3_PCT}%. All positions closed."}
+    elif cb_mult_now == 0.50:
+        circuit_breaker = {"level": 2, "position_multiplier": 0.50, "status": "RESTRICT",
+                           "message": f"Raw drawdown {current_dd}% exceeded {CB_L2_PCT}%. Position sizes halved."}
+    elif cb_mult_now == 0.75:
+        circuit_breaker = {"level": 1, "position_multiplier": 0.75, "status": "CAUTION",
+                           "message": f"Raw drawdown {current_dd}% exceeded {CB_L1_PCT}%. Position sizes reduced 25%."}
+    circuit_breaker["current_drawdown_pct"] = current_dd
 
     # ── 8. Benchmark Comparison ──
     benchmark = {
@@ -455,7 +463,7 @@ def generate_backtest(period="all"):
         "transaction_costs_pct": round(total_cost_pct, 2),
     }
     if bh_cum and avg_abs_pos > 0:
-        benchmark["alpha_vs_exposure_adj_bh_pct"] = round(
+        benchmark["excess_return_vs_adj_bh_pct"] = round(
             signal_cum - bh_cum * avg_abs_pos, 2
         )
 
