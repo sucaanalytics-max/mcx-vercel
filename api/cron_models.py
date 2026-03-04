@@ -223,6 +223,11 @@ def compute_signals(mode="recent"):
             else:
                 ens_signal = "STRONG_SELL"
 
+        # ── Continuous positioning (3D-2) ────────────────────────────
+        # Map ensemble_score → position_score [-1, +1] via tanh
+        pos_score = round(math.tanh(ens_score / 2.0), 4) if ens_score is not None else None
+        conviction = round(abs(pos_score), 4) if pos_score is not None else None
+
         results.append({
             "trading_date": s["date"],
             "close_price": s["price"],
@@ -240,7 +245,29 @@ def compute_signals(mode="recent"):
             "mf_signal": mf_signal,
             "ensemble_score": ens_score,
             "ensemble_signal": ens_signal,
+            "position_score": pos_score,
+            "conviction": conviction,
+            "signal_momentum": ens_score,
         })
+
+    # ── Compute velocity & smoothed conviction (sequential pass) ────
+    for j in range(len(results)):
+        cur_ps = results[j].get("position_score")
+        prev_ps = results[j - 1].get("position_score") if j > 0 else None
+
+        # 1-day change in position_score
+        if cur_ps is not None and prev_ps is not None:
+            results[j]["position_velocity"] = round(cur_ps - prev_ps, 4)
+        else:
+            results[j]["position_velocity"] = None
+
+        # 2-day moving average of conviction
+        cur_conv = results[j].get("conviction")
+        prev_conv = results[j - 1].get("conviction") if j > 0 else None
+        if cur_conv is not None and prev_conv is not None:
+            results[j]["conviction_2d_ma"] = round((cur_conv + prev_conv) / 2.0, 4)
+        else:
+            results[j]["conviction_2d_ma"] = cur_conv  # fallback to current
 
     # Filter by mode
     if mode == "latest":
@@ -264,6 +291,8 @@ def compute_signals(mode="recent"):
             "mf_signal": latest.get("mf_signal"),
             "ensemble_signal": latest.get("ensemble_signal"),
             "ensemble_score": latest.get("ensemble_score"),
+            "position_score": latest.get("position_score"),
+            "conviction": latest.get("conviction"),
         },
         "log": log,
         "errors": errors,

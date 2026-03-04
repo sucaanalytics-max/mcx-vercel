@@ -83,7 +83,8 @@ def _fetch_model_signals(limit=120):
             f"?select=trading_date,close_price,fair_value_base,"
             f"ecm_spread,ecm_spread_pct,ecm_spread_zscore,ecm_half_life_days,ecm_signal,"
             f"mf_revenue_z,mf_turnover_z,mf_volume_z,mf_volatility_z,mf_composite_z,mf_signal,"
-            f"ensemble_score,ensemble_signal"
+            f"ensemble_score,ensemble_signal,"
+            f"position_score,conviction,signal_momentum,position_velocity,conviction_2d_ma"
             f"&order=trading_date.desc&limit={limit}"
         )
         return sorted(rows, key=lambda r: r["trading_date"])
@@ -124,6 +125,13 @@ def generate_models_response():
             "score": _f(latest.get("ensemble_score")),
             "signal": latest.get("ensemble_signal"),
         },
+        "position": {
+            "score": _f(latest.get("position_score")),
+            "conviction": _f(latest.get("conviction")),
+            "momentum": _f(latest.get("signal_momentum")),
+            "velocity_1d": _f(latest.get("position_velocity")),
+            "conviction_2d_ma": _f(latest.get("conviction_2d_ma")),
+        },
     }
 
     # Build history (last 60 entries for charting)
@@ -149,6 +157,10 @@ def generate_models_response():
             "mf_signal": r.get("mf_signal"),
             "ensemble_score": _f(r.get("ensemble_score")),
             "ensemble_signal": r.get("ensemble_signal"),
+            "position_score": _f(r.get("position_score")),
+            "conviction": _f(r.get("conviction")),
+            "signal_momentum": _f(r.get("signal_momentum")),
+            "position_velocity": _f(r.get("position_velocity")),
         }
 
         # Rolling 60-day ±σ bands matching backend z-score window
