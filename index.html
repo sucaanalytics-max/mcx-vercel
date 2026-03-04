@@ -1172,6 +1172,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   <button class="tab-btn" data-tab="tabValuation" onclick="switchTab('tabValuation')">Fair Value</button>
   <button class="tab-btn" data-tab="tabAnalytics" onclick="switchTab('tabAnalytics')">Analytics</button>
   <button class="tab-btn" data-tab="tabBacktest" onclick="switchTab('tabBacktest')">Backtest</button>
+  <button class="tab-btn" data-tab="tabCommodity" onclick="switchTab('tabCommodity')">Commodities</button>
 </div>
 
 <!-- ═══ TAB: DAILY PREDICTOR ════════════════════════════════════════════════ -->
@@ -2064,6 +2065,68 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 </div><!-- /wrap -->
 </div><!-- /tabBacktest -->
 
+<!-- ═══ COMMODITY TAB ══════════════════════════════════════════════════════ -->
+<div id="tabCommodity" style="display:none">
+<div class="wrap">
+
+<h2 style="margin-bottom:16px">Commodity-Level Analytics</h2>
+<p id="commAsOf" style="font-size:11px;color:var(--text-secondary);margin-bottom:16px">Loading…</p>
+
+<!-- Today's Commodity Lineup -->
+<div class="card" style="margin-bottom:20px">
+<h3 style="margin-bottom:12px">Today's Commodity Lineup</h3>
+<p id="commExchangeTO" style="font-size:11px;color:var(--text-secondary);margin-bottom:8px"></p>
+<div style="overflow-x:auto">
+<table class="dtable" id="commTable">
+<thead>
+<tr>
+<th>Commodity</th><th>Sector</th><th>Turnover (₹ Cr)</th><th>% Share</th>
+<th>Signal</th><th>Composite Z</th><th>Turnover Z</th><th>OI Z</th><th>Volume Z</th>
+</tr>
+</thead>
+<tbody id="commTableBody"></tbody>
+</table>
+</div>
+</div>
+
+<!-- Top Movers -->
+<div class="card" style="margin-bottom:20px">
+<h3 style="margin-bottom:12px">Top Movers (1-Day Z-Score Change)</h3>
+<div style="overflow-x:auto">
+<table class="dtable" id="moversTable">
+<thead>
+<tr><th>Commodity</th><th>Sector</th><th>Prev Z</th><th>Curr Z</th><th>Δ Z</th><th>Signal</th></tr>
+</thead>
+<tbody id="moversTableBody"></tbody>
+</table>
+</div>
+</div>
+
+<!-- Sector Rotation Chart -->
+<div class="card" style="margin-bottom:20px">
+<h3 style="margin-bottom:12px">Sector Rotation (60-Day Turnover Share)</h3>
+<div style="position:relative;height:320px">
+<canvas id="sectorRotationChart"></canvas>
+</div>
+<p style="font-size:10px;color:var(--text-secondary);margin-top:6px">Shows shifting composition of exchange turnover by sector.</p>
+</div>
+
+<!-- Commodity Momentum Table -->
+<div class="card" style="margin-bottom:20px">
+<h3 style="margin-bottom:12px">Commodity Momentum (60-Day Rolling)</h3>
+<div style="overflow-x:auto">
+<table class="dtable" id="momentumTable">
+<thead>
+<tr><th>Commodity</th><th>Sector</th><th>Avg Z</th><th>% Positive Days</th><th>Latest Z</th><th>Signal</th></tr>
+</thead>
+<tbody id="momentumTableBody"></tbody>
+</table>
+</div>
+</div>
+
+</div>
+</div><!-- /tabCommodity -->
+
 <!-- ═══ COOKIE MODAL ═══════════════════════════════════════════════════════ -->
 <div class="modal-overlay hidden" id="cookieModal" onclick="if(event.target===this)closeCookieModal()">
   <div class="modal-box">
@@ -2531,7 +2594,7 @@ setTimeout(() => doRefresh(true), 800);
 function switchTab(tabId) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
-  const tabs = ['tabPredictor', 'tabForecast', 'tabValuation', 'tabAnalytics', 'tabBacktest'];
+  const tabs = ['tabPredictor', 'tabForecast', 'tabValuation', 'tabAnalytics', 'tabBacktest', 'tabCommodity'];
   tabs.forEach(t => {
     const el = document.getElementById(t);
     if (el) el.style.display = t === tabId ? 'block' : 'none';
@@ -2540,6 +2603,7 @@ function switchTab(tabId) {
   if (tabId === 'tabValuation') loadValuation();
   if (tabId === 'tabAnalytics') loadAnalytics();
   if (tabId === 'tabBacktest') loadBacktest();
+  if (tabId === 'tabCommodity') loadCommodity();
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -3661,6 +3725,154 @@ function renderBacktest(data) {
     }
     tbl += '</tbody></table>';
     document.getElementById('monthlyHeatmap').innerHTML = tbl;
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  COMMODITY TAB (Phase 3E)
+// ════════════════════════════════════════════════════════════════════════════
+let commCache = null;
+let sectorChart = null;
+
+async function loadCommodity() {
+  if (commCache && (Date.now() - commCache._ts < 300000)) { renderCommodity(commCache); return; }
+  document.getElementById('commAsOf').textContent = 'Loading commodity data…';
+  try {
+    const resp = await fetch(API + '/api/commodity_analytics');
+    const data = await resp.json();
+    if (data.success) {
+      data._ts = Date.now();
+      commCache = data;
+      renderCommodity(data);
+    } else {
+      document.getElementById('commAsOf').textContent = 'Error: ' + (data.error || 'Unknown');
+    }
+  } catch (e) {
+    document.getElementById('commAsOf').textContent = 'Fetch error: ' + e.message;
+  }
+}
+
+function signalBadge(sig) {
+  const colors = {
+    'STRONG_BUY': '#27ae60', 'BUY': '#2ecc71', 'NEUTRAL': '#95a5a6',
+    'SELL': '#e67e22', 'STRONG_SELL': '#e74c3c', 'NO_DATA': '#bdc3c7'
+  };
+  const c = colors[sig] || '#bdc3c7';
+  return `<span style="display:inline-block;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:600;color:#fff;background:${c}">${sig}</span>`;
+}
+
+function zColor(z) {
+  if (z == null) return '';
+  if (z > 1) return 'color:#27ae60;font-weight:600';
+  if (z > 0.5) return 'color:#2ecc71';
+  if (z < -1) return 'color:#e74c3c;font-weight:600';
+  if (z < -0.5) return 'color:#e67e22';
+  return '';
+}
+
+function renderCommodity(data) {
+  document.getElementById('commAsOf').textContent = 'As of ' + data.as_of;
+
+  // ── Today's Lineup ──
+  const today = data.today || {};
+  document.getElementById('commExchangeTO').textContent =
+    `Exchange Turnover: ₹${(today.exchange_turnover_cr || 0).toLocaleString()} Cr  |  ${(today.commodities || []).length} commodities`;
+
+  let rows = '';
+  for (const c of (today.commodities || [])) {
+    rows += `<tr>
+      <td style="font-weight:600">${c.commodity}</td>
+      <td>${c.head}</td>
+      <td style="text-align:right">${(c.turnover_cr || 0).toLocaleString(undefined, {maximumFractionDigits:0})}</td>
+      <td style="text-align:right">${((c.weight || 0) * 100).toFixed(1)}%</td>
+      <td>${signalBadge(c.signal)}</td>
+      <td style="text-align:right;${zColor(c.composite_z)}">${c.composite_z != null ? c.composite_z.toFixed(3) : '—'}</td>
+      <td style="text-align:right;${zColor(c.turnover_z)}">${c.turnover_z != null ? c.turnover_z.toFixed(3) : '—'}</td>
+      <td style="text-align:right;${zColor(c.oi_z)}">${c.oi_z != null ? c.oi_z.toFixed(3) : '—'}</td>
+      <td style="text-align:right;${zColor(c.volume_z)}">${c.volume_z != null ? c.volume_z.toFixed(3) : '—'}</td>
+    </tr>`;
+  }
+  document.getElementById('commTableBody').innerHTML = rows;
+
+  // ── Top Movers ──
+  let movers = '';
+  for (const m of (data.top_movers || [])) {
+    const delta = m.delta_z;
+    const dStyle = delta > 0 ? 'color:#27ae60;font-weight:600' : delta < 0 ? 'color:#e74c3c;font-weight:600' : '';
+    movers += `<tr>
+      <td style="font-weight:600">${m.commodity}</td>
+      <td>${m.head}</td>
+      <td style="text-align:right">${m.prev_z != null ? m.prev_z.toFixed(3) : '—'}</td>
+      <td style="text-align:right">${m.curr_z != null ? m.curr_z.toFixed(3) : '—'}</td>
+      <td style="text-align:right;${dStyle}">${delta > 0 ? '+' : ''}${delta.toFixed(3)}</td>
+      <td>${signalBadge(m.signal)}</td>
+    </tr>`;
+  }
+  document.getElementById('moversTableBody').innerHTML = movers || '<tr><td colspan="6" style="text-align:center;color:var(--text-secondary)">No movers data</td></tr>';
+
+  // ── Commodity Momentum ──
+  let momRows = '';
+  for (const m of (data.commodity_momentum || [])) {
+    momRows += `<tr>
+      <td style="font-weight:600">${m.commodity}</td>
+      <td>${m.head}</td>
+      <td style="text-align:right;${zColor(m.avg_composite_z)}">${m.avg_composite_z.toFixed(3)}</td>
+      <td style="text-align:right">${m.positive_day_pct.toFixed(0)}%</td>
+      <td style="text-align:right;${zColor(m.latest_z)}">${m.latest_z != null ? m.latest_z.toFixed(3) : '—'}</td>
+      <td>${signalBadge(m.signal)}</td>
+    </tr>`;
+  }
+  document.getElementById('momentumTableBody').innerHTML = momRows;
+
+  // ── Sector Rotation Chart ──
+  const rotation = data.sector_rotation || [];
+  if (rotation.length > 0) {
+    const labels = rotation.map(r => r.date.slice(5));  // MM-DD
+    // Collect all sector keys
+    const sectorKeys = new Set();
+    rotation.forEach(r => Object.keys(r).forEach(k => { if (k !== 'date' && k.endsWith('_pct')) sectorKeys.add(k); }));
+
+    const sectorColors = {
+      'energy_pct': '#e74c3c',
+      'bullion_pct': '#f39c12',
+      'base_metals_pct': '#3498db',
+      'agro_commodities_pct': '#27ae60',
+      'index_pct': '#9b59b6',
+    };
+    const sectorLabels = {
+      'energy_pct': 'Energy',
+      'bullion_pct': 'Bullion',
+      'base_metals_pct': 'Base Metals',
+      'agro_commodities_pct': 'Agro',
+      'index_pct': 'Index',
+    };
+
+    const datasets = [];
+    for (const key of [...sectorKeys].sort()) {
+      datasets.push({
+        label: sectorLabels[key] || key.replace('_pct', '').replace(/_/g, ' '),
+        data: rotation.map(r => r[key] || 0),
+        borderColor: sectorColors[key] || '#95a5a6',
+        backgroundColor: (sectorColors[key] || '#95a5a6') + '40',
+        fill: true,
+        tension: 0.2,
+        pointRadius: 0,
+      });
+    }
+
+    if (sectorChart) sectorChart.destroy();
+    sectorChart = new Chart(document.getElementById('sectorRotationChart'), {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { ticks: { maxTicksLimit: 12, font: { size: 10 } } },
+          y: { stacked: true, min: 0, max: 100, title: { display: true, text: 'Sector Weight (%)' } }
+        },
+        plugins: { legend: { position: 'bottom', labels: { font: { size: 10 } } } }
+      }
+    });
   }
 }
 </script>
