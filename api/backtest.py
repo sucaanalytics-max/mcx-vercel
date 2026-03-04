@@ -13,6 +13,8 @@ Data: reads mcx_model_signals + mcx_share_price.
 """
 from http.server import BaseHTTPRequestHandler
 import json, math
+from datetime import timedelta
+from urllib.parse import urlparse, parse_qs
 
 try:
     from api.mcx_config import (
@@ -49,8 +51,16 @@ def _fetch_all(table, select, limit=2000):
     return all_rows
 
 
-def generate_backtest():
+PERIOD_DAYS = {"all": None, "3y": 1095, "1y": 365, "6m": 183, "3m": 91}
+
+
+def generate_backtest(period="all"):
     ist_now = now_ist()
+
+    # Compute cutoff date for period filtering
+    cutoff = None
+    if period in PERIOD_DAYS and PERIOD_DAYS[period] is not None:
+        cutoff = (ist_now - timedelta(days=PERIOD_DAYS[period])).strftime("%Y-%m-%d")
 
     # Fetch all signals
     signals = _fetch_all(
@@ -64,6 +74,11 @@ def generate_backtest():
         "trading_date,close",
         limit=2000
     )
+
+    # Apply period filter
+    if cutoff:
+        signals = [s for s in signals if s["trading_date"] >= cutoff]
+        prices = [p for p in prices if p["trading_date"] >= cutoff]
 
     if not signals or not prices:
         return {"success": False, "error": "Insufficient data for backtest."}
@@ -340,6 +355,8 @@ def generate_backtest():
         "success": True,
         "as_of": ist_now.strftime("%Y-%m-%d %H:%M IST"),
         "period": {
+            "filter": period,
+            "cutoff": cutoff,
             "start": signals[0]["trading_date"] if signals else None,
             "end": signals[-1]["trading_date"] if signals else None,
             "trading_days": len(signals),
@@ -386,7 +403,11 @@ class handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
-            result = generate_backtest()
+            qs = parse_qs(urlparse(self.path).query)
+            period = qs.get("period", ["all"])[0]
+            if period not in PERIOD_DAYS:
+                period = "all"
+            result = generate_backtest(period)
             self.send_json(result)
         except Exception as e:
             self.send_json({"success": False, "error": str(e)[:200]}, 500)

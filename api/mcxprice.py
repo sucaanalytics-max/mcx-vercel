@@ -63,6 +63,19 @@ def _fetch_indianapi():
     return price, change_pct, "indianapi"
 
 
+def _fetch_yfinance():
+    """Fetch MCX.NS price using yfinance library (already in requirements.txt)."""
+    import yfinance as yf
+    ticker = yf.Ticker("MCX.NS")
+    hist = ticker.history(period="1d")
+    if hist.empty:
+        raise ValueError("yfinance returned no data for MCX.NS")
+    price = float(hist["Close"].iloc[-1])
+    prev = float(hist["Open"].iloc[0]) if "Open" in hist.columns else price
+    change_pct = round(((price - prev) / prev * 100), 2) if prev > 0 else 0
+    return price, change_pct, "yfinance"
+
+
 def _fetch_yahoo():
     """Fetch MCX.NS price from Yahoo Finance — returns (price, change_pct, source)."""
     req = urllib.request.Request(YAHOO_URL, headers={
@@ -162,7 +175,21 @@ def _get_price():
     except Exception as e:
         errors.append(f"indianapi: {e}")
 
-    # 3. Fallback to Yahoo Finance
+    # 3. Try yfinance library (reliable, already in requirements.txt)
+    try:
+        price, change_pct, source = _fetch_yfinance()
+        _write_cache(price, source, change_pct)
+        return {
+            "price": price,
+            "change_pct": change_pct,
+            "source": source,
+            "cached": False,
+            "fetched_at": _now_utc().isoformat(),
+        }
+    except Exception as e:
+        errors.append(f"yfinance: {e}")
+
+    # 4. Fallback to raw Yahoo Finance HTTP
     try:
         price, change_pct, source = _fetch_yahoo()
         _write_cache(price, source, change_pct)

@@ -2024,7 +2024,14 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 <!-- ═══ TAB: BACKTEST (3D-4) ═══════════════════════════════════════════════ -->
 <div id="tabBacktest" style="display:none">
 <div class="wrap">
-<h2 style="margin-bottom:16px">Signal Backtest Results</h2>
+<h2 style="margin-bottom:8px">Signal Backtest Results</h2>
+<div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">
+  <button class="tab-btn bt-period active" data-period="all" onclick="setBtPeriod('all')">All</button>
+  <button class="tab-btn bt-period" data-period="3y" onclick="setBtPeriod('3y')">3Y</button>
+  <button class="tab-btn bt-period" data-period="1y" onclick="setBtPeriod('1y')">1Y</button>
+  <button class="tab-btn bt-period" data-period="6m" onclick="setBtPeriod('6m')">6M</button>
+  <button class="tab-btn bt-period" data-period="3m" onclick="setBtPeriod('3m')">3M</button>
+</div>
 
 <!-- Key Metrics Grid -->
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">
@@ -3767,13 +3774,23 @@ function corrColor(v, isDark) {
 // ════════════════════════════════════════════════════════════════════════════
 let btCache = null, btLoading = false;
 let pnlChartInst = null, ddChartInst = null;
+let btPeriod = 'all';
+
+function setBtPeriod(p) {
+  btPeriod = p;
+  btCache = null; // force re-fetch for new period
+  document.querySelectorAll('.bt-period').forEach(b => b.classList.remove('active'));
+  const sel = document.querySelector(`.bt-period[data-period="${p}"]`);
+  if (sel) sel.classList.add('active');
+  loadBacktest();
+}
 
 async function loadBacktest() {
   if (btCache && (Date.now() - btCache._ts < 300000)) { renderBacktest(btCache); return; }
   if (btLoading) return;
   btLoading = true;
   try {
-    const resp = await fetch('/api/backtest');
+    const resp = await fetch(`/api/backtest?period=${btPeriod}`);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
     if (!data.success) throw new Error(data.error || 'No backtest data');
