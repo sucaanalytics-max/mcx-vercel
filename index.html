@@ -1614,7 +1614,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   <div>
     <div class="mdl-ensemble-label">Ensemble Recommendation</div>
     <div class="mdl-ensemble-desc">
-      Blended signal: Model A valuation gap (40%) + ECM reversion (30%) + Multi-Factor momentum (30%)
+      Blended signal: ECM reversion (30%) + Multi-Factor momentum (70%). Expands to: Revenue 30% + Turnover 40% + ECM 30%.
     </div>
     <div style="display:flex;align-items:center;margin-top:8px">
       <div id="mdlEnsembleSignalBadge"></div>
@@ -1623,7 +1623,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
           <strong>Score Ranges</strong><br>
           &gt; 1.5 → Strong Buy · &gt; 0.5 → Buy · ±0.5 → Neutral · &lt; −0.5 → Sell · &lt; −1.5 → Strong Sell<br><br>
           <strong>Blend</strong><br>
-          Valuation gap 40% + ECM reversion 30% + Multi-Factor momentum 30%.
+          ECM reversion 30% + Multi-Factor momentum 70% (Rev 43% · TO 57%).
           Positive score = net bullish. Negative = net bearish.
         </span>
       </span>
@@ -1706,7 +1706,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
             <strong>Composite Ranges</strong><br>
             &gt; 1.5 → Strong Buy · &gt; 0.5 → Buy · ±0.5 → Neutral · &lt; −0.5 → Sell · &lt; −1.5 → Strong Sell<br><br>
             <strong>Weights</strong><br>
-            Revenue 40% · Turnover 25% · Volume 20% · Inv. Volatility 15%.
+            Revenue 43% · Turnover 57% (Vol &amp; Inv.Vol displayed but excluded from composite per Phase 3 factor decomposition).
             Positive composite = bullish exchange activity.
           </span>
         </span>
@@ -1723,13 +1723,13 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
         <div class="mdl-factor-bar-wrap"><div class="mdl-factor-bar-center"></div><div class="mdl-factor-bar-fill" id="mdlBar_turn"></div></div>
         <div class="mdl-factor-val" id="mdlVal_turn">—</div>
       </div>
-      <div class="mdl-factor-row">
-        <div class="mdl-factor-label">Volume</div>
+      <div class="mdl-factor-row" style="opacity:0.45">
+        <div class="mdl-factor-label">Volume <span style="font-size:8px;color:var(--text-secondary)">(ref)</span></div>
         <div class="mdl-factor-bar-wrap"><div class="mdl-factor-bar-center"></div><div class="mdl-factor-bar-fill" id="mdlBar_vol"></div></div>
         <div class="mdl-factor-val" id="mdlVal_vol">—</div>
       </div>
-      <div class="mdl-factor-row">
-        <div class="mdl-factor-label">Inv. Vol</div>
+      <div class="mdl-factor-row" style="opacity:0.45">
+        <div class="mdl-factor-label">Inv. Vol <span style="font-size:8px;color:var(--text-secondary)">(ref)</span></div>
         <div class="mdl-factor-bar-wrap"><div class="mdl-factor-bar-center"></div><div class="mdl-factor-bar-fill" id="mdlBar_ivol"></div></div>
         <div class="mdl-factor-val" id="mdlVal_ivol">—</div>
       </div>
@@ -1739,7 +1739,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
       <div class="mdl-factor-composite-val" id="mdlMfComposite">—</div>
     </div>
     <div style="font-family:var(--mono);font-size:9px;color:var(--text-secondary);margin-top:8px">
-      Weights: Rev 40% · Turn 25% · Vol 20% · Inv.Vol 15%. Rolling 60-day z-scores.
+      Weights: Rev 43% · Turn 57%. Vol &amp; Inv.Vol shown for reference only. Rolling 60-day z-scores.
     </div>
   </div>
 

@@ -32,6 +32,7 @@ import os
 
 CRON_SECRET = os.environ.get("CRON_SECRET", "")
 MA_WINDOW = 45
+PE_LOOKBACK = 252   # trailing trading days for dynamic PE computation (1 year)
 
 
 # ─── Supabase helpers (self-contained, no external deps) ─────────────────
@@ -116,12 +117,24 @@ def compute_valuations(rev_rows, price_rows, pe_mean=None, pe_sd=None):
             "implied_pe": round(price / eps, 2) if (price and eps > 0) else None,
         })
 
-    # Dynamic P/E
+    # Dynamic P/E — trailing window + robust quantile bands
+    # Uses trailing PE_LOOKBACK observations to avoid regime-shift contamination
+    # (e.g. MCX PE was 10x in 2022, 35x in 2025 — full-history mean is misleading)
     if pe_mean is None or pe_sd is None:
-        valid_pes = [e["implied_pe"] for e in eps_series if e["implied_pe"] is not None]
-        if len(valid_pes) >= 30:
-            pe_mean = sum(valid_pes) / len(valid_pes)
-            pe_sd = math.sqrt(sum((p - pe_mean) ** 2 for p in valid_pes) / len(valid_pes))
+        all_pes = [e["implied_pe"] for e in eps_series if e["implied_pe"] is not None]
+        # Use only trailing PE_LOOKBACK observations
+        recent_pes = all_pes[-PE_LOOKBACK:] if len(all_pes) > PE_LOOKBACK else all_pes
+        if len(recent_pes) >= 30:
+            # Robust: median + scaled MAD (resistant to outliers and skew)
+            recent_sorted = sorted(recent_pes)
+            n = len(recent_sorted)
+            pe_median = recent_sorted[n // 2] if n % 2 else (recent_sorted[n // 2 - 1] + recent_sorted[n // 2]) / 2
+            abs_devs = sorted(abs(p - pe_median) for p in recent_sorted)
+            mad_raw = abs_devs[len(abs_devs) // 2] if len(abs_devs) % 2 else (abs_devs[len(abs_devs) // 2 - 1] + abs_devs[len(abs_devs) // 2]) / 2
+            mad_scaled = mad_raw * 1.4826  # scale factor for normal-equivalent SD
+
+            pe_mean = round(pe_median, 2)
+            pe_sd = round(mad_scaled, 2) if mad_scaled > 0.5 else round(math.sqrt(sum((p - pe_median) ** 2 for p in recent_pes) / n), 2)
         else:
             pe_mean = PE_MEAN_DEFAULT
             pe_sd = PE_SD_DEFAULT

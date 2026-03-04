@@ -168,7 +168,7 @@ def get_existing_dates():
 
 def upsert_rows(rows):
     """Upsert revenue rows to Supabase."""
-    url = f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue"
+    url = f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue?on_conflict=trading_date"
     body = json.dumps(rows).encode()
     req = urllib.request.Request(url, data=body, method="POST", headers={
         "apikey": SUPABASE_ANON_KEY,
