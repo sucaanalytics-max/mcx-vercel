@@ -1170,6 +1170,8 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   <button class="tab-btn active" data-tab="tabPredictor" onclick="switchTab('tabPredictor')">Daily Predictor</button>
   <button class="tab-btn" data-tab="tabForecast" onclick="switchTab('tabForecast')">Interactive Forecast</button>
   <button class="tab-btn" data-tab="tabValuation" onclick="switchTab('tabValuation')">Fair Value</button>
+  <button class="tab-btn" data-tab="tabAnalytics" onclick="switchTab('tabAnalytics')">Analytics</button>
+  <button class="tab-btn" data-tab="tabBacktest" onclick="switchTab('tabBacktest')">Backtest</button>
 </div>
 
 <!-- ═══ TAB: DAILY PREDICTOR ════════════════════════════════════════════════ -->
@@ -1918,6 +1920,150 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 </div><!-- /wrap -->
 </div><!-- /tabValuation -->
 
+<!-- ═══ TAB: ANALYTICS (3D-3) ══════════════════════════════════════════════ -->
+<div id="tabAnalytics" style="display:none">
+<div class="wrap">
+<h2 style="margin-bottom:16px">Analytics & Factor Decomposition</h2>
+
+<!-- Factor Correlation Heatmap -->
+<div class="mdl-card" style="margin-bottom:20px">
+  <div class="mdl-card-header"><div class="mdl-card-title">Factor Correlation Matrix (120-day)</div></div>
+  <div id="corrMatrixWrap" style="padding:12px;overflow-x:auto">
+    <table class="dtable" id="corrTable" style="font-family:var(--mono);font-size:11px;text-align:center">
+      <thead><tr><th></th><th>ECM Z</th><th>Rev Z</th><th>Turn Z</th><th>Pos Score</th></tr></thead>
+      <tbody id="corrBody">
+        <tr><td>ECM Z</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+        <tr><td>Rev Z</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+        <tr><td>Turn Z</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+        <tr><td>Pos Score</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Rolling IC Chart -->
+<div class="mdl-card" style="margin-bottom:20px">
+  <div class="mdl-card-header"><div class="mdl-card-title">Rolling Information Coefficient (60-day → 5d fwd return)</div></div>
+  <div style="position:relative;height:250px;padding:12px">
+    <canvas id="icChart"></canvas>
+  </div>
+</div>
+
+<!-- Regime Analysis -->
+<div class="mdl-card" style="margin-bottom:20px">
+  <div class="mdl-card-header"><div class="mdl-card-title">Regime Analysis</div></div>
+  <div style="padding:12px">
+    <table class="dtable" style="font-size:12px">
+      <tbody>
+        <tr><td>Current Regime</td><td id="anRegime" style="font-weight:700">—</td></tr>
+        <tr><td>Regime Duration</td><td id="anRegimeDur">—</td></tr>
+        <tr><td>Bull / Neutral / Bear Days</td><td id="anRegimeSplit">—</td></tr>
+        <tr><td>Annualized Volatility</td><td id="anVol">—</td></tr>
+        <tr><td>Volatility Regime</td><td id="anVolRegime">—</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Rolling Sharpe & Win Rate -->
+<div class="mdl-card" style="margin-bottom:20px">
+  <div class="mdl-card-header"><div class="mdl-card-title">Rolling Performance (60-day window)</div></div>
+  <div style="position:relative;height:250px;padding:12px">
+    <canvas id="perfChart"></canvas>
+  </div>
+</div>
+
+<!-- Factor Decomposition -->
+<div class="mdl-card" style="margin-bottom:20px">
+  <div class="mdl-card-header"><div class="mdl-card-title">Today's Factor Decomposition</div></div>
+  <div style="padding:12px">
+    <table class="dtable" style="font-size:12px;font-family:var(--mono)">
+      <tbody>
+        <tr><td>ECM Contribution (30%)</td><td id="anDecompEcm">—</td></tr>
+        <tr><td>Revenue Contribution (30% × 43%)</td><td id="anDecompRev">—</td></tr>
+        <tr><td>Turnover Contribution (30% × 57%)</td><td id="anDecompTurn">—</td></tr>
+        <tr style="border-top:2px solid var(--border);font-weight:700"><td>Ensemble Score</td><td id="anDecompTotal">—</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+</div><!-- /wrap -->
+</div><!-- /tabAnalytics -->
+
+<!-- ═══ TAB: BACKTEST (3D-4) ═══════════════════════════════════════════════ -->
+<div id="tabBacktest" style="display:none">
+<div class="wrap">
+<h2 style="margin-bottom:16px">Signal Backtest Results</h2>
+
+<!-- Key Metrics Grid -->
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">
+  <div class="mdl-card" style="padding:12px;text-align:center">
+    <div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase">Hit Rate (5d)</div>
+    <div id="btHitRate5d" style="font-size:22px;font-weight:700;font-family:var(--mono)">—</div>
+  </div>
+  <div class="mdl-card" style="padding:12px;text-align:center">
+    <div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase">Sharpe Ratio</div>
+    <div id="btSharpe" style="font-size:22px;font-weight:700;font-family:var(--mono)">—</div>
+  </div>
+  <div class="mdl-card" style="padding:12px;text-align:center">
+    <div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase">Max Drawdown</div>
+    <div id="btMaxDD" style="font-size:22px;font-weight:700;font-family:var(--mono);color:var(--negative)">—</div>
+  </div>
+  <div class="mdl-card" style="padding:12px;text-align:center">
+    <div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase">Profit Factor</div>
+    <div id="btProfitFactor" style="font-size:22px;font-weight:700;font-family:var(--mono)">—</div>
+  </div>
+  <div class="mdl-card" style="padding:12px;text-align:center">
+    <div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase">Annual Return</div>
+    <div id="btAnnualRet" style="font-size:22px;font-weight:700;font-family:var(--mono)">—</div>
+  </div>
+  <div class="mdl-card" style="padding:12px;text-align:center">
+    <div style="font-size:10px;color:var(--text-secondary);text-transform:uppercase">Win Rate</div>
+    <div id="btWinRate" style="font-size:22px;font-weight:700;font-family:var(--mono)">—</div>
+  </div>
+</div>
+
+<!-- Signal Accuracy by Bucket -->
+<div class="mdl-card" style="margin-bottom:20px">
+  <div class="mdl-card-header"><div class="mdl-card-title">Signal Accuracy by Bucket (5-day forward)</div></div>
+  <div style="padding:12px;overflow-x:auto">
+    <table class="dtable" style="font-size:12px">
+      <thead>
+        <tr><th>Signal</th><th>Count</th><th>Hit Rate</th><th>Avg 5d Return</th><th>W/L Ratio</th></tr>
+      </thead>
+      <tbody id="btBucketTable">
+        <tr><td colspan="5" style="text-align:center">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Cumulative PnL Chart -->
+<div class="mdl-card" style="margin-bottom:20px">
+  <div class="mdl-card-header"><div class="mdl-card-title">Cumulative P&L: Signal-Following vs Buy-and-Hold</div></div>
+  <div style="position:relative;height:300px;padding:12px">
+    <canvas id="pnlChart"></canvas>
+  </div>
+</div>
+
+<!-- Drawdown Chart -->
+<div class="mdl-card" style="margin-bottom:20px">
+  <div class="mdl-card-header"><div class="mdl-card-title">Drawdown Series</div></div>
+  <div style="position:relative;height:200px;padding:12px">
+    <canvas id="drawdownChart"></canvas>
+  </div>
+</div>
+
+<!-- Monthly Returns Heatmap -->
+<div class="mdl-card" style="margin-bottom:20px">
+  <div class="mdl-card-header"><div class="mdl-card-title">Monthly Returns Heatmap</div></div>
+  <div id="monthlyHeatmap" style="padding:12px;overflow-x:auto;font-size:11px;font-family:var(--mono)">
+    Loading...
+  </div>
+</div>
+</div><!-- /wrap -->
+</div><!-- /tabBacktest -->
+
 <!-- ═══ COOKIE MODAL ═══════════════════════════════════════════════════════ -->
 <div class="modal-overlay hidden" id="cookieModal" onclick="if(event.target===this)closeCookieModal()">
   <div class="modal-box">
@@ -2385,11 +2531,15 @@ setTimeout(() => doRefresh(true), 800);
 function switchTab(tabId) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
-  document.getElementById('tabPredictor').style.display = tabId === 'tabPredictor' ? 'block' : 'none';
-  document.getElementById('tabForecast').style.display = tabId === 'tabForecast' ? 'block' : 'none';
-  document.getElementById('tabValuation').style.display = tabId === 'tabValuation' ? 'block' : 'none';
+  const tabs = ['tabPredictor', 'tabForecast', 'tabValuation', 'tabAnalytics', 'tabBacktest'];
+  tabs.forEach(t => {
+    const el = document.getElementById(t);
+    if (el) el.style.display = t === tabId ? 'block' : 'none';
+  });
   if (tabId === 'tabForecast') recalcForecast();
   if (tabId === 'tabValuation') loadValuation();
+  if (tabId === 'tabAnalytics') loadAnalytics();
+  if (tabId === 'tabBacktest') loadBacktest();
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -3241,6 +3391,277 @@ function renderECMChart(history) {
       },
     },
   });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  ANALYTICS TAB (3D-3)
+// ════════════════════════════════════════════════════════════════════════════
+let anCache = null, anLoading = false;
+let icChartInst = null, perfChartInst = null;
+
+async function loadAnalytics() {
+  if (anCache && (Date.now() - anCache._ts < 300000)) { renderAnalytics(anCache); return; }
+  if (anLoading) return;
+  anLoading = true;
+  try {
+    const resp = await fetch('/api/analytics');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (!data.success) throw new Error(data.error || 'No analytics data');
+    data._ts = Date.now();
+    anCache = data;
+    renderAnalytics(data);
+  } catch (e) {
+    console.error('Analytics load error:', e);
+  } finally {
+    anLoading = false;
+  }
+}
+
+function renderAnalytics(data) {
+  const isDark = document.documentElement.classList.contains('dark');
+
+  // ── Correlation Matrix ──
+  const corr = data.factor_correlation;
+  if (corr && corr.matrix) {
+    const labels = ['ECM Z', 'Rev Z', 'Turn Z', 'Pos Score'];
+    let html = '';
+    for (let i = 0; i < 4; i++) {
+      html += `<tr><td style="font-weight:700">${labels[i]}</td>`;
+      for (let j = 0; j < 4; j++) {
+        const v = corr.matrix[i][j];
+        const bg = v !== null ? corrColor(v, isDark) : 'transparent';
+        html += `<td style="background:${bg};padding:6px 10px">${v !== null ? v.toFixed(2) : '—'}</td>`;
+      }
+      html += '</tr>';
+    }
+    document.getElementById('corrBody').innerHTML = html;
+  }
+
+  // ── Rolling IC Chart ──
+  if (data.rolling_ic && data.rolling_ic.length > 0) {
+    const canvas = document.getElementById('icChart');
+    if (icChartInst) { icChartInst.destroy(); icChartInst = null; }
+    const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+    const txtColor = isDark ? '#888' : '#999';
+    icChartInst = new Chart(canvas.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: data.rolling_ic.map(d => d.date.slice(5)),
+        datasets: [{
+          label: 'Ensemble IC',
+          data: data.rolling_ic.map(d => d.ensemble_ic),
+          borderColor: '#27ae60',
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.3,
+          fill: { target: 'origin', above: 'rgba(39,174,96,0.1)', below: 'rgba(231,76,60,0.1)' },
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: gridColor }, ticks: { font: { size: 9 }, color: txtColor, maxTicksLimit: 10 } },
+          y: { grid: { color: gridColor }, ticks: { font: { size: 10 }, color: txtColor }, min: -0.5, max: 0.7 },
+        },
+      },
+    });
+  }
+
+  // ── Regime ──
+  const reg = data.regime || {};
+  const regEl = document.getElementById('anRegime');
+  regEl.textContent = reg.current || '—';
+  regEl.style.color = reg.current === 'BULL' ? 'var(--positive)' : reg.current === 'BEAR' ? 'var(--negative)' : 'var(--text)';
+  document.getElementById('anRegimeDur').textContent = reg.duration_days ? `${reg.duration_days} days` : '—';
+  document.getElementById('anRegimeSplit').textContent =
+    `${reg.bull_days || 0} / ${reg.neutral_days || 0} / ${reg.bear_days || 0}`;
+  const vol = reg.volatility || {};
+  document.getElementById('anVol').textContent = vol.annualized_pct ? `${vol.annualized_pct}%` : '—';
+  document.getElementById('anVolRegime').textContent = vol.regime || '—';
+
+  // ── Rolling Performance Chart ──
+  if (data.rolling_metrics && data.rolling_metrics.length > 0) {
+    const canvas = document.getElementById('perfChart');
+    if (perfChartInst) { perfChartInst.destroy(); perfChartInst = null; }
+    const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+    const txtColor = isDark ? '#888' : '#999';
+    perfChartInst = new Chart(canvas.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: data.rolling_metrics.map(m => m.date.slice(5)),
+        datasets: [
+          { label: 'Sharpe', data: data.rolling_metrics.map(m => m.sharpe_ratio), borderColor: '#9b59b6', borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: 'y' },
+          { label: 'Win Rate', data: data.rolling_metrics.map(m => m.win_rate * 100), borderColor: '#16a085', borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: 'y1' },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { font: { size: 9 }, color: txtColor, boxWidth: 12 } } },
+        scales: {
+          x: { grid: { color: gridColor }, ticks: { font: { size: 9 }, color: txtColor, maxTicksLimit: 10 } },
+          y: { grid: { color: gridColor }, ticks: { font: { size: 10 }, color: txtColor }, title: { display: true, text: 'Sharpe', font: { size: 9 }, color: txtColor } },
+          y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { font: { size: 10 }, color: txtColor, callback: v => v.toFixed(0) + '%' }, title: { display: true, text: 'Win Rate %', font: { size: 9 }, color: txtColor } },
+        },
+      },
+    });
+  }
+
+  // ── Factor Decomposition ──
+  const dec = data.factor_decomposition || {};
+  const fmtDec = v => v !== undefined ? (v > 0 ? '+' : '') + v.toFixed(3) : '—';
+  document.getElementById('anDecompEcm').textContent = fmtDec(dec.ecm_contribution);
+  document.getElementById('anDecompRev').textContent = fmtDec(dec.mf_revenue_part);
+  document.getElementById('anDecompTurn').textContent = fmtDec(dec.mf_turnover_part);
+  document.getElementById('anDecompTotal').textContent = fmtDec(dec.ensemble_score);
+}
+
+function corrColor(v, isDark) {
+  if (v === null) return 'transparent';
+  const abs = Math.abs(v);
+  if (v > 0) return isDark ? `rgba(39,174,96,${abs * 0.4})` : `rgba(39,174,96,${abs * 0.3})`;
+  return isDark ? `rgba(231,76,60,${abs * 0.4})` : `rgba(231,76,60,${abs * 0.3})`;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  BACKTEST TAB (3D-4)
+// ════════════════════════════════════════════════════════════════════════════
+let btCache = null, btLoading = false;
+let pnlChartInst = null, ddChartInst = null;
+
+async function loadBacktest() {
+  if (btCache && (Date.now() - btCache._ts < 300000)) { renderBacktest(btCache); return; }
+  if (btLoading) return;
+  btLoading = true;
+  try {
+    const resp = await fetch('/api/backtest');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (!data.success) throw new Error(data.error || 'No backtest data');
+    data._ts = Date.now();
+    btCache = data;
+    renderBacktest(data);
+  } catch (e) {
+    console.error('Backtest load error:', e);
+  } finally {
+    btLoading = false;
+  }
+}
+
+function renderBacktest(data) {
+  const isDark = document.documentElement.classList.contains('dark');
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const txtColor = isDark ? '#888' : '#999';
+
+  // ── Key Stats ──
+  const s = data.statistics || {};
+  const acc5 = (data.signal_accuracy || {})['5d'] || {};
+  document.getElementById('btHitRate5d').textContent = acc5.hit_rate ? (acc5.hit_rate * 100).toFixed(1) + '%' : '—';
+  document.getElementById('btSharpe').textContent = s.sharpe_ratio !== undefined ? s.sharpe_ratio.toFixed(2) : '—';
+  document.getElementById('btMaxDD').textContent = s.max_drawdown_pct !== undefined ? s.max_drawdown_pct.toFixed(1) + '%' : '—';
+  document.getElementById('btProfitFactor').textContent = s.profit_factor !== undefined ? s.profit_factor.toFixed(2) : '—';
+  document.getElementById('btAnnualRet').textContent = s.annual_return_pct !== undefined ? (s.annual_return_pct > 0 ? '+' : '') + s.annual_return_pct.toFixed(1) + '%' : '—';
+  document.getElementById('btAnnualRet').style.color = s.annual_return_pct > 0 ? 'var(--positive)' : 'var(--negative)';
+  document.getElementById('btWinRate').textContent = s.win_rate !== undefined ? (s.win_rate * 100).toFixed(1) + '%' : '—';
+
+  // ── Signal Bucket Table ──
+  const attr = data.signal_attribution || {};
+  const order = ['STRONG_BUY', 'BUY', 'NEUTRAL', 'SELL', 'STRONG_SELL'];
+  const labels = { STRONG_BUY: 'Strong Buy', BUY: 'Buy', NEUTRAL: 'Neutral', SELL: 'Sell', STRONG_SELL: 'Strong Sell' };
+  let html = '';
+  for (const sig of order) {
+    const b = attr[sig] || {};
+    const retColor = b.avg_5d_return > 0 ? 'var(--positive)' : b.avg_5d_return < 0 ? 'var(--negative)' : 'var(--text)';
+    html += `<tr>
+      <td>${labels[sig]}</td>
+      <td>${b.count || 0}</td>
+      <td>${b.hit_rate ? (b.hit_rate * 100).toFixed(1) + '%' : '—'}</td>
+      <td style="color:${retColor}">${b.avg_5d_return ? (b.avg_5d_return * 100).toFixed(2) + '%' : '—'}</td>
+      <td>${b.win_loss_ratio ? b.win_loss_ratio.toFixed(2) : '—'}</td>
+    </tr>`;
+  }
+  document.getElementById('btBucketTable').innerHTML = html;
+
+  // ── Cumulative PnL Chart ──
+  const pnl = data.cumulative_pnl || [];
+  if (pnl.length > 0) {
+    const canvas = document.getElementById('pnlChart');
+    if (pnlChartInst) { pnlChartInst.destroy(); pnlChartInst = null; }
+    pnlChartInst = new Chart(canvas.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: pnl.map(d => d.date.slice(2, 7)),
+        datasets: [
+          { label: 'Signal Strategy', data: pnl.map(d => d.signal_pnl_cum), borderColor: '#27ae60', backgroundColor: 'rgba(39,174,96,0.08)', borderWidth: 2, pointRadius: 0, tension: 0.1, fill: true },
+          { label: 'Buy & Hold', data: pnl.map(d => d.buy_hold_cum), borderColor: '#3498db', backgroundColor: 'rgba(52,152,219,0.08)', borderWidth: 2, pointRadius: 0, tension: 0.1, fill: true },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { font: { size: 9 }, color: txtColor, boxWidth: 12 } } },
+        scales: {
+          x: { grid: { color: gridColor }, ticks: { font: { size: 9 }, color: txtColor, maxTicksLimit: 12 } },
+          y: { grid: { color: gridColor }, ticks: { font: { size: 10 }, color: txtColor, callback: v => v.toFixed(0) + '%' }, title: { display: true, text: 'Cumulative Return %', font: { size: 9 }, color: txtColor } },
+        },
+      },
+    });
+  }
+
+  // ── Drawdown Chart ──
+  const dd = data.drawdown_series || [];
+  if (dd.length > 0) {
+    const canvas = document.getElementById('drawdownChart');
+    if (ddChartInst) { ddChartInst.destroy(); ddChartInst = null; }
+    ddChartInst = new Chart(canvas.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels: dd.map((d, i) => i % 20 === 0 ? d.idx : ''),
+        datasets: [{
+          label: 'Drawdown',
+          data: dd.map(d => d.drawdown),
+          backgroundColor: dd.map(d => d.drawdown < 0 ? 'rgba(231,76,60,0.5)' : 'rgba(39,174,96,0.3)'),
+          borderWidth: 0,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { color: gridColor }, ticks: { font: { size: 9 }, color: txtColor } },
+          y: { grid: { color: gridColor }, ticks: { font: { size: 10 }, color: txtColor, callback: v => v.toFixed(1) + '%' }, title: { display: true, text: 'Drawdown %', font: { size: 9 }, color: txtColor } },
+        },
+      },
+    });
+  }
+
+  // ── Monthly Returns Heatmap ──
+  const monthly = data.monthly_returns || [];
+  if (monthly.length > 0) {
+    // Group by year and month
+    const years = [...new Set(monthly.map(m => m.month.slice(0, 4)))].sort();
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    let tbl = '<table class="dtable" style="text-align:center;font-size:10px"><thead><tr><th></th>';
+    for (const y of years) tbl += `<th>${y}</th>`;
+    tbl += '</tr></thead><tbody>';
+    for (let mi = 0; mi < 12; mi++) {
+      tbl += `<tr><td style="font-weight:700">${months[mi]}</td>`;
+      for (const y of years) {
+        const key = `${y}-${String(mi + 1).padStart(2, '0')}`;
+        const entry = monthly.find(m => m.month === key);
+        if (entry) {
+          const v = entry.return_pct;
+          const bg = v > 0 ? `rgba(39,174,96,${Math.min(Math.abs(v) / 5, 0.5)})` : `rgba(231,76,60,${Math.min(Math.abs(v) / 5, 0.5)})`;
+          tbl += `<td style="background:${bg};padding:4px 6px">${v > 0 ? '+' : ''}${v.toFixed(1)}%</td>`;
+        } else {
+          tbl += '<td style="color:var(--text-secondary)">—</td>';
+        }
+      }
+      tbl += '</tr>';
+    }
+    tbl += '</tbody></table>';
+    document.getElementById('monthlyHeatmap').innerHTML = tbl;
+  }
 }
 </script>
 </body>
