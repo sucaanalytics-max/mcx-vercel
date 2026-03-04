@@ -8,7 +8,9 @@
     "api/valuation.py":       { "maxDuration": 15 },
     "api/models.py":          { "maxDuration": 15 },
     "api/cron_valuation.py":  { "maxDuration": 60 },
-    "api/cron_models.py":     { "maxDuration": 60 }
+    "api/cron_models.py":     { "maxDuration": 60 },
+    "api/analytics.py":       { "maxDuration": 30 },
+    "api/backtest.py":        { "maxDuration": 30 }
   },
   "rewrites": [
     { "source": "/api/refresh",         "destination": "/api/refresh" },
@@ -20,6 +22,8 @@
     { "source": "/api/models",          "destination": "/api/models" },
     { "source": "/api/cron_valuation",  "destination": "/api/cron_valuation" },
     { "source": "/api/cron_models",     "destination": "/api/cron_models" },
+    { "source": "/api/analytics",       "destination": "/api/analytics" },
+    { "source": "/api/backtest",        "destination": "/api/backtest" },
     { "source": "/(.*)",                "destination": "/index.html" }
   ],
   "crons": [
