@@ -1179,6 +1179,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   <button class="tab-btn" data-tab="tabAnalytics" onclick="switchTab('tabAnalytics')">Analytics</button>
   <!-- backtest tab hidden -->
   <button class="tab-btn" data-tab="tabCommodity" onclick="switchTab('tabCommodity')">Commodities</button>
+  <button class="tab-btn" data-tab="tabQuarterly" onclick="switchTab('tabQuarterly')">Quarterly P&L</button>
 </div>
 
 <!-- ═══ TAB: DAILY PREDICTOR ════════════════════════════════════════════════ -->
@@ -2217,6 +2218,69 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 
 </div>
 </div><!-- /tabCommodity -->
+<!-- ═══ QUARTERLY P&L TAB ═════════════════════════════════════════════════ -->
+<div id="tabQuarterly" style="display:none">
+
+  <!-- Hero: Current Quarter Projection -->
+  <div class="card" id="qtrHeroCard">
+    <div class="card-title" id="qtrHeroTitle">Loading...</div>
+    <div id="qtrHeroContent" style="opacity:0.4;text-align:center;padding:2rem">Loading quarterly data...</div>
+  </div>
+
+  <!-- FY Projection -->
+  <div class="card" id="qtrFyCard" style="display:none">
+    <div class="card-title" id="qtrFyTitle">FY26 Projection</div>
+    <div id="qtrFyContent"></div>
+  </div>
+
+  <!-- Chart: Quarterly Revenue & PAT Trend -->
+  <div class="card">
+    <div class="card-title">Quarterly Revenue & PAT Trend</div>
+    <div style="position:relative;height:320px">
+      <canvas id="qtrTrendChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Chart: Current Quarter Revenue Build-Up -->
+  <div class="card">
+    <div class="card-title">Current Quarter Revenue Build-Up</div>
+    <div style="position:relative;height:280px">
+      <canvas id="qtrBuildupChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Table: Historical P&L -->
+  <div class="card">
+    <div class="card-title">Historical Quarterly P&L</div>
+    <div style="overflow-x:auto">
+      <table class="dtable" id="qtrTable">
+        <thead>
+          <tr>
+            <th>Quarter</th><th>Revenue</th><th>Expenses</th>
+            <th>PAT</th><th>Margin</th><th>YoY Rev</th>
+          </tr>
+        </thead>
+        <tbody id="qtrTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Methodology -->
+  <details class="card" style="cursor:pointer">
+    <summary class="card-title" style="list-style:none">Methodology</summary>
+    <div style="padding:0.5rem 0;font-size:0.82rem;color:var(--muted);line-height:1.6">
+      <p><strong>Revenue Projection:</strong> Actual daily revenue from Supabase is summed for elapsed trading days.
+      Remaining days are projected using a blend of MA10 (last 10 days) and quarter average, weighted by completion %.</p>
+      <p><strong>Expense Model:</strong> OLS regression on 8 quarters of actuals: Expenses = Fixed + Variable% x Revenue.
+      Q4 (Mar quarter) has a +15 Cr seasonal adjustment for annual audit/provisions.</p>
+      <p><strong>PAT:</strong> Revenue - Expenses = PBT, then apply effective tax+depreciation rate (~20%) derived from historical actuals.</p>
+      <p><strong>Confidence Bands:</strong> Uncertainty = 2% + 18% x (1 - completion). Narrows from ~20% at quarter start to ~2% at quarter end.</p>
+      <p><strong>Data Source:</strong> Quarterly actuals from Screener.in (MCX consolidated results). Daily revenue from MCX exchange relay + historical API.</p>
+    </div>
+  </details>
+
+</div><!-- /tabQuarterly -->
+
 
 <!-- ═══ COOKIE MODAL ═══════════════════════════════════════════════════════ -->
 <div class="modal-overlay hidden" id="cookieModal" onclick="if(event.target===this)closeCookieModal()">
@@ -2685,7 +2749,7 @@ setTimeout(() => doRefresh(true), 800);
 function switchTab(tabId) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
-  const tabs = ['tabPredictor', 'tabForecast', 'tabValuation', 'tabAnalytics', 'tabBacktest', 'tabCommodity'];
+  const tabs = ['tabPredictor', 'tabForecast', 'tabValuation', 'tabAnalytics', 'tabBacktest', 'tabCommodity', 'tabQuarterly'];
   tabs.forEach(t => {
     const el = document.getElementById(t);
     if (el) el.style.display = t === tabId ? 'block' : 'none';
@@ -2695,6 +2759,7 @@ function switchTab(tabId) {
   if (tabId === 'tabAnalytics') loadAnalytics();
   if (tabId === 'tabBacktest') loadBacktest();
   if (tabId === 'tabCommodity') loadCommodity();
+  if (tabId === 'tabQuarterly') loadQuarterly();
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -4208,6 +4273,222 @@ function renderCommodity(data) {
     });
   }
 }
+
+
+// ═══ QUARTERLY P&L ══════════════════════════════════════════════════════════
+let qtrCache = null, qtrLoading = false;
+let qtrTrendChart = null, qtrBuildupChart = null;
+
+async function loadQuarterly() {
+  if (qtrCache && (Date.now() - qtrCache._ts < 300000)) { renderQuarterly(qtrCache); return; }
+  if (qtrLoading) return;
+  qtrLoading = true;
+  document.getElementById('qtrHeroContent').innerHTML = '<div style="text-align:center;padding:2rem;opacity:0.5">Loading quarterly data...</div>';
+  try {
+    const r = await fetch('/api/quarterly');
+    const d = await r.json();
+    if (d.success) { d._ts = Date.now(); qtrCache = d; renderQuarterly(d); }
+    else { document.getElementById('qtrHeroContent').innerHTML = '<div style="color:var(--danger)">Error: ' + (d.error||'unknown') + '</div>'; }
+  } catch(e) { document.getElementById('qtrHeroContent').innerHTML = '<div style="color:var(--danger)">Failed to load: ' + e.message + '</div>'; }
+  finally { qtrLoading = false; }
+}
+
+function renderQuarterly(data) {
+  const cq = data.current_quarter;
+  const fy = data.fy_projection;
+  const em = data.expense_model;
+
+  // Hero card
+  document.getElementById('qtrHeroTitle').textContent = cq.quarter + ' (' + cq.label + ') — PROJECTED';
+  const pct = cq.completion_pct;
+  const barFill = Math.min(pct, 100);
+  document.getElementById('qtrHeroContent').style.opacity = '1';
+  document.getElementById('qtrHeroContent').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1rem">
+      <div>
+        <div style="font-size:0.75rem;color:var(--muted)">Projected Revenue</div>
+        <div style="font-size:1.5rem;font-weight:700;color:var(--accent)">${fmt(cq.revenue_projected_cr)} Cr</div>
+      </div>
+      <div>
+        <div style="font-size:0.75rem;color:var(--muted)">Projected PAT</div>
+        <div style="font-size:1.5rem;font-weight:700;color:var(--success)">${fmt(cq.pat_projected_cr)} Cr</div>
+      </div>
+      <div>
+        <div style="font-size:0.75rem;color:var(--muted)">PAT Margin</div>
+        <div style="font-size:1.5rem;font-weight:700">${cq.pat_margin_pct}%</div>
+      </div>
+    </div>
+    <div style="background:var(--card-border);border-radius:6px;height:22px;overflow:hidden;margin-bottom:0.5rem">
+      <div style="background:linear-gradient(90deg,var(--accent),var(--success));height:100%;width:${barFill}%;border-radius:6px;transition:width 0.5s"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:0.78rem;color:var(--muted)">
+      <span>Actual: <strong>${fmt(cq.revenue_actual_cr)} Cr</strong> (${cq.trading_days_elapsed} days)</span>
+      <span>${pct}% complete</span>
+      <span>PAT Range: <strong>${fmt(cq.pat_low_cr)} – ${fmt(cq.pat_high_cr)} Cr</strong></span>
+    </div>
+    <div style="font-size:0.75rem;color:var(--muted);margin-top:0.4rem">
+      Daily avg: ${fmt(cq.revenue_daily_avg_cr)} Cr &middot; MA10: ${fmt(cq.revenue_ma10_cr)} Cr &middot;
+      Remaining: ${cq.trading_days_remaining} trading days &middot; Uncertainty: &plusmn;${cq.uncertainty_pct}%
+    </div>
+  `;
+
+  // FY card
+  const fyCard = document.getElementById('qtrFyCard');
+  fyCard.style.display = 'block';
+  document.getElementById('qtrFyTitle').textContent = fy.fy + ' Full Year Projection';
+  const qParts = fy.quarters_actual.map(q => `<span>${q.quarter}: ${fmt(q.pat_cr)} Cr</span>`).join(' + ');
+  document.getElementById('qtrFyContent').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:0.8rem">
+      <div><div style="font-size:0.75rem;color:var(--muted)">FY Revenue</div><div style="font-size:1.3rem;font-weight:700">${fmt(fy.fy_revenue_cr)} Cr</div></div>
+      <div><div style="font-size:0.75rem;color:var(--muted)">FY PAT</div><div style="font-size:1.3rem;font-weight:700;color:var(--success)">${fmt(fy.fy_pat_cr)} Cr</div></div>
+      <div><div style="font-size:0.75rem;color:var(--muted)">FY EPS</div><div style="font-size:1.3rem;font-weight:700">${fmt(fy.fy_eps)}</div></div>
+    </div>
+    <div style="font-size:0.78rem;color:var(--muted)">${qParts} + <strong>${cq.quarter}: ${fmt(fy.q4_projected.pat_cr)} Cr (P)</strong></div>
+  `;
+
+  // Trend chart
+  renderQtrTrendChart(data);
+  // Build-up chart
+  renderQtrBuildupChart(data);
+  // Table
+  renderQtrTable(data);
+}
+
+function fmt(v) { return v != null ? Number(v).toLocaleString('en-IN', {maximumFractionDigits:1}) : '—'; }
+
+function renderQtrTrendChart(data) {
+  const ctx = document.getElementById('qtrTrendChart');
+  if (qtrTrendChart) qtrTrendChart.destroy();
+
+  const all = [...data.actuals];
+  const cq = data.current_quarter;
+  all.push({
+    quarter: cq.quarter, label: cq.label,
+    revenue_cr: cq.revenue_projected_cr,
+    pat_cr: cq.pat_projected_cr,
+    pat_margin_pct: cq.pat_margin_pct,
+    is_actual: false,
+  });
+
+  const labels = all.map(a => a.label);
+  const revs = all.map(a => a.revenue_cr);
+  const pats = all.map(a => a.pat_cr);
+  const margins = all.map(a => a.pat_margin_pct);
+  const bgColors = all.map(a => a.is_actual !== false ? 'rgba(59,130,246,0.7)' : 'rgba(59,130,246,0.3)');
+  const patColors = all.map(a => a.is_actual !== false ? 'rgba(16,185,129,0.7)' : 'rgba(16,185,129,0.3)');
+
+  qtrTrendChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Revenue (Cr)', data: revs, backgroundColor: bgColors, borderRadius: 4, order: 2 },
+        { label: 'PAT (Cr)', data: pats, backgroundColor: patColors, borderRadius: 4, order: 2 },
+        { label: 'PAT Margin %', data: margins, type: 'line', borderColor: '#f59e0b',
+          backgroundColor: 'transparent', yAxisID: 'y1', pointRadius: 4, tension: 0.3, order: 1,
+          borderDash: all.map((a,i) => i === all.length-1 ? [5,5] : []).flat().length ? undefined : undefined },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#9ca3af', font: {size:11} } } },
+      scales: {
+        x: { ticks: { color: '#9ca3af', font: {size:10} }, grid: { display: false } },
+        y: { title: { display: true, text: 'Cr', color: '#9ca3af' }, ticks: { color: '#9ca3af' }, grid: { color: 'rgba(75,85,99,0.2)' } },
+        y1: { position: 'right', title: { display: true, text: 'Margin %', color: '#9ca3af' },
+              ticks: { color: '#f59e0b' }, grid: { display: false }, min: 30, max: 70 },
+      }
+    }
+  });
+}
+
+function renderQtrBuildupChart(data) {
+  const ctx = document.getElementById('qtrBuildupChart');
+  if (qtrBuildupChart) qtrBuildupChart.destroy();
+
+  const cq = data.current_quarter;
+  const series = cq.daily_series || [];
+  if (series.length === 0) return;
+
+  const labels = series.map(s => { const d = new Date(s.date); return d.getDate() + ' ' + d.toLocaleString('en',{month:'short'}); });
+  const dailyRevs = series.map(s => s.rev_cr);
+  const cumulRevs = series.map(s => s.cumul_cr);
+
+  qtrBuildupChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Daily Revenue (Cr)', data: dailyRevs, backgroundColor: 'rgba(59,130,246,0.5)',
+          borderRadius: 3, order: 2 },
+        { label: 'Cumulative (Cr)', data: cumulRevs, type: 'line', borderColor: '#10b981',
+          backgroundColor: 'rgba(16,185,129,0.1)', fill: true, tension: 0.2, pointRadius: 0, order: 1 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: '#9ca3af', font: {size:11} } },
+        annotation: cq.revenue_projected_cr ? {
+          annotations: {
+            target: {
+              type: 'line', yMin: cq.revenue_projected_cr, yMax: cq.revenue_projected_cr,
+              borderColor: 'rgba(245,158,11,0.5)', borderDash: [6,4], borderWidth: 1,
+              label: { display: true, content: 'Target: ' + Math.round(cq.revenue_projected_cr) + ' Cr',
+                       position: 'end', backgroundColor: 'rgba(245,158,11,0.8)', font: {size:10} }
+            }
+          }
+        } : {}
+      },
+      scales: {
+        x: { ticks: { color: '#9ca3af', font: {size:9}, maxRotation: 45 }, grid: { display: false } },
+        y: { title: { display: true, text: 'Cr', color: '#9ca3af' }, ticks: { color: '#9ca3af' },
+             grid: { color: 'rgba(75,85,99,0.2)' } },
+      }
+    }
+  });
+}
+
+function renderQtrTable(data) {
+  const tbody = document.getElementById('qtrTableBody');
+  const cq = data.current_quarter;
+
+  // Find YoY pairs (same q_num, 4 quarters apart)
+  const allRows = [...data.actuals];
+  allRows.push({
+    quarter: cq.quarter, label: cq.label, q_num: cq.q_num,
+    revenue_cr: cq.revenue_projected_cr, expenses_cr: cq.expenses_projected_cr,
+    pat_cr: cq.pat_projected_cr, pat_margin_pct: cq.pat_margin_pct,
+    is_actual: false,
+  });
+
+  let rows = '';
+  for (let i = 0; i < allRows.length; i++) {
+    const a = allRows[i];
+    // Find YoY match
+    let yoy = '—';
+    for (let j = 0; j < i; j++) {
+      if (allRows[j].q_num === a.q_num && i - j >= 3 && i - j <= 5) {
+        const pct = ((a.revenue_cr - allRows[j].revenue_cr) / allRows[j].revenue_cr * 100).toFixed(0);
+        yoy = (pct >= 0 ? '+' : '') + pct + '%';
+        break;
+      }
+    }
+    const projected = a.is_actual === false;
+    const style = projected ? ' style="background:rgba(59,130,246,0.08);font-weight:600"' : '';
+    const tag = projected ? ' <span style="font-size:0.7rem;color:var(--accent)">(P)</span>' : '';
+    rows += `<tr${style}>
+      <td>${a.label || a.quarter}${tag}</td>
+      <td>${fmt(a.revenue_cr)}</td>
+      <td>${fmt(a.expenses_cr)}</td>
+      <td style="color:var(--success);font-weight:600">${fmt(a.pat_cr)}</td>
+      <td>${a.pat_margin_pct}%</td>
+      <td>${yoy}</td>
+    </tr>`;
+  }
+  tbody.innerHTML = rows;
+}
+
 </script>
 </body>
 </html>
