@@ -15,7 +15,7 @@ Usage:
   python3 scripts/bhav_refresh.py 2026-02-20   # refresh specific date
   python3 scripts/bhav_refresh.py --backfill 30 # backfill last 30 days
 """
-import sys, os, json, urllib.request
+import sys, os, json, time, urllib.request
 from curl_cffi import requests as cfreq
 from datetime import datetime, timedelta, timezone
 
@@ -29,6 +29,9 @@ SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY",
 FUTURES_RATE = 210.0
 OPTIONS_RATE = 4180.0
 NONTX_DAILY = 0.00
+MCX_TIMEOUT = 30
+MCX_MAX_RETRIES = 2
+CHROME_IMPERSONATE = "chrome142"
 
 # MCX holidays (full-day closures only — no trading at all)
 MCX_HOLIDAYS = {
@@ -65,11 +68,11 @@ def check_relay_eod(date_iso):
 # Shared curl_cffi session for Chrome TLS impersonation (bypasses Akamai)
 _hist_session = None
 
-def _get_hist_session():
+def _get_hist_session(force_new=False):
     global _hist_session
-    if _hist_session is None:
-        _hist_session = cfreq.Session(impersonate="chrome")
-        _hist_session.get("https://www.mcxindia.com/market-data/historical-data", timeout=15)
+    if _hist_session is None or force_new:
+        _hist_session = cfreq.Session(impersonate=CHROME_IMPERSONATE)
+        _hist_session.get("https://www.mcxindia.com/market-data/historical-data", timeout=MCX_TIMEOUT)
     return _hist_session
 
 def fetch_mcx_historical(date_iso):
@@ -90,12 +93,13 @@ def fetch_mcx_historical(date_iso):
 
     url = "https://www.mcxindia.com/backpage.aspx/GetHistoricalDataDetails"
 
-    try:
-        session = _get_hist_session()
+    for attempt in range(MCX_MAX_RETRIES + 1):
+      try:
+        session = _get_hist_session(force_new=(attempt > 0))
         resp = session.post(url, json=payload, headers={
             "X-Requested-With": "XMLHttpRequest",
             "Referer": "https://www.mcxindia.com/market-data/historical-data",
-        }, timeout=15)
+        }, timeout=MCX_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
 
@@ -149,8 +153,12 @@ def fetch_mcx_historical(date_iso):
             "active_options": n_opt,
         }
 
-    except Exception as e:
-        print(f"  ⓘ Historical API unavailable: {e}")
+      except Exception as e:
+        if attempt < MCX_MAX_RETRIES:
+            print(f"  ⓘ Attempt {attempt+1} failed: {e}, retrying in {3*(attempt+1)}s...")
+            time.sleep(3 * (attempt + 1))
+            continue
+        print(f"  ⓘ Historical API unavailable after {MCX_MAX_RETRIES+1} attempts: {e}")
         return None
 
 

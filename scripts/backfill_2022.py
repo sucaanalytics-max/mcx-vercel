@@ -71,7 +71,7 @@ def _get_session():
     global _session
     if _session is None:
         print("  Initializing Chrome-impersonation session...")
-        _session = cfreq.Session(impersonate="chrome")
+        _session = cfreq.Session(impersonate="chrome142")
         resp = _session.get("https://www.mcxindia.com/market-data/historical-data", timeout=20)
         print(f"  Session seeded (status {resp.status_code})")
     return _session

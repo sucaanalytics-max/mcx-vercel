@@ -21,7 +21,7 @@ _session = None
 def _get_session():
     global _session
     if _session is None:
-        _session = cfreq.Session(impersonate="chrome")
+        _session = cfreq.Session(impersonate="chrome142")
         _session.get("https://www.mcxindia.com/market-data/historical-data", timeout=15)
     return _session
 

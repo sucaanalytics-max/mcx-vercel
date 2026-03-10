@@ -137,8 +137,8 @@ def _get_mw_session():
     """Shared curl_cffi session for MarketWatch API (bypasses Akamai)."""
     global _mw_session
     if _mw_session is None:
-        _mw_session = cfreq.Session(impersonate="chrome")
-        _mw_session.get("https://www.mcxindia.com/market-data/market-watch", timeout=15)
+        _mw_session = cfreq.Session(impersonate="chrome142")
+        _mw_session.get("https://www.mcxindia.com/market-data/market-watch", timeout=30)
     return _mw_session
 
 
@@ -146,8 +146,8 @@ def _get_hist_session():
     """Shared curl_cffi session for Historical API (bypasses Akamai)."""
     global _hist_session
     if _hist_session is None:
-        _hist_session = cfreq.Session(impersonate="chrome")
-        _hist_session.get("https://www.mcxindia.com/market-data/historical-data", timeout=15)
+        _hist_session = cfreq.Session(impersonate="chrome142")
+        _hist_session.get("https://www.mcxindia.com/market-data/historical-data", timeout=30)
     return _hist_session
 
 
@@ -314,7 +314,7 @@ def fetch_mcx_historical(date_iso):
         resp = session.post(url, json=payload, headers={
             "X-Requested-With": "XMLHttpRequest",
             "Referer": "https://www.mcxindia.com/market-data/historical-data",
-        }, timeout=15)
+        }, timeout=30)
         resp.raise_for_status()
         data = resp.json()
 
