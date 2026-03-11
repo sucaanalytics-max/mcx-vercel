@@ -112,12 +112,13 @@ def generate_exchange_dashboard(today=None):
     if today is None:
         today = now_ist().date()
 
-    # Fetch all daily revenue rows
+    # Fetch daily revenue rows (start from FY23 = April 2022 to stay under
+    # Supabase default 1000-row limit while covering 4+ FYs for YoY)
     rows = supabase_read(
         "mcx_daily_revenue",
         "?select=trading_date,fut_rev_cr,opt_rev_cr,total_rev_cr"
-        "&trading_date=gt.1901-01-01"
-        "&order=trading_date.asc&limit=2000"
+        "&trading_date=gte.2022-04-01"
+        "&order=trading_date.asc&limit=1000"
     )
 
     # Parse and normalize
