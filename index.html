@@ -389,7 +389,16 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 .sep--light { border-top: 1px dashed var(--border); margin: 8px 0; }
 .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
-@media (max-width: 800px) { .g2, .g3, .card-row { grid-template-columns: 1fr; } }
+@media (max-width: 800px) {
+  .g2, .g3, .card-row { grid-template-columns: 1fr; }
+  /* ── Exchange Dashboard mobile ── */
+  .exd-kpi-row { grid-template-columns: repeat(2, 1fr); gap: 0.75rem; }
+  .exd-kpi-value { font-size: 1.1rem; }
+  .exd-kpi-subs { font-size: 0.6rem; }
+  /* ── Tab nav horizontal scroll ── */
+  .tab-nav { overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 0 12px; }
+  .tab-btn { white-space: nowrap; padding: 10px 14px; font-size: 10px; }
+}
 
 /* ── TOAST ───────────────────────────────────────────────────────────────── */
 .toast {
