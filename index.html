@@ -1171,6 +1171,8 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 .exd-kpi-label { font-size: 0.7rem; color: var(--text-secondary); font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.5px; }
 .exd-kpi-value { font-size: 1.4rem; font-weight: 700; font-family: var(--mono); }
 .exd-kpi-sub { font-size: 0.7rem; }
+.exd-kpi-subs { font-size: 0.65rem; font-family: var(--mono); line-height: 1.6; margin-top: 0.25rem; }
+.exd-kpi-sublabel { color: var(--text-secondary); }
 </style>
 </head>
 <body>
@@ -4576,27 +4578,45 @@ function exdChg(v) {
 function exdVal(v) { return '<td>' + exdFmt(v) + '</td>'; }
 
 function renderExchange(data) {
-  const fy = data.fy_summary && data.fy_summary[0];
-  if (fy) {
+  // NOTE: All data is from our own trusted API (exchange_dashboard.py), not user input.
+  // innerHTML is safe here as all values are numeric from server-side computation.
+  var ld = data.latest_day;
+  var fy = data.fy_summary && data.fy_summary[0];
+  var w5 = data.weekly && data.weekly[0];
+  var ma = data.avg_45d;
+  if (ld) {
     document.getElementById('exdHeroTitle').textContent = 'Exchange Dashboard \u2014 ' + data.as_of;
     document.getElementById('exdHeroContent').style.opacity = '1';
+    var _cp = function(cur, ref) {
+      if (ref == null || ref === 0) return '';
+      var pct = Math.round((cur - ref) / Math.abs(ref) * 100);
+      var cls = pct > 0 ? 'chg-pos' : pct < 0 ? 'chg-neg' : 'chg-neutral';
+      return '<span class="' + cls + '">' + (pct > 0 ? '+' : '') + pct + '%</span>';
+    };
+    var _subs = function(cur, fyRef, w5Ref, maRef) {
+      return '<div class="exd-kpi-subs">' +
+        (fyRef != null ? '<div>' + _cp(cur, fyRef) + ' <span class="exd-kpi-sublabel">vs FY Avg</span></div>' : '') +
+        (w5Ref != null ? '<div>' + _cp(cur, w5Ref) + ' <span class="exd-kpi-sublabel">vs 5d Avg</span></div>' : '') +
+        (maRef != null ? '<div>' + _cp(cur, maRef) + ' <span class="exd-kpi-sublabel">vs 45d MA</span></div>' : '') +
+      '</div>';
+    };
     document.getElementById('exdHeroContent').innerHTML =
       '<div class="exd-kpi-row">' +
-        '<div class="exd-kpi"><div class="exd-kpi-label">Futures Rev/Day</div>' +
-          '<div class="exd-kpi-value" style="color:var(--accent2)">' + exdFmt(fy.avg_fut) + ' Cr</div>' +
-          '<div class="exd-kpi-sub ' + (fy.yoy_fut > 0 ? 'chg-pos' : 'chg-neg') + '">' + (fy.yoy_fut != null ? (fy.yoy_fut > 0 ? '+' : '') + Math.round(fy.yoy_fut) + '% YoY' : '') + '</div></div>' +
-        '<div class="exd-kpi"><div class="exd-kpi-label">Options Rev/Day</div>' +
-          '<div class="exd-kpi-value" style="color:var(--accent)">' + exdFmt(fy.avg_opt) + ' Cr</div>' +
-          '<div class="exd-kpi-sub ' + (fy.yoy_opt > 0 ? 'chg-pos' : 'chg-neg') + '">' + (fy.yoy_opt != null ? (fy.yoy_opt > 0 ? '+' : '') + Math.round(fy.yoy_opt) + '% YoY' : '') + '</div></div>' +
-        '<div class="exd-kpi"><div class="exd-kpi-label">Total Rev/Day</div>' +
-          '<div class="exd-kpi-value">' + exdFmt(fy.avg_total) + ' Cr</div>' +
-          '<div class="exd-kpi-sub ' + (fy.yoy_total > 0 ? 'chg-pos' : 'chg-neg') + '">' + (fy.yoy_total != null ? (fy.yoy_total > 0 ? '+' : '') + Math.round(fy.yoy_total) + '% YoY' : '') + '</div></div>' +
+        '<div class="exd-kpi"><div class="exd-kpi-label">Futures Rev</div>' +
+          '<div class="exd-kpi-value" style="color:var(--accent2)">' + exdFmt(ld.fut) + ' Cr</div>' +
+          _subs(ld.fut, fy && fy.avg_fut, w5 && w5.avg_fut, ma && ma.avg_fut) + '</div>' +
+        '<div class="exd-kpi"><div class="exd-kpi-label">Options Rev</div>' +
+          '<div class="exd-kpi-value" style="color:var(--accent)">' + exdFmt(ld.opt) + ' Cr</div>' +
+          _subs(ld.opt, fy && fy.avg_opt, w5 && w5.avg_opt, ma && ma.avg_opt) + '</div>' +
+        '<div class="exd-kpi"><div class="exd-kpi-label">Total Rev</div>' +
+          '<div class="exd-kpi-value">' + exdFmt(ld.total) + ' Cr</div>' +
+          _subs(ld.total, fy && fy.avg_total, w5 && w5.avg_total, ma && ma.avg_total) + '</div>' +
         '<div class="exd-kpi"><div class="exd-kpi-label">O/F Ratio</div>' +
-          '<div class="exd-kpi-value">' + exdFmt(fy.of_ratio) + 'x</div>' +
-          '<div class="exd-kpi-sub ' + (fy.yoy_of != null && fy.yoy_of < 0 ? 'chg-neg' : 'chg-pos') + '">' + (fy.yoy_of != null ? (fy.yoy_of > 0 ? '+' : '') + Math.round(fy.yoy_of) + '% YoY' : '') + '</div></div>' +
+          '<div class="exd-kpi-value">' + exdFmt(ld.of_ratio) + 'x</div>' +
+          _subs(ld.of_ratio, fy && fy.of_ratio, w5 && w5.of_ratio, ma && ma.of_ratio) + '</div>' +
       '</div>' +
       '<div style="font-size:0.75rem;color:var(--text-secondary);font-family:var(--mono)">' +
-        fy.fy + ' FYTD &middot; ' + fy.trading_days + ' trading days</div>';
+        'Latest trading day: ' + ld.date + '</div>';
   }
 
   renderExdTable('exdFyTable', data.fy_summary || [], [

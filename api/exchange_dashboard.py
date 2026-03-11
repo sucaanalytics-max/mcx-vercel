@@ -378,11 +378,23 @@ def generate_exchange_dashboard(today=None):
             "fut": r["fut"], "opt": r["opt"], "total": r["total"],
         })
 
+    # ── 8. Latest day + 45d MA for hero KPI ────────────────────────────
+    latest = data[-1]
+    latest_day = {
+        "date": latest["date"].isoformat(),
+        "fut": latest["fut"], "opt": latest["opt"], "total": latest["total"],
+        "of_ratio": round(latest["opt"] / latest["fut"], 2) if latest["fut"] > 0 else None,
+    }
+    last_45 = data[-45:] if len(data) >= 45 else data
+    avg_45d = _group_stats(last_45)
+
     return {
         "success": True,
         "as_of": now_ist().strftime("%Y-%m-%d %H:%M IST"),
         "current_fy": current_fy,
         "current_quarter": current_q,
+        "latest_day": latest_day,
+        "avg_45d": avg_45d,
         "fy_summary": fy_summary,
         "quarterly": quarterly,
         "monthly": monthly,
