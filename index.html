@@ -391,7 +391,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 .g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
 @media (max-width: 800px) {
   .g2, .g3, .card-row { grid-template-columns: 1fr; }
-  /* ── Exchange Dashboard mobile ── */
+  /* ── Timeline Dashboard mobile ── */
   .exd-kpi-row { grid-template-columns: repeat(2, 1fr); gap: 0.75rem; }
   .exd-kpi-value { font-size: 1.1rem; }
   .exd-kpi-subs { font-size: 0.6rem; }
@@ -1210,7 +1210,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   <!-- backtest tab hidden -->
   <button class="tab-btn" data-tab="tabCommodity" onclick="switchTab('tabCommodity')">Commodities</button>
   <button class="tab-btn" data-tab="tabQuarterly" onclick="switchTab('tabQuarterly')">Quarterly P&L</button>
-  <button class="tab-btn" data-tab="tabExchange" onclick="switchTab('tabExchange')">Exchange Dashboard</button>
+  <button class="tab-btn" data-tab="tabExchange" onclick="switchTab('tabExchange')">Timeline Dashboard</button>
 </div>
 
 <!-- ═══ TAB: DAILY PREDICTOR ════════════════════════════════════════════════ -->
@@ -2313,7 +2313,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 </div><!-- /tabQuarterly -->
 <div id="tabExchange" style="display:none">
   <div class="card" id="exdHeroCard">
-    <div class="card-title" id="exdHeroTitle">Exchange Dashboard</div>
+    <div class="card-title" id="exdHeroTitle">Timeline Dashboard</div>
     <div id="exdHeroContent" style="opacity:0.4;text-align:center;padding:2rem">Loading exchange data...</div>
   </div>
   <div class="card">
@@ -4594,7 +4594,7 @@ function renderExchange(data) {
   var w5 = data.weekly && data.weekly[0];
   var ma = data.avg_45d;
   if (ld) {
-    document.getElementById('exdHeroTitle').textContent = 'Exchange Dashboard \u2014 ' + data.as_of;
+    document.getElementById('exdHeroTitle').textContent = 'Timeline Dashboard \u2014 ' + data.as_of;
     document.getElementById('exdHeroContent').style.opacity = '1';
     var _cp = function(cur, ref) {
       if (ref == null || ref === 0) return '';
