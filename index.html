@@ -1152,6 +1152,25 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   padding: 4px 8px;
   font-size: 12px;
 }
+
+/* ── EXCHANGE DASHBOARD ────────────────────────────────────────────────── */
+.exd-section { margin-bottom: 1.5rem; }
+.exd-section-title { font-family: var(--mono); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--text-secondary); margin-bottom: 0.5rem; }
+.exd-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+.exd-table th { text-align: right; padding: 6px 10px; font-size: 10px; font-weight: 700; color: var(--text-secondary); border-bottom: 2px solid var(--border-heavy); text-transform: uppercase; letter-spacing: 0.5px; }
+.exd-table th:first-child { text-align: left; }
+.exd-table td { padding: 6px 10px; text-align: right; font-variant-numeric: tabular-nums; border-bottom: 1px solid var(--border); }
+.exd-table td:first-child { text-align: left; font-weight: 500; color: var(--text); }
+.exd-table tr:hover td { background: var(--surface2); }
+.exd-table .hdr-group { text-align: center; border-bottom: 1px solid var(--border); font-size: 11px; font-weight: 700; color: var(--text); padding: 8px 4px; }
+.chg-pos { color: var(--positive); font-weight: 600; }
+.chg-neg { color: var(--negative); font-weight: 600; }
+.chg-neutral { color: var(--text-secondary); }
+.exd-kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1rem; }
+.exd-kpi { text-align: center; }
+.exd-kpi-label { font-size: 0.7rem; color: var(--text-secondary); font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.5px; }
+.exd-kpi-value { font-size: 1.4rem; font-weight: 700; font-family: var(--mono); }
+.exd-kpi-sub { font-size: 0.7rem; }
 </style>
 </head>
 <body>
@@ -1180,6 +1199,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   <!-- backtest tab hidden -->
   <button class="tab-btn" data-tab="tabCommodity" onclick="switchTab('tabCommodity')">Commodities</button>
   <button class="tab-btn" data-tab="tabQuarterly" onclick="switchTab('tabQuarterly')">Quarterly P&L</button>
+  <button class="tab-btn" data-tab="tabExchange" onclick="switchTab('tabExchange')">Exchange Dashboard</button>
 </div>
 
 <!-- ═══ TAB: DAILY PREDICTOR ════════════════════════════════════════════════ -->
@@ -2280,6 +2300,43 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   </details>
 
 </div><!-- /tabQuarterly -->
+<div id="tabExchange" style="display:none">
+  <div class="card" id="exdHeroCard">
+    <div class="card-title" id="exdHeroTitle">Exchange Dashboard</div>
+    <div id="exdHeroContent" style="opacity:0.4;text-align:center;padding:2rem">Loading exchange data...</div>
+  </div>
+  <div class="card">
+    <div class="card-title">Financial Year Summary</div>
+    <div style="overflow-x:auto"><table class="exd-table" id="exdFyTable"></table></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Quarterly Breakdown</div>
+    <div style="overflow-x:auto"><table class="exd-table" id="exdQtrTable"></table></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Monthly Breakdown</div>
+    <div style="overflow-x:auto"><table class="exd-table" id="exdMonthTable"></table></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Weekly Breakdown</div>
+    <div style="overflow-x:auto"><table class="exd-table" id="exdWeekTable"></table></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Day-of-Week Analysis</div>
+    <div style="overflow-x:auto"><table class="exd-table" id="exdDowTable"></table></div>
+  </div>
+  <div class="card">
+    <div class="card-title" id="exdQdowTitle">Quarter &times; Day-of-Week</div>
+    <div style="overflow-x:auto"><table class="exd-table" id="exdQdowTable"></table></div>
+  </div>
+  <div class="card">
+    <div class="card-title">Daily Revenue Trend (Last 60 Days)</div>
+    <div style="position:relative;height:320px">
+      <canvas id="exdTrendChart"></canvas>
+    </div>
+  </div>
+</div><!-- /tabExchange -->
+
 
 
 <!-- ═══ COOKIE MODAL ═══════════════════════════════════════════════════════ -->
@@ -2749,7 +2806,7 @@ setTimeout(() => doRefresh(true), 800);
 function switchTab(tabId) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
-  const tabs = ['tabPredictor', 'tabForecast', 'tabValuation', 'tabAnalytics', 'tabBacktest', 'tabCommodity', 'tabQuarterly'];
+  const tabs = ['tabPredictor', 'tabForecast', 'tabValuation', 'tabAnalytics', 'tabBacktest', 'tabCommodity', 'tabQuarterly', 'tabExchange'];
   tabs.forEach(t => {
     const el = document.getElementById(t);
     if (el) el.style.display = t === tabId ? 'block' : 'none';
@@ -2760,6 +2817,7 @@ function switchTab(tabId) {
   if (tabId === 'tabBacktest') loadBacktest();
   if (tabId === 'tabCommodity') loadCommodity();
   if (tabId === 'tabQuarterly') loadQuarterly();
+  if (tabId === 'tabExchange') loadExchange();
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -4487,6 +4545,189 @@ function renderQtrTable(data) {
     </tr>`;
   }
   tbody.innerHTML = rows;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  EXCHANGE DASHBOARD — Breakdown Analysis
+// ════════════════════════════════════════════════════════════════════════════
+let exdCache = null, exdLoading = false, exdTrendChart = null;
+
+async function loadExchange() {
+  if (exdCache && (Date.now() - exdCache._ts < 300000)) { renderExchange(exdCache); return; }
+  if (exdLoading) return;
+  exdLoading = true;
+  document.getElementById('exdHeroContent').innerHTML = '<div style="text-align:center;padding:2rem;opacity:0.5">Loading exchange data...</div>';
+  try {
+    const r = await fetch('/api/exchange_dashboard');
+    const d = await r.json();
+    if (d.success) { d._ts = Date.now(); exdCache = d; renderExchange(d); }
+    else { document.getElementById('exdHeroContent').innerHTML = '<div style="color:var(--danger)">Error: ' + (d.error||'unknown') + '</div>'; }
+  } catch(e) { document.getElementById('exdHeroContent').innerHTML = '<div style="color:var(--danger)">Failed to load: ' + e.message + '</div>'; }
+  finally { exdLoading = false; }
+}
+
+function exdFmt(v) { return v != null ? Number(v).toLocaleString('en-IN', {maximumFractionDigits:2}) : '\u2014'; }
+function exdChg(v) {
+  if (v == null) return '<td class="chg-neutral">\u2014</td>';
+  const cls = v > 0 ? 'chg-pos' : v < 0 ? 'chg-neg' : 'chg-neutral';
+  const sign = v > 0 ? '+' : '';
+  return '<td class="' + cls + '">' + sign + Math.round(v) + '%</td>';
+}
+function exdVal(v) { return '<td>' + exdFmt(v) + '</td>'; }
+
+function renderExchange(data) {
+  const fy = data.fy_summary && data.fy_summary[0];
+  if (fy) {
+    document.getElementById('exdHeroTitle').textContent = 'Exchange Dashboard \u2014 ' + data.as_of;
+    document.getElementById('exdHeroContent').style.opacity = '1';
+    document.getElementById('exdHeroContent').innerHTML =
+      '<div class="exd-kpi-row">' +
+        '<div class="exd-kpi"><div class="exd-kpi-label">Futures Rev/Day</div>' +
+          '<div class="exd-kpi-value" style="color:var(--accent2)">' + exdFmt(fy.avg_fut) + ' Cr</div>' +
+          '<div class="exd-kpi-sub ' + (fy.yoy_fut > 0 ? 'chg-pos' : 'chg-neg') + '">' + (fy.yoy_fut != null ? (fy.yoy_fut > 0 ? '+' : '') + Math.round(fy.yoy_fut) + '% YoY' : '') + '</div></div>' +
+        '<div class="exd-kpi"><div class="exd-kpi-label">Options Rev/Day</div>' +
+          '<div class="exd-kpi-value" style="color:var(--accent)">' + exdFmt(fy.avg_opt) + ' Cr</div>' +
+          '<div class="exd-kpi-sub ' + (fy.yoy_opt > 0 ? 'chg-pos' : 'chg-neg') + '">' + (fy.yoy_opt != null ? (fy.yoy_opt > 0 ? '+' : '') + Math.round(fy.yoy_opt) + '% YoY' : '') + '</div></div>' +
+        '<div class="exd-kpi"><div class="exd-kpi-label">Total Rev/Day</div>' +
+          '<div class="exd-kpi-value">' + exdFmt(fy.avg_total) + ' Cr</div>' +
+          '<div class="exd-kpi-sub ' + (fy.yoy_total > 0 ? 'chg-pos' : 'chg-neg') + '">' + (fy.yoy_total != null ? (fy.yoy_total > 0 ? '+' : '') + Math.round(fy.yoy_total) + '% YoY' : '') + '</div></div>' +
+        '<div class="exd-kpi"><div class="exd-kpi-label">O/F Ratio</div>' +
+          '<div class="exd-kpi-value">' + exdFmt(fy.of_ratio) + 'x</div>' +
+          '<div class="exd-kpi-sub ' + (fy.yoy_of != null && fy.yoy_of < 0 ? 'chg-neg' : 'chg-pos') + '">' + (fy.yoy_of != null ? (fy.yoy_of > 0 ? '+' : '') + Math.round(fy.yoy_of) + '% YoY' : '') + '</div></div>' +
+      '</div>' +
+      '<div style="font-size:0.75rem;color:var(--text-secondary);font-family:var(--mono)">' +
+        fy.fy + ' FYTD &middot; ' + fy.trading_days + ' trading days</div>';
+  }
+
+  renderExdTable('exdFyTable', data.fy_summary || [], [
+    {key:'fy',label:'',align:'left'},{key:'avg_fut',label:'FUTURE'},{key:'yoy_fut',label:'YoY',isChg:true},
+    {key:'avg_opt',label:'OPTION'},{key:'yoy_opt',label:'YoY',isChg:true},
+    {key:'avg_total',label:'TOTAL'},{key:'yoy_total',label:'YoY',isChg:true},
+    {key:'of_ratio',label:'O/F'},{key:'yoy_of',label:'YoY',isChg:true},{key:'trading_days',label:'Days'}
+  ]);
+  renderExdTable('exdQtrTable', data.quarterly || [], [
+    {key:'quarter',label:'',align:'left'},{key:'avg_fut',label:'FUTURE'},{key:'qoq_fut',label:'QoQ',isChg:true},{key:'yoy_fut',label:'YoY',isChg:true},
+    {key:'avg_opt',label:'OPTION'},{key:'qoq_opt',label:'QoQ',isChg:true},{key:'yoy_opt',label:'YoY',isChg:true},
+    {key:'avg_total',label:'TOTAL'},{key:'qoq_total',label:'QoQ',isChg:true},{key:'yoy_total',label:'YoY',isChg:true},
+    {key:'of_ratio',label:'O/F'},{key:'qoq_of',label:'QoQ',isChg:true},{key:'yoy_of',label:'YoY',isChg:true}
+  ]);
+  renderExdTable('exdMonthTable', data.monthly || [], [
+    {key:'label',label:'',align:'left'},{key:'avg_fut',label:'FUTURE'},{key:'mom_fut',label:'MoM',isChg:true},{key:'mo6m_fut',label:'Mo6M',isChg:true},
+    {key:'avg_opt',label:'OPTION'},{key:'mom_opt',label:'MoM',isChg:true},{key:'mo6m_opt',label:'Mo6M',isChg:true},
+    {key:'avg_total',label:'TOTAL'},{key:'mom_total',label:'MoM',isChg:true},{key:'mo6m_total',label:'Mo6M',isChg:true},
+    {key:'of_ratio',label:'O/F'},{key:'mom_of',label:'MoM',isChg:true},{key:'mo6m_of',label:'Mo6M',isChg:true}
+  ]);
+  renderExdTable('exdWeekTable', data.weekly || [], [
+    {key:'label',label:'',align:'left'},{key:'avg_fut',label:'FUTURE'},{key:'wow_fut',label:'WoW',isChg:true},{key:'wo10w_fut',label:'Wo10W',isChg:true},
+    {key:'avg_opt',label:'OPTION'},{key:'wow_opt',label:'WoW',isChg:true},{key:'wo10w_opt',label:'Wo10W',isChg:true},
+    {key:'avg_total',label:'TOTAL'},{key:'wow_total',label:'WoW',isChg:true},{key:'wo10w_total',label:'Wo10W',isChg:true},
+    {key:'of_ratio',label:'O/F'},{key:'wow_of',label:'WoW',isChg:true},{key:'wo10w_of',label:'Wo10W',isChg:true}
+  ]);
+
+  // Day-of-Week
+  const dowData = data.day_of_week || [];
+  let dowHtml = '<thead><tr><th style="text-align:left">Day</th><th colspan="2" class="hdr-group">FUTURE</th><th colspan="2" class="hdr-group">OPTION</th><th colspan="2" class="hdr-group">TOTAL</th><th>O/F</th></tr>';
+  dowHtml += '<tr><th></th><th>Latest</th><th>Var%</th><th>Latest</th><th>Var%</th><th>Latest</th><th>Var%</th><th></th></tr></thead><tbody>';
+  for (const d of dowData) {
+    dowHtml += '<tr><td style="text-align:left;font-weight:500">' + d.day + '</td>';
+    dowHtml += exdVal(d.latest_fut) + exdChg(_exdPct(d.latest_fut, d.avg10_fut));
+    dowHtml += exdVal(d.latest_opt) + exdChg(_exdPct(d.latest_opt, d.avg10_opt));
+    dowHtml += exdVal(d.latest_total) + exdChg(d.var10_total);
+    dowHtml += exdVal(d.latest_of) + '</tr>';
+    if (d.avg3_total != null) {
+      dowHtml += '<tr style="font-size:11px;color:var(--text-secondary)"><td style="text-align:left;padding-left:1.5rem">Avg Last 3 ' + d.day + 's</td>';
+      dowHtml += exdVal(d.avg3_fut) + '<td></td>' + exdVal(d.avg3_opt) + '<td></td>' + exdVal(d.avg3_total) + '<td></td>' + exdVal(d.avg3_of) + '</tr>';
+    }
+    if (d.avg10_total != null) {
+      dowHtml += '<tr style="font-size:11px;color:var(--text-secondary)"><td style="text-align:left;padding-left:1.5rem">Avg Last 10 ' + d.day + 's</td>';
+      dowHtml += exdVal(d.avg10_fut) + '<td></td>' + exdVal(d.avg10_opt) + '<td></td>' + exdVal(d.avg10_total) + '<td></td>' + exdVal(d.avg10_of) + '</tr>';
+    }
+  }
+  dowHtml += '</tbody>';
+  document.getElementById('exdDowTable').innerHTML = dowHtml;
+
+  // Quarter x Day-of-Week
+  const qdow = data.quarter_dow || [];
+  if (qdow.length > 0) {
+    const curQ = qdow[0].cur_q || data.current_quarter || '';
+    const prevQ = qdow[0].prev_q || '';
+    const yoyQ = qdow[0].yoy_q || '';
+    document.getElementById('exdQdowTitle').textContent = 'Quarter \u00D7 Day-of-Week \u2014 ' + curQ;
+    let qhtml = '<thead><tr><th style="text-align:left">Day</th><th colspan="2" class="hdr-group">' + curQ + '</th><th colspan="2" class="hdr-group">' + prevQ + '</th>';
+    if (yoyQ) qhtml += '<th colspan="2" class="hdr-group">' + yoyQ + '</th>';
+    qhtml += '<th>QoQ</th><th>YoY</th></tr>';
+    qhtml += '<tr><th></th><th>Total</th><th>O/F</th><th>Total</th><th>O/F</th>';
+    if (yoyQ) qhtml += '<th>Total</th><th>O/F</th>';
+    qhtml += '<th></th><th></th></tr></thead><tbody>';
+    for (const d of qdow) {
+      qhtml += '<tr><td style="text-align:left;font-weight:500">' + d.day + '</td>';
+      qhtml += exdVal(d.cur_total) + exdVal(d.cur_of);
+      qhtml += exdVal(d.prev_total) + exdVal(d.prev_of);
+      if (yoyQ) qhtml += exdVal(d.yoy_total) + exdVal(d.yoy_of);
+      qhtml += exdChg(d.qoq_total) + exdChg(d.yoy_total_pct);
+      qhtml += '</tr>';
+    }
+    qhtml += '</tbody>';
+    document.getElementById('exdQdowTable').innerHTML = qhtml;
+  }
+
+  renderExdTrendChart(data);
+}
+
+function _exdPct(cur, prev) {
+  if (!prev || prev === 0) return null;
+  return Math.round((cur - prev) / Math.abs(prev) * 100);
+}
+
+function renderExdTable(tableId, rows, cols) {
+  if (!rows.length) return;
+  let html = '<thead><tr>';
+  for (const c of cols) html += '<th' + (c.align === 'left' ? ' style="text-align:left"' : '') + '>' + c.label + '</th>';
+  html += '</tr></thead><tbody>';
+  for (const row of rows) {
+    const isAvg = row.is_average;
+    html += '<tr' + (isAvg ? ' style="font-style:italic;color:var(--text-secondary)"' : '') + '>';
+    for (const c of cols) {
+      const v = row[c.key];
+      if (c.align === 'left') html += '<td style="text-align:left;font-weight:500">' + (v || '') + '</td>';
+      else if (c.isChg) html += exdChg(v);
+      else html += exdVal(v);
+    }
+    html += '</tr>';
+  }
+  html += '</tbody>';
+  document.getElementById(tableId).innerHTML = html;
+}
+
+function renderExdTrendChart(data) {
+  const ctx = document.getElementById('exdTrendChart');
+  if (!ctx) return;
+  if (exdTrendChart) exdTrendChart.destroy();
+  const trend = data.daily_trend || [];
+  if (!trend.length) return;
+  const isDark = document.documentElement.classList.contains('dark');
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const txtColor = isDark ? '#888' : '#999';
+  const labels = trend.map(t => { const d = new Date(t.date); return d.getDate() + ' ' + d.toLocaleString('en', {month:'short'}); });
+  exdTrendChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Futures Rev (Cr)', data: trend.map(t => t.fut), backgroundColor: isDark ? 'rgba(89,160,245,0.6)' : 'rgba(9,88,217,0.5)', borderRadius: 2, stack: 'revenue' },
+        { label: 'Options Rev (Cr)', data: trend.map(t => t.opt), backgroundColor: isDark ? 'rgba(255,107,71,0.6)' : 'rgba(212,56,13,0.5)', borderRadius: 2, stack: 'revenue' },
+        { label: 'Total (Cr)', data: trend.map(t => t.total), type: 'line', borderColor: isDark ? '#5B9CF5' : '#0958D9', backgroundColor: 'transparent', pointRadius: 0, tension: 0.3, borderWidth: 1.5 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: txtColor, font: {size:11} } } },
+      scales: {
+        x: { stacked: true, ticks: { color: txtColor, font: {size:9}, maxRotation: 45, maxTicksLimit: 15 }, grid: { display: false } },
+        y: { stacked: true, title: { display: true, text: 'Cr', color: txtColor }, ticks: { color: txtColor }, grid: { color: gridColor } }
+      }
+    }
+  });
 }
 
 </script>
