@@ -315,6 +315,28 @@ def supabase_read(table, params="", timeout=10):
     return _supabase_request("GET", table, params=params, timeout=timeout)
 
 
+def supabase_read_all(table, params="", page_size=1000, max_rows=10000, timeout=10):
+    """Paginated read — fetches all rows beyond the 1000-row default limit.
+
+    Uses offset-based pagination (same pattern as existing cron jobs).
+    Stops when: fewer than page_size rows returned OR max_rows reached.
+    """
+    all_rows = []
+    offset = 0
+    separator = "&" if "?" in params else "?"
+    while True:
+        page = supabase_read(
+            table,
+            f"{params}{separator}limit={page_size}&offset={offset}",
+            timeout=timeout,
+        )
+        all_rows.extend(page)
+        if len(page) < page_size or len(all_rows) >= max_rows:
+            break
+        offset += page_size
+    return all_rows[:max_rows]
+
+
 def supabase_upsert(table, data, timeout=10):
     """Upsert data into Supabase table."""
     import urllib.request, urllib.error, json

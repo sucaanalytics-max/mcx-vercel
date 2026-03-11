@@ -12,7 +12,7 @@ from collections import defaultdict
 
 from lib.mcx_config import (
     SUPABASE_URL, SUPABASE_ANON_KEY,
-    supabase_read, now_ist, make_cors_headers,
+    supabase_read_all, now_ist, make_cors_headers,
 )
 
 
@@ -112,13 +112,12 @@ def generate_exchange_dashboard(today=None):
     if today is None:
         today = now_ist().date()
 
-    # Fetch daily revenue rows (start from FY23 = April 2022 to stay under
-    # Supabase default 1000-row limit while covering 4+ FYs for YoY)
-    rows = supabase_read(
+    # Fetch ALL daily revenue rows using paginated reader (no 1000-row limit)
+    rows = supabase_read_all(
         "mcx_daily_revenue",
         "?select=trading_date,fut_rev_cr,opt_rev_cr,total_rev_cr"
-        "&trading_date=gte.2022-04-01"
-        "&order=trading_date.asc&limit=1000"
+        "&order=trading_date.asc",
+        max_rows=5000,
     )
 
     # Parse and normalize
