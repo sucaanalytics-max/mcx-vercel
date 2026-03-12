@@ -1211,6 +1211,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   <button class="tab-btn" data-tab="tabCommodity" onclick="switchTab('tabCommodity')">Commodities</button>
   <button class="tab-btn" data-tab="tabQuarterly" onclick="switchTab('tabQuarterly')">Quarterly P&L</button>
   <button class="tab-btn" data-tab="tabExchange" onclick="switchTab('tabExchange')">Timeline Dashboard</button>
+  <button class="tab-btn" data-tab="tabMargins" onclick="switchTab('tabMargins')">Margins</button>
 </div>
 
 <!-- ═══ TAB: DAILY PREDICTOR ════════════════════════════════════════════════ -->
@@ -2371,6 +2372,37 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 
 </div><!-- /tabExchange -->
 
+<!-- ═══ MARGINS TAB ═════════════════════════════════════════════════════════ -->
+<div id="tabMargins" style="display:none">
+<div class="wrap">
+  <h2 style="margin-bottom:16px">MCX Margin Requirements</h2>
+  <p id="marginAsOf" style="font-size:11px;color:var(--text-secondary);margin-bottom:16px">Loading…</p>
+
+  <!-- Current Margins Table -->
+  <div class="card" id="marginCurrentSection">
+    <div class="card-title">Current Margin Requirements</div>
+    <div style="overflow-x:auto">
+      <table class="exd-table" id="marginCurrentTable"></table>
+    </div>
+  </div>
+
+  <!-- Margin Changes Log -->
+  <div class="card" id="marginChangesSection" style="display:none">
+    <div class="card-title">Recent Margin Changes</div>
+    <div style="overflow-x:auto">
+      <table class="exd-table" id="marginChangesTable"></table>
+    </div>
+  </div>
+
+  <!-- Margin History Chart -->
+  <div class="card" id="marginChartSection" style="display:none">
+    <div class="card-title">Margin History (Total Margin %)</div>
+    <div style="position:relative;height:320px">
+      <canvas id="marginHistoryChart"></canvas>
+    </div>
+  </div>
+</div>
+</div><!-- /tabMargins -->
 
 
 <!-- ═══ COOKIE MODAL ═══════════════════════════════════════════════════════ -->
@@ -2840,7 +2872,7 @@ setTimeout(() => doRefresh(true), 800);
 function switchTab(tabId) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
-  const tabs = ['tabPredictor', 'tabForecast', 'tabValuation', 'tabAnalytics', 'tabBacktest', 'tabCommodity', 'tabQuarterly', 'tabExchange'];
+  const tabs = ['tabPredictor', 'tabForecast', 'tabValuation', 'tabAnalytics', 'tabBacktest', 'tabCommodity', 'tabQuarterly', 'tabExchange', 'tabMargins'];
   tabs.forEach(t => {
     const el = document.getElementById(t);
     if (el) el.style.display = t === tabId ? 'block' : 'none';
@@ -2852,6 +2884,7 @@ function switchTab(tabId) {
   if (tabId === 'tabCommodity') { loadCommodity(); loadCmdDashboard(); }
   if (tabId === 'tabQuarterly') loadQuarterly();
   if (tabId === 'tabExchange') { loadExchange(); }
+  if (tabId === 'tabMargins') loadMargins();
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -4935,6 +4968,135 @@ function renderCmdDashboard(data) {
       }
     }
   });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MARGINS TAB
+// ════════════════════════════════════════════════════════════════════════════
+var marginCache = null;
+var marginHistChart = null;
+
+var MARGIN_COLORS = [
+  '#ef4444', '#f59e0b', '#9ca3af', '#3b82f6', '#f97316',
+  '#10b981', '#8b5cf6', '#ec4899', '#14b8a6', '#6366f1',
+  '#84cc16', '#f43f5e', '#06b6d4', '#a855f7', '#d97706',
+];
+
+function loadMargins() {
+  if (marginCache && (Date.now() - marginCache._ts < 300000)) { renderMargins(marginCache); return; }
+  document.getElementById('marginAsOf').textContent = 'Loading…';
+  fetch('/api/commodity_dashboard?view=margins')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.success) { d._ts = Date.now(); marginCache = d; renderMargins(d); }
+      else { document.getElementById('marginAsOf').textContent = d.error || 'No data'; }
+    })
+    .catch(function(e) { document.getElementById('marginAsOf').textContent = 'Error: ' + e; });
+}
+
+function renderMargins(data) {
+  document.getElementById('marginAsOf').textContent = 'As of ' + data.as_of + ' • ' + data.snapshot_dates + ' snapshot(s)';
+
+  // ── Current Margins Table ──
+  var tbl = document.getElementById('marginCurrentTable');
+  var h = '<thead><tr>' +
+    '<th>Symbol</th><th>Initial %</th><th>Total %</th><th>Change</th>' +
+    '<th>ELM Long %</th><th>Delivery %</th><th>Last Changed</th>' +
+    '</tr></thead><tbody>';
+
+  data.current_margins.forEach(function(m) {
+    var changeCell = '';
+    if (m.change_pct !== null && m.change_pct !== undefined) {
+      var cls = m.change_pct > 0 ? 'chg-neg' : m.change_pct < 0 ? 'chg-pos' : '';
+      var arrow = m.change_pct > 0 ? '▲' : m.change_pct < 0 ? '▼' : '';
+      changeCell = '<span class="' + cls + '">' + arrow + ' ' + Math.abs(m.change_pct).toFixed(1) + '%</span>';
+    } else {
+      changeCell = '—';
+    }
+    var lastChanged = m.last_change_date || '—';
+
+    h += '<tr>' +
+      '<td style="font-weight:600">' + m.symbol + '</td>' +
+      '<td>' + (m.initial_margin_pct != null ? m.initial_margin_pct.toFixed(1) : '—') + '</td>' +
+      '<td style="font-weight:600">' + (m.total_margin_pct != null ? m.total_margin_pct.toFixed(1) : '—') + '</td>' +
+      '<td>' + changeCell + '</td>' +
+      '<td>' + (m.elm_long_pct != null ? m.elm_long_pct.toFixed(1) : '—') + '</td>' +
+      '<td>' + (m.delivery_margin_pct != null ? m.delivery_margin_pct.toFixed(1) : '—') + '</td>' +
+      '<td style="font-size:10px;color:var(--text-secondary)">' + lastChanged + '</td>' +
+      '</tr>';
+  });
+  h += '</tbody>';
+  tbl.innerHTML = h;
+
+  // ── Margin Changes Log ──
+  var changesSection = document.getElementById('marginChangesSection');
+  var changes = data.margin_changes || [];
+  if (changes.length > 0) {
+    changesSection.style.display = '';
+    var ctbl = document.getElementById('marginChangesTable');
+    var ch = '<thead><tr><th>Date</th><th>Symbol</th><th>Old Total %</th><th>New Total %</th><th>Change</th></tr></thead><tbody>';
+    changes.forEach(function(c) {
+      var cls = c.direction === 'up' ? 'chg-neg' : 'chg-pos';
+      var arrow = c.direction === 'up' ? '▲' : '▼';
+      ch += '<tr>' +
+        '<td>' + c.date + '</td>' +
+        '<td style="font-weight:600">' + c.symbol + '</td>' +
+        '<td>' + c.old_total.toFixed(1) + '</td>' +
+        '<td>' + c.new_total.toFixed(1) + '</td>' +
+        '<td><span class="' + cls + '">' + arrow + ' ' + Math.abs(c.change).toFixed(1) + '%</span></td>' +
+        '</tr>';
+    });
+    ch += '</tbody>';
+    ctbl.innerHTML = ch;
+  } else {
+    changesSection.style.display = 'none';
+  }
+
+  // ── Margin History Chart ──
+  var chartSection = document.getElementById('marginChartSection');
+  var hist = data.margin_history;
+  if (hist && hist.dates && hist.dates.length > 1) {
+    chartSection.style.display = '';
+    var ctx = document.getElementById('marginHistoryChart').getContext('2d');
+    var isDark = document.documentElement.classList.contains('dark');
+    var gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+    var txtColor = isDark ? '#888' : '#999';
+
+    var labels = hist.dates.map(function(d) {
+      var dt = new Date(d);
+      return dt.getDate() + ' ' + dt.toLocaleString('en', {month:'short'});
+    });
+
+    // Pick top commodities by latest total margin (most interesting)
+    var syms = data.commodities.slice(0, 10);
+    var datasets = syms.map(function(sym, i) {
+      return {
+        label: sym,
+        data: hist[sym] || [],
+        borderColor: MARGIN_COLORS[i % MARGIN_COLORS.length],
+        backgroundColor: 'transparent',
+        borderWidth: 1.5,
+        pointRadius: hist.dates.length < 15 ? 3 : 0,
+        tension: 0.2,
+      };
+    });
+
+    if (marginHistChart) marginHistChart.destroy();
+    marginHistChart = new Chart(ctx, {
+      type: 'line',
+      data: { labels: labels, datasets: datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: txtColor, font: {size: 10} } } },
+        scales: {
+          x: { ticks: { color: txtColor, font: {size: 9}, maxRotation: 45, maxTicksLimit: 15 }, grid: { display: false } },
+          y: { title: { display: true, text: 'Total Margin %', color: txtColor }, ticks: { color: txtColor }, grid: { color: gridColor } }
+        }
+      }
+    });
+  } else {
+    chartSection.style.display = 'none';
+  }
 }
 
 </script>

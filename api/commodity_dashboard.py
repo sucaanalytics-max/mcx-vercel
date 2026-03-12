@@ -4,16 +4,20 @@
 Computes per-commodity daily revenue from mcx_commodity_daily table,
 aggregates across FY, quarterly, monthly, weekly, and day-of-week dimensions.
 Top 5 commodities + "OTHERS" bucket.
+
+Also serves margin data via ?view=margins (to stay within Vercel 12-function limit).
 """
 from http.server import BaseHTTPRequestHandler
 import json
 from datetime import date, timedelta
 from collections import defaultdict
+from urllib.parse import urlparse, parse_qs
 
 from lib.mcx_config import (
     SUPABASE_URL, SUPABASE_ANON_KEY,
     supabase_read_all, now_ist, make_cors_headers,
 )
+from lib.margin_dashboard import generate_margin_dashboard
 
 # Fee rates (SEBI Oct 2024)
 FUTURES_RATE = 210.0      # ₹ per crore notional (both sides)
@@ -325,13 +329,23 @@ def generate_commodity_dashboard():
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         headers = make_cors_headers()
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        view = qs.get("view", [None])[0]
+
         try:
-            result = generate_commodity_dashboard()
+            if view == "margins":
+                result = generate_margin_dashboard()
+                cache = "public, max-age=300, s-maxage=300"
+            else:
+                result = generate_commodity_dashboard()
+                cache = "public, max-age=120, s-maxage=120"
+
             self.send_response(200)
             for k, v in headers.items():
                 self.send_header(k, v)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Cache-Control", "public, max-age=120, s-maxage=120")
+            self.send_header("Cache-Control", cache)
             self.end_headers()
             self.wfile.write(json.dumps(result, default=str).encode())
         except Exception as e:

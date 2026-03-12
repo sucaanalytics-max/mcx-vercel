@@ -103,6 +103,10 @@
     {
       "path": "/api/cron?job=commodity_signals&mode=recent",
       "schedule": "50 19 * * 1-5"
+    },
+    {
+      "path": "/api/cron?job=margins&mode=recent",
+      "schedule": "55 19 * * 1-5"
     }
   ]
 }
