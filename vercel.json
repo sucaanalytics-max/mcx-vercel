@@ -29,6 +29,12 @@
     },
     "api/quarterly.py": {
       "maxDuration": 15
+    },
+    "api/exchange_dashboard.py": {
+      "maxDuration": 30
+    },
+    "api/commodity_dashboard.py": {
+      "maxDuration": 60
     }
   },
   "rewrites": [
@@ -71,6 +77,14 @@
     {
       "source": "/api/quarterly",
       "destination": "/api/quarterly"
+    },
+    {
+      "source": "/api/exchange_dashboard",
+      "destination": "/api/exchange_dashboard"
+    },
+    {
+      "source": "/api/commodity_dashboard",
+      "destination": "/api/commodity_dashboard"
     },
     {
       "source": "/(.*)",
