@@ -2346,6 +2346,27 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
       <canvas id="exdTrendChart"></canvas>
     </div>
   </div>
+
+  <!-- ── Commodity Breakdown ────────────────────────────────────────── -->
+  <div class="card" id="cmdSection" style="display:none">
+    <div class="card-title">Commodity Revenue Breakdown</div>
+    <div id="cmdAsOf" style="font-size:10px;color:var(--text-secondary);margin-bottom:8px"></div>
+    <div style="overflow-x:auto"><table class="exd-table" id="cmdSummaryTable"></table></div>
+  </div>
+  <div class="card" id="cmdQtrSection" style="display:none">
+    <div class="card-title">Quarterly by Commodity</div>
+    <div style="overflow-x:auto"><table class="exd-table" id="cmdQtrTable"></table></div>
+  </div>
+  <div class="card" id="cmdMonthSection" style="display:none">
+    <div class="card-title">Monthly by Commodity</div>
+    <div style="overflow-x:auto"><table class="exd-table" id="cmdMonthTable"></table></div>
+  </div>
+  <div class="card" id="cmdTrendSection" style="display:none">
+    <div class="card-title">Commodity Trend (Last 60 Days)</div>
+    <div style="position:relative;height:320px">
+      <canvas id="cmdTrendChart"></canvas>
+    </div>
+  </div>
 </div><!-- /tabExchange -->
 
 
@@ -2828,7 +2849,7 @@ function switchTab(tabId) {
   if (tabId === 'tabBacktest') loadBacktest();
   if (tabId === 'tabCommodity') loadCommodity();
   if (tabId === 'tabQuarterly') loadQuarterly();
-  if (tabId === 'tabExchange') loadExchange();
+  if (tabId === 'tabExchange') { loadExchange(); loadCommodity(); }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -4753,6 +4774,161 @@ function renderExdTrendChart(data) {
       plugins: { legend: { labels: { color: txtColor, font: {size:11} } } },
       scales: {
         x: { stacked: true, ticks: { color: txtColor, font: {size:9}, maxRotation: 45, maxTicksLimit: 15 }, grid: { display: false } },
+        y: { stacked: true, title: { display: true, text: 'Cr', color: txtColor }, ticks: { color: txtColor }, grid: { color: gridColor } }
+      }
+    }
+  });
+}
+
+// ═══ COMMODITY BREAKDOWN ═══════════════════════════════════════════════════
+// NOTE: All data is from our own trusted API (commodity_dashboard.py), not user input.
+// innerHTML is safe here as values are numeric from server-side computation.
+
+let cmdCache = null, cmdLoading = false, cmdTrendChart = null;
+
+async function loadCommodity() {
+  if (cmdCache && (Date.now() - cmdCache._ts < 300000)) { renderCommodity(cmdCache); return; }
+  if (cmdLoading) return;
+  cmdLoading = true;
+  try {
+    const r = await fetch('/api/commodity_dashboard');
+    const d = await r.json();
+    if (d.success) { d._ts = Date.now(); cmdCache = d; renderCommodity(d); }
+  } catch(e) { console.error('Commodity load failed:', e); }
+  finally { cmdLoading = false; }
+}
+
+// Color palette for commodity chart
+var CMD_COLORS = {
+  CRUDEOIL:   {bg: 'rgba(239,68,68,0.6)',  border: '#ef4444'},
+  GOLD:       {bg: 'rgba(245,158,11,0.6)', border: '#f59e0b'},
+  SILVER:     {bg: 'rgba(156,163,175,0.6)', border: '#9ca3af'},
+  NATURALGAS: {bg: 'rgba(59,130,246,0.6)',  border: '#3b82f6'},
+  COPPER:     {bg: 'rgba(249,115,22,0.6)',  border: '#f97316'},
+  OTHERS:     {bg: 'rgba(107,114,128,0.4)', border: '#6b7280'},
+};
+
+function renderCommodity(data) {
+  var sm = data.summary_matrix;
+  var comms = data.commodities;
+  if (!sm || !sm.length) return;
+
+  // Show sections
+  ['cmdSection','cmdQtrSection','cmdMonthSection','cmdTrendSection'].forEach(function(id) {
+    document.getElementById(id).style.display = '';
+  });
+
+  document.getElementById('cmdAsOf').textContent = 'As of ' + data.as_of + ' · ' + data.current_fy;
+
+  // ── Summary Matrix ──
+  var h = '<thead><tr><th>Commodity</th><th>Latest</th><th>5d Avg</th><th>45d MA</th>'
+        + '<th>Month</th><th>Quarter</th><th>FY Avg</th><th>YoY%</th><th>Share%</th></tr></thead><tbody>';
+  for (var i = 0; i < sm.length; i++) {
+    var r = sm[i];
+    var isTot = r.commodity === 'TOTAL';
+    var sty = isTot ? ' style="font-weight:700;border-top:2px solid var(--border)"' : '';
+    var yoy = r.yoy_pct != null ? (r.yoy_pct > 0 ? '+' : '') + Math.round(r.yoy_pct) + '%' : '\u2014';
+    var yoyCls = r.yoy_pct > 0 ? 'chg-pos' : r.yoy_pct < 0 ? 'chg-neg' : 'chg-neutral';
+    h += '<tr' + sty + '>';
+    h += '<td style="font-weight:600">' + r.commodity + '</td>';
+    h += '<td>' + exdFmt(r.last_day) + '</td>';
+    h += '<td>' + exdFmt(r.avg_5d) + '</td>';
+    h += '<td>' + exdFmt(r.avg_45d) + '</td>';
+    h += '<td>' + exdFmt(r.avg_month) + '</td>';
+    h += '<td>' + exdFmt(r.avg_quarter) + '</td>';
+    h += '<td>' + exdFmt(r.avg_fy) + '</td>';
+    h += '<td class="' + yoyCls + '">' + yoy + '</td>';
+    h += '<td>' + r.share_pct.toFixed(1) + '%</td>';
+    h += '</tr>';
+  }
+  h += '</tbody>';
+  document.getElementById('cmdSummaryTable').innerHTML = h;
+
+  // ── Quarterly by Commodity ──
+  var qtrs = data.quarterly || [];
+  if (qtrs.length) {
+    h = '<thead><tr><th>Commodity</th>';
+    for (var q = 0; q < qtrs.length; q++) h += '<th colspan="2">' + qtrs[q].quarter + '</th>';
+    h += '</tr><tr><th></th>';
+    for (var q = 0; q < qtrs.length; q++) h += '<th>Avg Rev</th><th>Share</th>';
+    h += '</tr></thead><tbody>';
+    for (var ci = 0; ci < comms.length; ci++) {
+      var sym = comms[ci];
+      h += '<tr><td style="font-weight:600">' + sym + '</td>';
+      for (var q = 0; q < qtrs.length; q++) {
+        var c = qtrs[q].commodities[sym] || {};
+        h += '<td>' + exdFmt(c.avg_rev) + '</td>';
+        h += '<td style="color:var(--text-secondary);font-size:0.75rem">' + (c.share_pct != null ? c.share_pct.toFixed(1) + '%' : '\u2014') + '</td>';
+      }
+      h += '</tr>';
+    }
+    // Total row
+    h += '<tr style="font-weight:700;border-top:2px solid var(--border)"><td>TOTAL</td>';
+    for (var q = 0; q < qtrs.length; q++) {
+      h += '<td>' + exdFmt(qtrs[q].total) + '</td><td>100%</td>';
+    }
+    h += '</tr></tbody>';
+    document.getElementById('cmdQtrTable').innerHTML = h;
+  }
+
+  // ── Monthly by Commodity ──
+  var mos = data.monthly || [];
+  if (mos.length) {
+    h = '<thead><tr><th>Commodity</th>';
+    for (var m = 0; m < mos.length; m++) h += '<th colspan="2">' + mos[m].month + '</th>';
+    h += '</tr><tr><th></th>';
+    for (var m = 0; m < mos.length; m++) h += '<th>Avg Rev</th><th>Share</th>';
+    h += '</tr></thead><tbody>';
+    for (var ci = 0; ci < comms.length; ci++) {
+      var sym = comms[ci];
+      h += '<tr><td style="font-weight:600">' + sym + '</td>';
+      for (var m = 0; m < mos.length; m++) {
+        var c = mos[m].commodities[sym] || {};
+        h += '<td>' + exdFmt(c.avg_rev) + '</td>';
+        h += '<td style="color:var(--text-secondary);font-size:0.75rem">' + (c.share_pct != null ? c.share_pct.toFixed(1) + '%' : '\u2014') + '</td>';
+      }
+      h += '</tr>';
+    }
+    h += '<tr style="font-weight:700;border-top:2px solid var(--border)"><td>TOTAL</td>';
+    for (var m = 0; m < mos.length; m++) {
+      h += '<td>' + exdFmt(mos[m].total) + '</td><td>100%</td>';
+    }
+    h += '</tr></tbody>';
+    document.getElementById('cmdMonthTable').innerHTML = h;
+  }
+
+  // ── Commodity Stacked Trend Chart ──
+  var trend = data.daily_trend || [];
+  if (!trend.length) return;
+  var ctx = document.getElementById('cmdTrendChart');
+  if (!ctx) return;
+  var isDark = document.documentElement.classList.contains('dark');
+  var gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  var txtColor = isDark ? '#888' : '#999';
+  var labels = trend.map(function(t) { var d = new Date(t.date); return d.getDate() + ' ' + d.toLocaleString('en', {month:'short'}); });
+
+  var datasets = comms.map(function(sym) {
+    var clr = CMD_COLORS[sym] || CMD_COLORS.OTHERS;
+    return {
+      label: sym,
+      data: trend.map(function(t) { return t[sym] || 0; }),
+      backgroundColor: clr.bg,
+      borderColor: clr.border,
+      borderWidth: 0.5,
+      borderRadius: 1,
+      stack: 'commodity'
+    };
+  });
+
+  if (cmdTrendChart) cmdTrendChart.destroy();
+  cmdTrendChart = new Chart(ctx, {
+    type: 'bar',
+    data: { labels: labels, datasets: datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: txtColor, font: {size: 10} } } },
+      scales: {
+        x: { stacked: true, ticks: { color: txtColor, font: {size: 9}, maxRotation: 45, maxTicksLimit: 15 }, grid: { display: false } },
         y: { stacked: true, title: { display: true, text: 'Cr', color: txtColor }, ticks: { color: txtColor }, grid: { color: gridColor } }
       }
     }

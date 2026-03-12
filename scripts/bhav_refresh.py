@@ -75,22 +75,15 @@ def _get_hist_session(force_new=False):
         _hist_session.get("https://www.mcxindia.com/market-data/historical-data", timeout=MCX_TIMEOUT)
     return _hist_session
 
-def fetch_mcx_historical(date_iso):
-    """Fetch daily revenue from MCX Historical Detailed Report API.
-    Returns revenue dict with exact PremiumTurnover (no proxy), or None on failure.
-    Uses curl_cffi with Chrome TLS impersonation to bypass Akamai bot detection."""
-    date_compact = date_iso.replace("-", "")  # YYYYMMDD
-
+def _fetch_mcx_raw(date_iso):
+    """Fetch raw contract-level rows from MCX Historical API for one date.
+    Returns (raw_rows, None) on success or (None, error_msg) on failure."""
+    date_compact = date_iso.replace("-", "")
     payload = {
-        "GroupBy": "D",
-        "Segment": "ALL",
-        "CommodityHead": "ALL",
-        "Commodity": "ALL",
-        "Startdate": date_compact,
-        "EndDate": date_compact,
+        "GroupBy": "D", "Segment": "ALL", "CommodityHead": "ALL",
+        "Commodity": "ALL", "Startdate": date_compact, "EndDate": date_compact,
         "InstrumentName": "ALL",
     }
-
     url = "https://www.mcxindia.com/backpage.aspx/GetHistoricalDataDetails"
 
     for attempt in range(MCX_MAX_RETRIES + 1):
@@ -102,64 +95,148 @@ def fetch_mcx_historical(date_iso):
         }, timeout=MCX_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
-
         rows = data.get("d", {}).get("Data")
         if not rows or len(rows) < 5:
-            return None
-
-        # Sum futures notional (FUTCOM + FUTIDX) and options premium (OPTFUT + OPTIDX)
-        fut_notl_lacs = 0.0
-        opt_prem_lacs = 0.0
-        opt_notl_lacs = 0.0
-        n_fut = 0
-        n_opt = 0
-
-        for r in rows:
-            inst = r.get("InstrumentName", "")
-            total_val = float(r.get("TotalValue", 0) or 0)
-            prem_str = str(r.get("PremiumTurnover", "-")).strip()
-
-            if inst in ("FUTCOM", "FUTIDX"):
-                fut_notl_lacs += total_val
-                if total_val > 0:
-                    n_fut += 1
-            elif inst in ("OPTFUT", "OPTIDX"):
-                opt_notl_lacs += total_val
-                if prem_str != "-" and prem_str != "":
-                    try:
-                        opt_prem_lacs += float(prem_str)
-                    except ValueError:
-                        pass
-                if total_val > 0:
-                    n_opt += 1
-
-        if fut_notl_lacs <= 0 and opt_prem_lacs <= 0:
-            return None
-
-        fn_cr = fut_notl_lacs / 100
-        op_cr = opt_prem_lacs / 100
-        fut_rev = 2 * fn_cr * FUTURES_RATE / 1e7
-        opt_rev = 2 * op_cr * OPTIONS_RATE / 1e7
-        total = fut_rev + opt_rev + NONTX_DAILY
-
-        return {
-            "fut_notl_cr": round(fn_cr, 2),
-            "opt_prem_cr": round(op_cr, 2),
-            "fut_rev_cr": round(fut_rev, 4),
-            "opt_rev_cr": round(opt_rev, 4),
-            "nontx_rev_cr": NONTX_DAILY,
-            "total_rev_cr": round(total, 4),
-            "active_futures": n_fut,
-            "active_options": n_opt,
-        }
-
+            return None, "no data"
+        return rows, None
       except Exception as e:
         if attempt < MCX_MAX_RETRIES:
             print(f"  ⓘ Attempt {attempt+1} failed: {e}, retrying in {3*(attempt+1)}s...")
             time.sleep(3 * (attempt + 1))
             continue
-        print(f"  ⓘ Historical API unavailable after {MCX_MAX_RETRIES+1} attempts: {e}")
+        return None, str(e)
+
+
+def _aggregate_commodity_rows(date_iso, raw_rows):
+    """Aggregate raw contract-level MCX rows into commodity-level summaries.
+    Returns list of dicts for mcx_commodity_daily table."""
+    groups = {}
+    for r in raw_rows:
+        symbol = (r.get("Symbol") or r.get("Commodity") or "").strip()
+        inst = (r.get("InstrumentName") or "").strip()
+        chead = (r.get("CommodityHead") or r.get("Segment") or "").strip()
+        if not symbol or not inst:
+            continue
+        key = (symbol, inst)
+        if key not in groups:
+            groups[key] = {"commodity": symbol, "commodity_head": chead,
+                           "instrument_type": inst, "contracts": 0,
+                           "volume_lots": 0, "turnover_lacs": 0.0,
+                           "premium_turnover_lacs": 0.0, "open_interest": 0,
+                           "oi_value_lacs": 0.0}
+        g = groups[key]
+        g["contracts"] += int(r.get("NoOfContract", 0) or r.get("TradedContract", 0) or 0)
+        g["volume_lots"] += int(r.get("Volume", 0) or r.get("Quantity", 0) or 0)
+        g["turnover_lacs"] += float(r.get("TotalValue", 0) or 0)
+        prem_str = str(r.get("PremiumTurnover", "-")).strip()
+        if prem_str not in ("-", "", "0"):
+            try: g["premium_turnover_lacs"] += float(prem_str)
+            except ValueError: pass
+        g["open_interest"] += int(r.get("OpenInterest", 0) or 0)
+        oi_val = r.get("OIValue", 0)
+        if oi_val:
+            try: g["oi_value_lacs"] += float(oi_val)
+            except (ValueError, TypeError): pass
+
+    rows_out = []
+    for key, g in groups.items():
+        rows_out.append({
+            "trading_date": date_iso,
+            "commodity": g["commodity"],
+            "commodity_head": g["commodity_head"] or None,
+            "instrument_type": g["instrument_type"],
+            "contracts": g["contracts"],
+            "volume_lots": g["volume_lots"],
+            "turnover_cr": round(g["turnover_lacs"] / 100, 2),
+            "premium_turnover_cr": round(g["premium_turnover_lacs"] / 100, 2)
+                if g["premium_turnover_lacs"] > 0 else None,
+            "open_interest": g["open_interest"],
+            "oi_value_cr": round(g["oi_value_lacs"] / 100, 2),
+            "source": "mcx_historical",
+        })
+    return rows_out
+
+
+def _upsert_commodity_batch(rows):
+    """Upsert commodity rows to mcx_commodity_daily."""
+    url = f"{SUPABASE_URL}/rest/v1/mcx_commodity_daily"
+    body = json.dumps(rows).encode()
+    req = urllib.request.Request(url, data=body, method="POST", headers={
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "resolution=merge-duplicates",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return True
+    except Exception as e:
+        print(f"  ⚠ commodity upsert failed: {e}")
+        return False
+
+
+def fetch_mcx_historical(date_iso):
+    """Fetch daily revenue from MCX Historical Detailed Report API.
+    Returns revenue dict with exact PremiumTurnover (no proxy), or None on failure.
+    Also upserts commodity-level breakdown to mcx_commodity_daily."""
+    raw_rows, err = _fetch_mcx_raw(date_iso)
+    if raw_rows is None:
+        if err and err != "no data":
+            print(f"  ⓘ Historical API unavailable: {err}")
         return None
+
+    # ── Commodity-level upsert (new) ──
+    commodity_rows = _aggregate_commodity_rows(date_iso, raw_rows)
+    if commodity_rows:
+        ok = _upsert_commodity_batch(commodity_rows)
+        if ok:
+            print(f"  ✓ {len(commodity_rows)} commodity rows → mcx_commodity_daily")
+
+    # ── Exchange-wide aggregate (existing logic) ──
+    fut_notl_lacs = 0.0
+    opt_prem_lacs = 0.0
+    opt_notl_lacs = 0.0
+    n_fut = 0
+    n_opt = 0
+
+    for r in raw_rows:
+        inst = r.get("InstrumentName", "")
+        total_val = float(r.get("TotalValue", 0) or 0)
+        prem_str = str(r.get("PremiumTurnover", "-")).strip()
+
+        if inst in ("FUTCOM", "FUTIDX"):
+            fut_notl_lacs += total_val
+            if total_val > 0:
+                n_fut += 1
+        elif inst in ("OPTFUT", "OPTIDX"):
+            opt_notl_lacs += total_val
+            if prem_str != "-" and prem_str != "":
+                try:
+                    opt_prem_lacs += float(prem_str)
+                except ValueError:
+                    pass
+            if total_val > 0:
+                n_opt += 1
+
+    if fut_notl_lacs <= 0 and opt_prem_lacs <= 0:
+        return None
+
+    fn_cr = fut_notl_lacs / 100
+    op_cr = opt_prem_lacs / 100
+    fut_rev = 2 * fn_cr * FUTURES_RATE / 1e7
+    opt_rev = 2 * op_cr * OPTIONS_RATE / 1e7
+    total = fut_rev + opt_rev + NONTX_DAILY
+
+    return {
+        "fut_notl_cr": round(fn_cr, 2),
+        "opt_prem_cr": round(op_cr, 2),
+        "fut_rev_cr": round(fut_rev, 4),
+        "opt_rev_cr": round(opt_rev, 4),
+        "nontx_rev_cr": NONTX_DAILY,
+        "total_rev_cr": round(total, 4),
+        "active_futures": n_fut,
+        "active_options": n_opt,
+    }
 
 
 def get_existing_dates():
