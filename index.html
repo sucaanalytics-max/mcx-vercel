@@ -2247,6 +2247,28 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 </div>
 </div>
 
+<!-- ── Commodity Revenue Breakdown (from /api/commodity_dashboard) ─── -->
+<h2 style="margin-top:32px;margin-bottom:16px">Revenue Breakdown</h2>
+  <div class="card" id="cmdSection" style="display:none">
+    <div class="card-title">Commodity Revenue Breakdown</div>
+    <div id="cmdAsOf" style="font-size:10px;color:var(--text-secondary);margin-bottom:8px"></div>
+    <div style="overflow-x:auto"><table class="exd-table" id="cmdSummaryTable"></table></div>
+  </div>
+  <div class="card" id="cmdQtrSection" style="display:none">
+    <div class="card-title">Quarterly by Commodity</div>
+    <div style="overflow-x:auto"><table class="exd-table" id="cmdQtrTable"></table></div>
+  </div>
+  <div class="card" id="cmdMonthSection" style="display:none">
+    <div class="card-title">Monthly by Commodity</div>
+    <div style="overflow-x:auto"><table class="exd-table" id="cmdMonthTable"></table></div>
+  </div>
+  <div class="card" id="cmdTrendSection" style="display:none">
+    <div class="card-title">Commodity Trend (Last 60 Days)</div>
+    <div style="position:relative;height:320px">
+      <canvas id="cmdTrendChart"></canvas>
+    </div>
+  </div>
+
 </div>
 </div><!-- /tabCommodity -->
 <!-- ═══ QUARTERLY P&L TAB ═════════════════════════════════════════════════ -->
@@ -2347,26 +2369,6 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
     </div>
   </div>
 
-  <!-- ── Commodity Breakdown ────────────────────────────────────────── -->
-  <div class="card" id="cmdSection" style="display:none">
-    <div class="card-title">Commodity Revenue Breakdown</div>
-    <div id="cmdAsOf" style="font-size:10px;color:var(--text-secondary);margin-bottom:8px"></div>
-    <div style="overflow-x:auto"><table class="exd-table" id="cmdSummaryTable"></table></div>
-  </div>
-  <div class="card" id="cmdQtrSection" style="display:none">
-    <div class="card-title">Quarterly by Commodity</div>
-    <div style="overflow-x:auto"><table class="exd-table" id="cmdQtrTable"></table></div>
-  </div>
-  <div class="card" id="cmdMonthSection" style="display:none">
-    <div class="card-title">Monthly by Commodity</div>
-    <div style="overflow-x:auto"><table class="exd-table" id="cmdMonthTable"></table></div>
-  </div>
-  <div class="card" id="cmdTrendSection" style="display:none">
-    <div class="card-title">Commodity Trend (Last 60 Days)</div>
-    <div style="position:relative;height:320px">
-      <canvas id="cmdTrendChart"></canvas>
-    </div>
-  </div>
 </div><!-- /tabExchange -->
 
 
@@ -2847,9 +2849,9 @@ function switchTab(tabId) {
   if (tabId === 'tabValuation') loadValuation();
   if (tabId === 'tabAnalytics') loadAnalytics();
   if (tabId === 'tabBacktest') loadBacktest();
-  if (tabId === 'tabCommodity') loadCommodity();
+  if (tabId === 'tabCommodity') { loadCommodity(); loadCmdDashboard(); }
   if (tabId === 'tabQuarterly') loadQuarterly();
-  if (tabId === 'tabExchange') { loadExchange(); loadCommodity(); }
+  if (tabId === 'tabExchange') { loadExchange(); }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -4786,15 +4788,15 @@ function renderExdTrendChart(data) {
 
 let cmdCache = null, cmdLoading = false, cmdTrendChart = null;
 
-async function loadCommodity() {
-  if (cmdCache && (Date.now() - cmdCache._ts < 300000)) { renderCommodity(cmdCache); return; }
+async function loadCmdDashboard() {
+  if (cmdCache && (Date.now() - cmdCache._ts < 300000)) { renderCmdDashboard(cmdCache); return; }
   if (cmdLoading) return;
   cmdLoading = true;
   try {
     const r = await fetch('/api/commodity_dashboard');
     const d = await r.json();
-    if (d.success) { d._ts = Date.now(); cmdCache = d; renderCommodity(d); }
-  } catch(e) { console.error('Commodity load failed:', e); }
+    if (d.success) { d._ts = Date.now(); cmdCache = d; renderCmdDashboard(d); }
+  } catch(e) { console.error('Commodity dashboard load failed:', e); }
   finally { cmdLoading = false; }
 }
 
@@ -4808,7 +4810,7 @@ var CMD_COLORS = {
   OTHERS:     {bg: 'rgba(107,114,128,0.4)', border: '#6b7280'},
 };
 
-function renderCommodity(data) {
+function renderCmdDashboard(data) {
   var sm = data.summary_matrix;
   var comms = data.commodities;
   if (!sm || !sm.length) return;
