@@ -37,8 +37,9 @@ def generate_margin_dashboard():
         "additional_long_pct,additional_short_pct,"
         "special_long_pct,special_short_pct,"
         "elm_long_pct,elm_short_pct,delivery_margin_pct"
+        "&instrument=eq.FUTCOM"
         "&order=snapshot_date.asc",
-        max_rows=10000,
+        max_rows=20000,
     )
 
     if not rows:

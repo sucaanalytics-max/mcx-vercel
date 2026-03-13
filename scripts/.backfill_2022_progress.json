@@ -1,7 +1,32 @@
 {
-  "last_date": "2026-03-03",
-  "filled": 346,
-  "skipped": 7,
-  "errors": [],
-  "completed_at": "2026-03-04 08:16 IST"
+  "last_date": "2026-03-12",
+  "filled": 0,
+  "skipped": 8,
+  "errors": [
+    {
+      "date": "2026-03-04",
+      "error": "commodity: HTTP 401: {\"code\":\"42501\",\"details\":null,\"hint\":null,\"message\":\"new row violates row-level security policy for table \\\"mcx_commodity_daily\\\"\"}"
+    },
+    {
+      "date": "2026-03-05",
+      "error": "commodity: HTTP 401: {\"code\":\"42501\",\"details\":null,\"hint\":null,\"message\":\"new row violates row-level security policy for table \\\"mcx_commodity_daily\\\"\"}"
+    },
+    {
+      "date": "2026-03-06",
+      "error": "commodity: HTTP 401: {\"code\":\"42501\",\"details\":null,\"hint\":null,\"message\":\"new row violates row-level security policy for table \\\"mcx_commodity_daily\\\"\"}"
+    },
+    {
+      "date": "2026-03-09",
+      "error": "commodity: HTTP 401: {\"code\":\"42501\",\"details\":null,\"hint\":null,\"message\":\"new row violates row-level security policy for table \\\"mcx_commodity_daily\\\"\"}"
+    },
+    {
+      "date": "2026-03-10",
+      "error": "commodity: HTTP 401: {\"code\":\"42501\",\"details\":null,\"hint\":null,\"message\":\"new row violates row-level security policy for table \\\"mcx_commodity_daily\\\"\"}"
+    },
+    {
+      "date": "2026-03-11",
+      "error": "commodity: HTTP 401: {\"code\":\"42501\",\"details\":null,\"hint\":null,\"message\":\"new row violates row-level security policy for table \\\"mcx_commodity_daily\\\"\"}"
+    }
+  ],
+  "completed_at": "2026-03-12 10:37 IST"
 }

@@ -24,9 +24,10 @@ TRADING_DAYS = 252
 PAT_MARGIN = 0.55
 NON_FO_REV_ANNUAL_CR = 527.0
 DILUTED_SHARES_CR = 25.451
-PE_MEAN_DEFAULT = 58.31
-PE_SD_DEFAULT = 12.52
+PE_MEAN_DEFAULT = 34.79
+PE_SD_DEFAULT = 3.49
 MA_WINDOW = 45
+PE_LOOKBACK = 252   # trailing trading days for dynamic PE (1 year)
 
 
 def now_ist():
@@ -130,17 +131,24 @@ def compute_valuations(rev_rows, price_rows, pe_mean=None, pe_sd=None):
             "implied_pe": round(price / eps, 2) if (price and eps > 0) else None,
         })
 
-    # Compute dynamic P/E from entries that have both price and EPS
+    # Compute dynamic P/E: robust median + scaled MAD (matches cron_valuation.py)
     if pe_mean is None or pe_sd is None:
-        valid_pes = [e["implied_pe"] for e in eps_series if e["implied_pe"] is not None]
-        if len(valid_pes) >= 30:
-            pe_mean = sum(valid_pes) / len(valid_pes)
-            pe_sd = math.sqrt(sum((p - pe_mean) ** 2 for p in valid_pes) / len(valid_pes))
-            print(f"  Dynamic P/E: mean={pe_mean:.2f}, sd={pe_sd:.2f} (n={len(valid_pes)})")
+        all_pes = [e["implied_pe"] for e in eps_series if e["implied_pe"] is not None]
+        recent_pes = all_pes[-PE_LOOKBACK:] if len(all_pes) > PE_LOOKBACK else all_pes
+        if len(recent_pes) >= 30:
+            recent_sorted = sorted(recent_pes)
+            n = len(recent_sorted)
+            pe_median = recent_sorted[n // 2] if n % 2 else (recent_sorted[n // 2 - 1] + recent_sorted[n // 2]) / 2
+            abs_devs = sorted(abs(p - pe_median) for p in recent_sorted)
+            mad_raw = abs_devs[len(abs_devs) // 2] if len(abs_devs) % 2 else (abs_devs[len(abs_devs) // 2 - 1] + abs_devs[len(abs_devs) // 2]) / 2
+            mad_scaled = mad_raw * 1.4826  # scale factor for normal-equivalent SD
+            pe_mean = round(pe_median, 2)
+            pe_sd = round(mad_scaled, 2) if mad_scaled > 0.5 else round(math.sqrt(sum((p - pe_median) ** 2 for p in recent_pes) / n), 2)
+            print(f"  Dynamic P/E: median={pe_mean:.2f}, MAD-sd={pe_sd:.2f} (n={len(recent_pes)}, lookback={PE_LOOKBACK})")
         else:
             pe_mean = PE_MEAN_DEFAULT
             pe_sd = PE_SD_DEFAULT
-            print(f"  Using default P/E: mean={pe_mean}, sd={pe_sd} (only {len(valid_pes)} points)")
+            print(f"  Using default P/E: mean={pe_mean}, sd={pe_sd} (only {len(recent_pes)} points)")
 
     pe_bear = max(pe_mean - pe_sd, 5.0)
     pe_bull = pe_mean + pe_sd

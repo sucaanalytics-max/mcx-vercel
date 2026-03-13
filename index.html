@@ -2397,6 +2397,36 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   <!-- Margin History Chart -->
   <div class="card" id="marginChartSection" style="display:none">
     <div class="card-title">Margin History (Total Margin %)</div>
+    <div id="marginChartControls" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px;align-items:end">
+      <div>
+        <label style="font-size:10px;color:var(--text-secondary);display:block;margin-bottom:3px">Commodity 1</label>
+        <select id="marginSym1" onchange="updateMarginChart()" style="padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:11px;min-width:110px"></select>
+      </div>
+      <div>
+        <label style="font-size:10px;color:var(--text-secondary);display:block;margin-bottom:3px">Commodity 2</label>
+        <select id="marginSym2" onchange="updateMarginChart()" style="padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:11px;min-width:110px"></select>
+      </div>
+      <div>
+        <label style="font-size:10px;color:var(--text-secondary);display:block;margin-bottom:3px">Commodity 3</label>
+        <select id="marginSym3" onchange="updateMarginChart()" style="padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:11px;min-width:110px"></select>
+      </div>
+      <div>
+        <label style="font-size:10px;color:var(--text-secondary);display:block;margin-bottom:3px">Commodity 4</label>
+        <select id="marginSym4" onchange="updateMarginChart()" style="padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:11px;min-width:110px"></select>
+      </div>
+      <div>
+        <label style="font-size:10px;color:var(--text-secondary);display:block;margin-bottom:3px">Commodity 5</label>
+        <select id="marginSym5" onchange="updateMarginChart()" style="padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:11px;min-width:110px"></select>
+      </div>
+      <div>
+        <label style="font-size:10px;color:var(--text-secondary);display:block;margin-bottom:3px">Commodity 6</label>
+        <select id="marginSym6" onchange="updateMarginChart()" style="padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:11px;min-width:110px"></select>
+      </div>
+      <div>
+        <label style="font-size:10px;color:var(--text-secondary);display:block;margin-bottom:3px">&nbsp;</label>
+        <button onclick="marginShowAll()" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:11px;cursor:pointer">Show All</button>
+      </div>
+    </div>
     <div style="position:relative;height:320px">
       <canvas id="marginHistoryChart"></canvas>
     </div>
@@ -3366,6 +3396,21 @@ function renderValuationChart(history) {
   const fairBear = history.map(h => h.fair_bear);
   const fairBase = history.map(h => h.fair_base);
   const fairBull = history.map(h => h.fair_bull);
+
+  // Append live CMP as "today" if available and not already in history
+  const livePrice = FC.currentPrice;
+  if (livePrice && history.length > 0) {
+    const today = new Date().toISOString().slice(0, 10);
+    const lastDate = history[history.length - 1].date;
+    if (today > lastDate) {
+      const last = history[history.length - 1];
+      labels.push(today.slice(5));
+      prices.push(livePrice);
+      fairBear.push(last.fair_bear);
+      fairBase.push(last.fair_base);
+      fairBull.push(last.fair_bull);
+    }
+  }
 
   const isDark = document.documentElement.classList.contains('dark');
   const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
@@ -4975,6 +5020,7 @@ function renderCmdDashboard(data) {
 // ════════════════════════════════════════════════════════════════════════════
 var marginCache = null;
 var marginHistChart = null;
+var marginHistData = null; // stored for chart re-renders on commodity selection change
 
 var MARGIN_COLORS = [
   '#ef4444', '#f59e0b', '#9ca3af', '#3b82f6', '#f97316',
@@ -4995,7 +5041,12 @@ function loadMargins() {
 }
 
 function renderMargins(data) {
-  document.getElementById('marginAsOf').textContent = 'As of ' + data.as_of + ' • ' + data.snapshot_dates + ' snapshot(s)';
+  var asOfText = 'As of ' + data.as_of + ' \u2022 ' + data.snapshot_dates + ' snapshot(s)';
+  document.getElementById('marginAsOf').innerHTML = asOfText +
+    (data.snapshot_dates === 1 ? '<br><span style="color:var(--text-secondary);font-style:italic">First snapshot collected today. Change tracking begins with tomorrow\u2019s data.</span>' : '');
+
+  var isDark = document.documentElement.classList.contains('dark');
+  var multiSnapshot = data.snapshot_dates > 1;
 
   // ── Current Margins Table ──
   var tbl = document.getElementById('marginCurrentTable');
@@ -5006,23 +5057,42 @@ function renderMargins(data) {
 
   data.current_margins.forEach(function(m) {
     var changeCell = '';
-    if (m.change_pct !== null && m.change_pct !== undefined) {
-      var cls = m.change_pct > 0 ? 'chg-neg' : m.change_pct < 0 ? 'chg-pos' : '';
-      var arrow = m.change_pct > 0 ? '▲' : m.change_pct < 0 ? '▼' : '';
+    var rowBg = '';
+    if (m.change_pct !== null && m.change_pct !== undefined && m.change_pct !== 0) {
+      var cls = m.change_pct > 0 ? 'chg-neg' : 'chg-pos';
+      var arrow = m.change_pct > 0 ? '\u25B2' : '\u25BC';
       changeCell = '<span class="' + cls + '">' + arrow + ' ' + Math.abs(m.change_pct).toFixed(1) + '%</span>';
+      // Row-level tint
+      if (m.change_pct > 0) {
+        rowBg = isDark ? 'background:rgba(255,77,79,0.1)' : 'background:rgba(207,19,34,0.08)';
+      } else {
+        rowBg = isDark ? 'background:rgba(82,196,26,0.1)' : 'background:rgba(27,125,58,0.08)';
+      }
+    } else if (m.change_pct === 0) {
+      changeCell = '<span style="color:var(--text-secondary)">\u2014</span>';
     } else {
-      changeCell = '—';
+      changeCell = multiSnapshot ? '<span style="color:var(--text-secondary)">N/A</span>' : '\u2014';
     }
-    var lastChanged = m.last_change_date || '—';
 
-    h += '<tr>' +
+    // Last changed — bold if within 7 days
+    var lastChangedHtml = '\u2014';
+    if (m.last_change_date) {
+      var daysSince = Math.floor((new Date(data.as_of) - new Date(m.last_change_date)) / 86400000);
+      if (daysSince <= 7) {
+        lastChangedHtml = '<span style="font-weight:600;color:var(--text-primary)">' + m.last_change_date + '</span>';
+      } else {
+        lastChangedHtml = m.last_change_date;
+      }
+    }
+
+    h += '<tr style="' + rowBg + '">' +
       '<td style="font-weight:600">' + m.symbol + '</td>' +
-      '<td>' + (m.initial_margin_pct != null ? m.initial_margin_pct.toFixed(1) : '—') + '</td>' +
-      '<td style="font-weight:600">' + (m.total_margin_pct != null ? m.total_margin_pct.toFixed(1) : '—') + '</td>' +
+      '<td>' + (m.initial_margin_pct != null ? m.initial_margin_pct.toFixed(1) : '\u2014') + '</td>' +
+      '<td style="font-weight:600">' + (m.total_margin_pct != null ? m.total_margin_pct.toFixed(1) : '\u2014') + '</td>' +
       '<td>' + changeCell + '</td>' +
-      '<td>' + (m.elm_long_pct != null ? m.elm_long_pct.toFixed(1) : '—') + '</td>' +
-      '<td>' + (m.delivery_margin_pct != null ? m.delivery_margin_pct.toFixed(1) : '—') + '</td>' +
-      '<td style="font-size:10px;color:var(--text-secondary)">' + lastChanged + '</td>' +
+      '<td>' + (m.elm_long_pct != null ? m.elm_long_pct.toFixed(1) : '\u2014') + '</td>' +
+      '<td>' + (m.delivery_margin_pct != null ? m.delivery_margin_pct.toFixed(1) : '\u2014') + '</td>' +
+      '<td style="font-size:10px;color:var(--text-secondary)">' + lastChangedHtml + '</td>' +
       '</tr>';
   });
   h += '</tbody>';
@@ -5052,51 +5122,104 @@ function renderMargins(data) {
     changesSection.style.display = 'none';
   }
 
-  // ── Margin History Chart ──
+  // ── Margin History Chart — populate dropdowns and render ──
   var chartSection = document.getElementById('marginChartSection');
   var hist = data.margin_history;
   if (hist && hist.dates && hist.dates.length > 1) {
     chartSection.style.display = '';
-    var ctx = document.getElementById('marginHistoryChart').getContext('2d');
-    var isDark = document.documentElement.classList.contains('dark');
-    var gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
-    var txtColor = isDark ? '#888' : '#999';
+    marginHistData = { hist: hist, commodities: data.commodities };
 
-    var labels = hist.dates.map(function(d) {
-      var dt = new Date(d);
-      return dt.getDate() + ' ' + dt.toLocaleString('en', {month:'short'});
+    // Populate commodity selectors using safe DOM methods
+    var selIds = ['marginSym1','marginSym2','marginSym3','marginSym4','marginSym5','marginSym6'];
+    var sels = selIds.map(function(id) { return document.getElementById(id); });
+
+    sels.forEach(function(sel, idx) {
+      sel.length = 0;
+      if (idx > 0) sel.add(new Option('\u2014 None \u2014', ''));
+      data.commodities.forEach(function(sym) { sel.add(new Option(sym, sym)); });
     });
 
-    // Pick top commodities by latest total margin (most interesting)
-    var syms = data.commodities.slice(0, 10);
-    var datasets = syms.map(function(sym, i) {
-      return {
-        label: sym,
-        data: hist[sym] || [],
-        borderColor: MARGIN_COLORS[i % MARGIN_COLORS.length],
-        backgroundColor: 'transparent',
-        borderWidth: 1.5,
-        pointRadius: hist.dates.length < 15 ? 3 : 0,
-        tension: 0.2,
-      };
-    });
+    // Default to GOLD if available
+    var defaultSym = data.commodities.indexOf('GOLD') >= 0 ? 'GOLD' : data.commodities[0];
+    sels[0].value = defaultSym;
 
-    if (marginHistChart) marginHistChart.destroy();
-    marginHistChart = new Chart(ctx, {
-      type: 'line',
-      data: { labels: labels, datasets: datasets },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { labels: { color: txtColor, font: {size: 10} } } },
-        scales: {
-          x: { ticks: { color: txtColor, font: {size: 9}, maxRotation: 45, maxTicksLimit: 15 }, grid: { display: false } },
-          y: { title: { display: true, text: 'Total Margin %', color: txtColor }, ticks: { color: txtColor }, grid: { color: gridColor } }
-        }
-      }
-    });
+    updateMarginChart();
   } else {
     chartSection.style.display = 'none';
   }
+}
+
+function marginShowAll() {
+  if (!marginHistData) return;
+  // Set all selects to "None", then render all commodities
+  ['marginSym1','marginSym2','marginSym3','marginSym4','marginSym5','marginSym6'].forEach(function(id) {
+    document.getElementById(id).value = '';
+  });
+  updateMarginChart(true);
+}
+
+function updateMarginChart(showAll) {
+  if (!marginHistData) return;
+  var hist = marginHistData.hist;
+  var syms;
+
+  if (showAll) {
+    syms = marginHistData.commodities.slice();
+  } else {
+    syms = ['marginSym1','marginSym2','marginSym3','marginSym4','marginSym5','marginSym6']
+      .map(function(id) { return document.getElementById(id).value; })
+      .filter(function(s) { return s && s !== ''; });
+  }
+
+  // Deduplicate
+  var seen = {};
+  syms = syms.filter(function(s) { if (seen[s]) return false; seen[s] = true; return true; });
+
+  if (!syms.length) return;
+
+  var isDark = document.documentElement.classList.contains('dark');
+  var gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  var txtColor = isDark ? '#888' : '#999';
+  var chartColors = ['#ef4444','#3b82f6','#10b981','#f59e0b','#8b5cf6','#ec4899',
+    '#14b8a6','#f97316','#6366f1','#84cc16','#06b6d4','#d97706',
+    '#a855f7','#f43f5e','#9ca3af','#22d3ee','#4ade80','#fb923c','#c084fc'];
+
+  var labels = hist.dates.map(function(d) {
+    var dt = new Date(d);
+    return dt.getDate() + ' ' + dt.toLocaleString('en', {month:'short', year:'2-digit'});
+  });
+
+  var datasets = syms.map(function(sym, i) {
+    return {
+      label: sym,
+      data: hist[sym] || [],
+      borderColor: chartColors[i % chartColors.length],
+      backgroundColor: 'transparent',
+      borderWidth: syms.length > 6 ? 1.2 : 2,
+      pointRadius: syms.length > 6 ? 0 : (hist.dates.length < 30 ? 3 : 0),
+      pointHoverRadius: 4,
+      tension: 0.2,
+    };
+  });
+
+  var ctx = document.getElementById('marginHistoryChart').getContext('2d');
+  if (marginHistChart) marginHistChart.destroy();
+  marginHistChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: labels, datasets: datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: txtColor, font: {size: syms.length > 6 ? 9 : 11}, usePointStyle: true, pointStyle: 'line' } },
+        tooltip: { mode: 'index', intersect: false },
+      },
+      scales: {
+        x: { ticks: { color: txtColor, font: {size: 9}, maxRotation: 45, maxTicksLimit: 15 }, grid: { display: false } },
+        y: { title: { display: true, text: 'Total Margin %', color: txtColor }, ticks: { color: txtColor }, grid: { color: gridColor } }
+      }
+    }
+  });
 }
 
 </script>

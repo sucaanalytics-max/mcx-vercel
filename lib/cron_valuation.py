@@ -184,6 +184,44 @@ def compute_valuations(rev_rows, price_rows, pe_mean=None, pe_sd=None):
     return valuations, None
 
 
+# ─── Auto price refresh (ensures mcx_share_price is up-to-date) ──────────
+
+def _refresh_recent_prices(log):
+    """Fetch last 7 days of MCX.NS prices via yfinance and upsert to mcx_share_price."""
+    try:
+        import yfinance as yf
+        from datetime import date, timedelta
+        end = date.today() + timedelta(days=1)
+        start = date.today() - timedelta(days=7)
+        df = yf.download("MCX.NS", start=str(start), end=str(end), auto_adjust=False, progress=False)
+        if df is None or df.empty:
+            log.append("Price refresh: yfinance returned no data")
+            return
+        rows = []
+        for idx, row in df.iterrows():
+            d = idx.strftime("%Y-%m-%d") if hasattr(idx, 'strftime') else str(idx)[:10]
+            close_val = float(row["Close"].iloc[0]) if hasattr(row["Close"], 'iloc') else float(row["Close"])
+            if close_val < 500 or close_val > 20000:
+                continue
+            open_val = float(row["Open"].iloc[0]) if hasattr(row["Open"], 'iloc') else float(row["Open"])
+            high_val = float(row["High"].iloc[0]) if hasattr(row["High"], 'iloc') else float(row["High"])
+            low_val = float(row["Low"].iloc[0]) if hasattr(row["Low"], 'iloc') else float(row["Low"])
+            adj_val = float(row["Adj Close"].iloc[0]) if hasattr(row["Adj Close"], 'iloc') else float(row["Adj Close"])
+            vol_val = int(row["Volume"].iloc[0]) if hasattr(row["Volume"], 'iloc') else int(row["Volume"])
+            rows.append({
+                "trading_date": d, "open": round(open_val, 2), "high": round(high_val, 2),
+                "low": round(low_val, 2), "close": round(close_val, 2),
+                "adj_close": round(adj_val, 2), "volume": vol_val, "source": "yfinance",
+            })
+        if rows:
+            errors = sb_upsert("mcx_share_price", rows)
+            log.append(f"Price refresh: {len(rows)} days upserted" + (f" ({len(errors)} errors)" if errors else ""))
+        else:
+            log.append("Price refresh: no valid rows from yfinance")
+    except Exception as e:
+        log.append(f"Price refresh failed (non-fatal): {str(e)[:100]}")
+
+
 # ─── Main refresh logic ──────────────────────────────────────────────────
 
 def run_refresh(mode="recent"):
@@ -191,6 +229,9 @@ def run_refresh(mode="recent"):
     mode: "recent" (last 30 days), "latest" (today only), "backfill" (all)
     """
     log = []
+
+    # Auto-refresh share prices before computing valuations
+    _refresh_recent_prices(log)
 
     rev_rows = fetch_all_paginated("mcx_daily_revenue", "trading_date,total_rev_cr,source")
     log.append(f"Revenue rows: {len(rev_rows)}")
