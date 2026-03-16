@@ -20,103 +20,25 @@ from collections import defaultdict
 # Add parent to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# ── Config ──────────────────────────────────────────────────────────────────
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supabase.co")
-SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2cXdwZWJ2ZXFldHd3emttdHV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDkwMzMsImV4cCI6MjA4Njk4NTAzM30.U_Ug61Fp1NSCesXBkYU7GJGTbuATFtXsz6GTi5948Rw")
-
-FUTURES_RATE = 210.0
-OPTIONS_RATE = 4180.0
-NONTX_DAILY = 0.00
-TRADING_DAYS = 252
-
-SESSION_START = 540   # 09:00 IST
-SESSION_END   = 1410  # 23:30 IST
-SESSION_TOTAL = SESSION_END - SESSION_START  # 870 min
+# ── Import shared config from single source of truth ────────────────────────
+from lib.mcx_config import (
+    SUPABASE_URL, SUPABASE_ANON_KEY,
+    FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY, TRADING_DAYS,
+    SESSION_START, SESSION_END, SESSION_TOTAL,
+    INTRADAY_BUCKETS, DAY_MULTIPLIER, DAY_DESCRIPTION,
+    MCX_HOLIDAYS_2026,
+    now_ist, get_day_type, get_intraday_weight,
+    project_full_day, calc_revenue,
+)
 
 LOOP_INTERVAL = 900  # 15 minutes in seconds
 
-# Intraday volume curve (same as mcx_config.py)
-INTRADAY_BUCKETS = [
-    ( 540,  630, 0.06),
-    ( 630,  750, 0.10),
-    ( 750,  900, 0.07),
-    ( 900, 1020, 0.10),
-    (1020, 1170, 0.18),
-    (1170, 1320, 0.34),
-    (1320, 1410, 0.15),
-]
-
-# Day multipliers (same as mcx_config.py)
-DAY_MULTIPLIER = {"HIGH": 1.15, "MEDIUM": 1.05, "EXPIRY": 1.00, "LOW": 1.00}
-DAY_DESCRIPTION = {
-    "HIGH": "High-volume day (Mon/Tue/post-holiday)",
-    "MEDIUM": "Normal trading day",
-    "EXPIRY": "Expiry day",
-    "LOW": "Low-volume day (Fri/pre-holiday)",
-}
-
-MCX_HOLIDAYS = {
-    "2025-12-25", "2026-01-26", "2026-04-03", "2026-10-02", "2026-12-25",
-}
-
-
-def now_ist():
-    return datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
+# Alias for backward compat (relay uses MCX_HOLIDAYS directly)
+MCX_HOLIDAYS = MCX_HOLIDAYS_2026
 
 
 def is_trading_day(d):
     return d.weekday() < 5 and d.strftime("%Y-%m-%d") not in MCX_HOLIDAYS
-
-
-def get_day_type(dt):
-    wd = dt.weekday()
-    if wd in (0, 1):
-        return "HIGH"
-    elif wd == 4:
-        return "LOW"
-    return "MEDIUM"
-
-
-def get_intraday_weight(elapsed_min):
-    """Cumulative weight at given elapsed minutes."""
-    cum = 0.0
-    for start, end, w in INTRADAY_BUCKETS:
-        bucket_start = start - SESSION_START
-        bucket_end = end - SESSION_START
-        if elapsed_min <= bucket_start:
-            break
-        elif elapsed_min >= bucket_end:
-            cum += w
-        else:
-            frac = (elapsed_min - bucket_start) / (bucket_end - bucket_start)
-            cum += w * frac
-            break
-    return max(cum, 0.001)
-
-
-def project_full_day(fut_notl, opt_prem, elapsed_min, day_type):
-    if elapsed_min >= SESSION_TOTAL:
-        return fut_notl, opt_prem, "final"
-    w = get_intraday_weight(elapsed_min)
-    mult = DAY_MULTIPLIER.get(day_type, 1.0)
-    proj_fut = (fut_notl / w) * mult
-    proj_opt = (opt_prem / w) * mult
-    if elapsed_min < 120:
-        conf = "low"
-    elif elapsed_min < 480:
-        conf = "medium"
-    else:
-        conf = "high"
-    return proj_fut, proj_opt, conf
-
-
-def calc_revenue(proj_fut, proj_opt):
-    fut_rev = 2 * proj_fut * FUTURES_RATE / 1e7
-    opt_rev = 2 * proj_opt * OPTIONS_RATE / 1e7
-    tx_rev = fut_rev + opt_rev
-    total = tx_rev + NONTX_DAILY
-    return fut_rev, opt_rev, tx_rev, total
 
 
 def calc_uncertainty(time_pct, day_type, dual_call=False):

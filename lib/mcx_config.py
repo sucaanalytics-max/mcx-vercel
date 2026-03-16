@@ -220,6 +220,27 @@ def get_intraday_weight(elapsed_minutes: int) -> float:
     return min(cumulative, 1.0)
 
 
+def get_intraday_weight_dynamic(elapsed_minutes: int, bucket_weights: list = None) -> float:
+    """Return cumulative volume fraction using custom bucket weights.
+    If bucket_weights is None, falls back to static INTRADAY_BUCKETS.
+    bucket_weights should be a list of 7 floats summing to ~1.0."""
+    if bucket_weights is None:
+        return get_intraday_weight(elapsed_minutes)
+    e = min(elapsed_minutes, SESSION_TOTAL)
+    cumulative = 0.0
+    for i, (start, end, _) in enumerate(INTRADAY_BUCKETS):
+        w = bucket_weights[i] if i < len(bucket_weights) else 0
+        s = start - SESSION_START
+        en = end - SESSION_START
+        if e >= en:
+            cumulative += w
+        elif e > s:
+            cumulative += w * (e - s) / (en - s)
+        else:
+            break
+    return min(cumulative, 1.0)
+
+
 def project_full_day(realized_fut, realized_opt, elapsed_min, day_type="LOW"):
     """Apply hybrid projection with day-type fading prior."""
     if elapsed_min <= 0:

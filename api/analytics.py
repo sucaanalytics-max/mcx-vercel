@@ -400,7 +400,17 @@ class handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
-            result = generate_analytics()
+            from urllib.parse import urlparse, parse_qs
+            qs = parse_qs(urlparse(self.path).query)
+            section = qs.get("section", [None])[0]
+
+            if section == "hourly_accuracy":
+                from lib.hourly_analysis import generate_hourly_accuracy
+                days = int(qs.get("days", ["90"])[0])
+                result = generate_hourly_accuracy(lookback_days=min(days, 180))
+            else:
+                result = generate_analytics()
+
             self.send_json(result)
         except Exception as e:
             self.send_json({"success": False, "error": str(e)[:200]}, 500)

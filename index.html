@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MCX Revenue</title>
+<script defer src="/_vercel/insights/script.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
@@ -1392,18 +1393,32 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   </div>
 </div>
 
-<!-- ═══ ACCORDION: INTRADAY CURVE ════════════════════════════════════════ -->
+<!-- ═══ ACCORDION: INTRADAY CURVE (DYNAMIC) ═════════════════════════════ -->
 <div class="accordion">
-  <button class="accordion-trigger" onclick="toggleAcc('intraday')" aria-expanded="false">
+  <button class="accordion-trigger" onclick="toggleAcc('intraday'); loadIntradayCurve();" aria-expanded="false">
     <span>Intraday Volume Curve — MCX Session Profile</span>
-    <span class="accordion-badge" id="intradayBadge">7 buckets</span>
+    <span class="accordion-badge" id="intradayBadge">loading...</span>
     <span class="arrow">▼</span>
   </button>
   <div class="accordion-panel" id="intraday-panel">
-    <div class="curve-container"><canvas id="intradayChart"></canvas></div>
+    <!-- Tab selector -->
+    <div style="display:flex;gap:4px;margin-bottom:8px">
+      <button class="curve-tab active" id="btnCurveBucket" onclick="switchCurveView('bucket')" style="padding:3px 10px;border:1px solid var(--border);background:var(--accent);color:white;font-family:var(--mono);font-size:10px;cursor:pointer;border-radius:var(--radius)">Bucket Weights</button>
+      <button class="curve-tab" id="btnCurveCum" onclick="switchCurveView('cumulative')" style="padding:3px 10px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-family:var(--mono);font-size:10px;cursor:pointer;border-radius:var(--radius)">Cumulative Curve</button>
+    </div>
+    <!-- Bucket view -->
+    <div id="curveViewBucket">
+      <div class="curve-container"><canvas id="intradayChart"></canvas></div>
+    </div>
+    <!-- Cumulative view -->
+    <div id="curveViewCumulative" style="display:none">
+      <div class="curve-container"><canvas id="cumulativeChart"></canvas></div>
+    </div>
     <div class="curve-legend" id="intradayLegend"></div>
+    <!-- Stats row -->
+    <div id="curveStats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;margin-top:8px;font-family:var(--mono);font-size:10px"></div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:8px;padding:8px;border:1px dashed var(--border)">
-      Session: 09:00–23:30 IST · Evening session (17:00–23:30) ≈ 67% of daily turnover · ★ PRIME = NYMEX open overlap
+      Session: 09:00–23:30 IST · Static model: evening = 67% · Dynamic data from last 30 trading days
     </div>
   </div>
 </div>
@@ -2058,6 +2073,29 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   </div>
 </div>
 
+<!-- Hourly Predictor Accuracy -->
+<div class="mdl-card" style="margin-bottom:20px">
+  <div class="mdl-card-header"><div class="mdl-card-title">Predictor Timing Analysis</div></div>
+  <div style="padding:12px">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <h4 style="font-size:11px;font-weight:600;margin:0 0 6px">Revenue Projection Accuracy</h4>
+        <div style="height:220px"><canvas id="hourlyRevenueChart"></canvas></div>
+      </div>
+      <div>
+        <h4 style="font-size:11px;font-weight:600;margin:0 0 6px">Signal Stability vs EOD</h4>
+        <div style="height:220px"><canvas id="hourlySignalChart"></canvas></div>
+      </div>
+    </div>
+    <div style="margin-bottom:12px">
+      <h4 style="font-size:11px;font-weight:600;margin:0 0 6px">Forward Accuracy by Hour</h4>
+      <div style="height:200px"><canvas id="hourlyForwardChart"></canvas></div>
+    </div>
+    <div id="hourlyConvergence" style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);padding:8px;border:1px dashed var(--border)"></div>
+    <p style="font-size:10px;color:var(--text-secondary);margin-top:6px">Retrospective analysis: what would the predictor have said at each hour? Revenue MAPE and signal match rate vs actual EOD.</p>
+  </div>
+</div>
+
 </div><!-- /wrap -->
 </div><!-- /tabAnalytics -->
 
@@ -2487,7 +2525,7 @@ function toggleTheme() {
   const next = isDark ? 'light' : 'dark';
   localStorage.setItem('mcxTheme', next);
   applyTheme(next);
-  if (typeof renderIntradayChart === 'function') renderIntradayChart();
+  if (curveDataCache) { renderDynamicBucketChart(curveDataCache); } else if (typeof renderIntradayChart === 'function') { renderIntradayChart(); }
 }
 applyTheme(localStorage.getItem('mcxTheme') || 'light');
 
@@ -2588,9 +2626,10 @@ function renderCharts() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  INTRADAY VOLUME CURVE
+//  INTRADAY VOLUME CURVE (DYNAMIC)
 // ════════════════════════════════════════════════════════════════════════════
-let intradayChartInst = null;
+let intradayChartInst = null, cumulativeChartInst = null;
+let curveDataCache = null, curveLoading = false;
 const INTRADAY_BUCKETS = [
   { label: '09:00–10:30', tag: 'Opening + metals',  weight: 0.06 },
   { label: '10:30–12:30', tag: 'Mid-morning',       weight: 0.10 },
@@ -2601,11 +2640,163 @@ const INTRADAY_BUCKETS = [
   { label: '22:00–23:30', tag: 'Late session',      weight: 0.15 },
 ];
 
-function renderIntradayChart() {
+function switchCurveView(view) {
+  document.getElementById('curveViewBucket').style.display = view === 'bucket' ? 'block' : 'none';
+  document.getElementById('curveViewCumulative').style.display = view === 'cumulative' ? 'block' : 'none';
+  const btnB = document.getElementById('btnCurveBucket'), btnC = document.getElementById('btnCurveCum');
+  if (view === 'bucket') { btnB.style.background = 'var(--accent)'; btnB.style.color = 'white'; btnC.style.background = 'transparent'; btnC.style.color = 'var(--text-secondary)'; }
+  else { btnC.style.background = 'var(--accent)'; btnC.style.color = 'white'; btnB.style.background = 'transparent'; btnB.style.color = 'var(--text-secondary)'; }
+  if (view === 'cumulative' && curveDataCache) renderCumulativeChart(curveDataCache);
+}
+
+async function loadIntradayCurve() {
+  if (curveDataCache) { renderDynamicBucketChart(curveDataCache); return; }
+  if (curveLoading) return;
+  curveLoading = true;
+  try {
+    const resp = await fetch('/api/exchange_dashboard?view=intraday_curve&days=30');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (!data.success) throw new Error(data.error);
+    curveDataCache = data;
+    renderDynamicBucketChart(data);
+    renderCurveStats(data);
+    document.getElementById('intradayBadge').textContent = `${data.rolling_average.days_used}d dynamic`;
+  } catch (e) {
+    console.warn('Dynamic curve failed, using static:', e);
+    renderIntradayChart();
+    document.getElementById('intradayBadge').textContent = '7 buckets (static)';
+  } finally { curveLoading = false; }
+}
+
+function renderDynamicBucketChart(data) {
   const isDark = document.documentElement.classList.contains('dark');
   const gridColor = isDark ? '#333' : '#E8E6E1';
   const tickColor = isDark ? '#888' : '#6B6560';
+  const labels = data.static_model.buckets.map(b => b.label);
+  const staticW = data.static_model.buckets.map(b => b.weight * 100);
+  const avgW = data.rolling_average.buckets.map(b => b.weight * 100);
+  const datasets = [
+    { label: 'Static Model', data: staticW, backgroundColor: isDark ? '#555' : '#ccc', borderRadius: 2 },
+    { label: `${data.rolling_average.days_used}d Average`, data: avgW, backgroundColor: isDark ? '#5B9CF5' : '#0958D9', borderRadius: 2 },
+  ];
+  if (data.today && data.today.partial_buckets) {
+    const todayW = data.today.partial_buckets.map(b => b.weight !== null ? b.weight * 100 : null);
+    if (todayW.some(v => v !== null)) {
+      datasets.push({ label: 'Today', data: todayW, backgroundColor: isDark ? '#FF6B47' : '#D4380D', borderRadius: 2 });
+    }
+  }
+  if (intradayChartInst) intradayChartInst.destroy();
+  intradayChartInst = new Chart(document.getElementById('intradayChart'), {
+    type: 'bar', data: { labels, datasets },
+    options: {
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: true, position: 'bottom', labels: { font: { size: 10, family: "'JetBrains Mono'" } } },
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw !== null ? ctx.raw.toFixed(1) + '%' : 'n/a'}` } } },
+      scales: {
+        y: { ticks: { color: tickColor, font: { family: "'JetBrains Mono'", size: 10 } }, grid: { display: false } },
+        x: { max: 40, ticks: { color: tickColor, font: { family: "'JetBrains Mono'", size: 9 }, callback: v => v + '%' }, grid: { color: gridColor } }
+      }
+    }
+  });
+  const legend = document.getElementById('intradayLegend');
+  if (legend) {
+    legend.innerHTML = `
+      <span><span class="dot" style="background:${isDark ? '#555' : '#ccc'}"></span> Static Model</span>
+      <span><span class="dot" style="background:${isDark ? '#5B9CF5' : '#0958D9'}"></span> 30d Average</span>
+      <span><span class="dot" style="background:${isDark ? '#FF6B47' : '#D4380D'}"></span> Today</span>
+      <span>Evening: ${data.rolling_average.evening_pct}%</span>
+    `;
+  }
+}
 
+function renderCumulativeChart(data) {
+  const isDark = document.documentElement.classList.contains('dark');
+  const gridColor = isDark ? '#333' : '#E8E6E1';
+  const tickColor = isDark ? '#888' : '#6B6560';
+  // Build cumulative points from static and average bucket weights
+  const edges = [0, 90, 210, 360, 480, 630, 780, 870]; // elapsed_min at bucket boundaries
+  const staticCum = [], avgCum = [];
+  let sc = 0, ac = 0;
+  staticCum.push({x: 0, y: 0}); avgCum.push({x: 0, y: 0});
+  for (let i = 0; i < 7; i++) {
+    sc += data.static_model.buckets[i].weight * 100;
+    ac += data.rolling_average.buckets[i].weight * 100;
+    staticCum.push({x: edges[i + 1], y: sc});
+    avgCum.push({x: edges[i + 1], y: ac});
+  }
+  // P10/P90 band
+  const p10Cum = [], p90Cum = [];
+  let p10c = 0, p90c = 0;
+  p10Cum.push({x: 0, y: 0}); p90Cum.push({x: 0, y: 0});
+  if (data.percentiles) {
+    for (let i = 0; i < 7; i++) {
+      p10c += data.percentiles.p10[i] * 100;
+      p90c += data.percentiles.p90[i] * 100;
+      p10Cum.push({x: edges[i + 1], y: p10c});
+      p90Cum.push({x: edges[i + 1], y: p90c});
+    }
+  }
+  const datasets = [
+    { label: 'p10–p90 range', data: p90Cum, borderColor: 'transparent', backgroundColor: isDark ? 'rgba(91,156,245,0.12)' : 'rgba(9,88,217,0.08)', fill: '+1', pointRadius: 0, tension: 0.3 },
+    { label: '', data: p10Cum, borderColor: 'transparent', backgroundColor: 'transparent', fill: false, pointRadius: 0, tension: 0.3 },
+    { label: 'Static Model', data: staticCum, borderColor: isDark ? '#666' : '#aaa', borderDash: [4,3], borderWidth: 1.5, fill: false, pointRadius: 0, tension: 0.3 },
+    { label: `${data.rolling_average.days_used}d Average`, data: avgCum, borderColor: isDark ? '#5B9CF5' : '#0958D9', borderWidth: 2, fill: false, pointRadius: 2, tension: 0.3 },
+  ];
+  // Today's cumulative
+  if (data.today && data.today.cumulative_curve) {
+    const todayPts = data.today.cumulative_curve.map(p => ({x: p.elapsed_min, y: (p.volume_cr / data.today.total_volume_cr * (data.today.elapsed_min / 870)) * 100}));
+    // Actually compute today's cumulative % properly
+    const todayTotal = data.today.cumulative_curve[data.today.cumulative_curve.length - 1]?.volume_cr || 1;
+    const todayCum = data.today.cumulative_curve.map(p => ({x: p.elapsed_min, y: p.volume_cr / todayTotal * 100}));
+    datasets.push({ label: 'Today', data: todayCum, borderColor: isDark ? '#FF6B47' : '#D4380D', borderWidth: 2.5, fill: false, pointRadius: 0, tension: 0.3 });
+  }
+  if (cumulativeChartInst) cumulativeChartInst.destroy();
+  cumulativeChartInst = new Chart(document.getElementById('cumulativeChart'), {
+    type: 'line', data: { datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: true, position: 'bottom', labels: { font: { size: 10, family: "'JetBrains Mono'" }, filter: item => item.text !== '' } } },
+      scales: {
+        x: { type: 'linear', min: 0, max: 870, ticks: { color: tickColor, font: { family: "'JetBrains Mono'", size: 9 },
+          callback: v => { const h = Math.floor((v + 540) / 60), m = (v + 540) % 60; return `${h}:${m.toString().padStart(2,'0')}`; } },
+          grid: { color: gridColor } },
+        y: { min: 0, max: 105, ticks: { color: tickColor, font: { family: "'JetBrains Mono'", size: 9 }, callback: v => v + '%' }, grid: { color: gridColor } }
+      }
+    }
+  });
+}
+
+function renderCurveStats(data) {
+  const el = document.getElementById('curveStats');
+  if (!el) return;
+  const divg = data.divergences || [];
+  const maxDiv = divg.reduce((a, b) => Math.abs(b.diff_pct) > Math.abs(a.diff_pct) ? b : a, {diff_pct: 0, label: '-'});
+  el.innerHTML = `
+    <div style="padding:6px;border:1px solid var(--border);border-radius:var(--radius)">
+      <div style="font-size:13px;font-weight:600">${data.rolling_average.evening_pct}%</div>
+      <div style="color:var(--text-secondary)">Evening Session (actual avg)</div>
+    </div>
+    <div style="padding:6px;border:1px solid var(--border);border-radius:var(--radius)">
+      <div style="font-size:13px;font-weight:600">${data.rolling_average.days_used}</div>
+      <div style="color:var(--text-secondary)">Trading days analyzed</div>
+    </div>
+    <div style="padding:6px;border:1px solid var(--border);border-radius:var(--radius)">
+      <div style="font-size:13px;font-weight:600">${maxDiv.label}</div>
+      <div style="color:var(--text-secondary)">Largest drift: ${maxDiv.diff_pct > 0 ? '+' : ''}${maxDiv.diff_pct}%</div>
+    </div>
+    ${data.today ? `<div style="padding:6px;border:1px solid var(--border);border-radius:var(--radius)">
+      <div style="font-size:13px;font-weight:600">${data.today.total_volume_cr.toLocaleString()} Cr</div>
+      <div style="color:var(--text-secondary)">Today @ ${Math.floor((data.today.elapsed_min + 540) / 60)}:${((data.today.elapsed_min + 540) % 60).toString().padStart(2,'0')}</div>
+    </div>` : ''}
+  `;
+}
+
+function renderIntradayChart() {
+  // Static fallback
+  const isDark = document.documentElement.classList.contains('dark');
+  const gridColor = isDark ? '#333' : '#E8E6E1';
+  const tickColor = isDark ? '#888' : '#6B6560';
   const labels = INTRADAY_BUCKETS.map(b => b.label);
   const values = INTRADAY_BUCKETS.map(b => b.weight * 100);
   const colors = INTRADAY_BUCKETS.map(b => {
@@ -2613,44 +2804,18 @@ function renderIntradayChart() {
     if (b.weight >= 0.15) return isDark ? '#FAAD14' : '#D48806';
     return isDark ? '#5B9CF5' : '#0958D9';
   });
-
   if (intradayChartInst) intradayChartInst.destroy();
   intradayChartInst = new Chart(document.getElementById('intradayChart'), {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [{
-        data: values,
-        backgroundColor: colors,
-        borderWidth: 0,
-        borderRadius: 2
-      }]
-    },
+    type: 'bar', data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 0, borderRadius: 2 }] },
     options: {
       indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: ctx => {
-              const b = INTRADAY_BUCKETS[ctx.dataIndex];
-              return `${b.weight * 100}% — ${b.tag}`;
-            }
-          }
-        }
-      },
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${INTRADAY_BUCKETS[ctx.dataIndex].weight * 100}% — ${INTRADAY_BUCKETS[ctx.dataIndex].tag}` } } },
       scales: {
         y: { ticks: { color: tickColor, font: { family: "'JetBrains Mono'", size: 10 } }, grid: { display: false } },
-        x: {
-          max: 40,
-          ticks: { color: tickColor, font: { family: "'JetBrains Mono'", size: 9 }, callback: v => v + '%' },
-          grid: { color: gridColor }
-        }
+        x: { max: 40, ticks: { color: tickColor, font: { family: "'JetBrains Mono'", size: 9 }, callback: v => v + '%' }, grid: { color: gridColor } }
       }
     }
   });
-
-  // Legend with color dots
   const legend = document.getElementById('intradayLegend');
   if (legend) {
     legend.innerHTML = `
@@ -2749,7 +2914,7 @@ function updateSnapshotFromAPI(d) {
   }
   renderTables();
   renderCharts();
-  renderIntradayChart();
+  if (curveDataCache) { curveDataCache = null; loadIntradayCurve(); } else { renderIntradayChart(); }
 
   // ── Seed forecast tab with live revenue ──────────────────────────────
   seedForecastFromAPI(totalRev);
@@ -3221,7 +3386,7 @@ async function fetchLiveCMP() {
     window.history.replaceState({}, '', window.location.pathname);
     setTimeout(() => doRefresh(), 1200);
   }
-  // Render intraday chart immediately (static data, no API needed)
+  // Render intraday chart (static fallback, dynamic loads on accordion open)
   renderIntradayChart();
   // Auto-fetch live CMP on page load
   fetchLiveCMP();
@@ -3915,6 +4080,8 @@ async function loadAnalytics() {
   } finally {
     anLoading = false;
   }
+  // Load hourly accuracy in parallel (separate API call)
+  loadHourlyAccuracy();
 }
 
 function renderAnalytics(data) {
@@ -4294,6 +4461,138 @@ function renderBacktest(data) {
   const bmCst = document.getElementById('bmCosts');
   if (bmCst) bmCst.textContent = fmtPct(bm.transaction_costs_pct);
   if (bmAlpha) { bmAlpha.textContent = fmtPct(bm.excess_return_vs_adj_bh_pct); colorPct(bmAlpha, bm.excess_return_vs_adj_bh_pct); }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  HOURLY PREDICTOR ACCURACY (Part of Analytics Tab)
+// ════════════════════════════════════════════════════════════════════════════
+let hourlyCache = null, hourlyLoading = false;
+let hourlyRevChartInst = null, hourlySigChartInst = null, hourlyFwdChartInst = null;
+
+async function loadHourlyAccuracy() {
+  if (hourlyCache) { renderHourlyAccuracy(hourlyCache); return; }
+  if (hourlyLoading) return;
+  hourlyLoading = true;
+  try {
+    const resp = await fetch('/api/analytics?section=hourly_accuracy&days=90');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (!data.success) throw new Error(data.error || 'No hourly data');
+    hourlyCache = data;
+    renderHourlyAccuracy(data);
+  } catch (e) {
+    console.warn('Hourly accuracy load error:', e);
+    const el = document.getElementById('hourlyConvergence');
+    if (el) el.textContent = 'Hourly accuracy data unavailable — requires sufficient snapshot history.';
+  } finally { hourlyLoading = false; }
+}
+
+function renderHourlyAccuracy(data) {
+  const isDark = document.documentElement.classList.contains('dark');
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const txtColor = isDark ? '#888' : '#999';
+  const monoFont = { family: "'JetBrains Mono'", size: 9 };
+
+  // ── Revenue MAPE Chart ──
+  const revData = data.revenue_accuracy || [];
+  if (revData.length > 0) {
+    const labels = revData.map(r => r.label);
+    const maeVals = revData.map(r => r.mae_pct);
+    const p90Vals = revData.map(r => r.p90_error_pct);
+    if (hourlyRevChartInst) hourlyRevChartInst.destroy();
+    hourlyRevChartInst = new Chart(document.getElementById('hourlyRevenueChart'), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'MAE %', data: maeVals, borderColor: isDark ? '#5B9CF5' : '#0958D9', borderWidth: 2, fill: false, pointRadius: 3, tension: 0.3 },
+          { label: 'P90 Error %', data: p90Vals, borderColor: isDark ? '#FF6B47' : '#D4380D', borderWidth: 1.5, borderDash: [3,3], fill: false, pointRadius: 2, tension: 0.3 },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: true, position: 'bottom', labels: { font: monoFont } } },
+        scales: {
+          y: { title: { display: true, text: 'Error %', font: monoFont, color: txtColor }, ticks: { color: txtColor, font: monoFont }, grid: { color: gridColor } },
+          x: { ticks: { color: txtColor, font: monoFont }, grid: { display: false } }
+        }
+      }
+    });
+  }
+
+  // ── Signal Stability Chart ──
+  const sigData = data.signal_stability || [];
+  if (sigData.length > 0) {
+    const labels = sigData.map(s => s.label);
+    const matchRates = sigData.map(s => s.signal_match_rate != null ? s.signal_match_rate * 100 : null);
+    if (hourlySigChartInst) hourlySigChartInst.destroy();
+    hourlySigChartInst = new Chart(document.getElementById('hourlySignalChart'), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Signal Match %', data: matchRates, borderColor: isDark ? '#52C41A' : '#1B7D3A', borderWidth: 2, fill: true,
+            backgroundColor: isDark ? 'rgba(82,196,26,0.1)' : 'rgba(27,125,58,0.08)', pointRadius: 3, tension: 0.3 },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: true, position: 'bottom', labels: { font: monoFont } } },
+        scales: {
+          y: { min: 0, max: 105, title: { display: true, text: 'Match Rate %', font: monoFont, color: txtColor }, ticks: { color: txtColor, font: monoFont }, grid: { color: gridColor } },
+          x: { ticks: { color: txtColor, font: monoFont }, grid: { display: false } }
+        }
+      }
+    });
+  }
+
+  // ── Forward Accuracy Chart ──
+  const fwdData = data.forward_accuracy || [];
+  if (fwdData.length > 0) {
+    const labels = fwdData.map(f => f.label);
+    const hit1d = fwdData.map(f => f.hit_rate_1d != null ? f.hit_rate_1d * 100 : null);
+    const hit5d = fwdData.map(f => f.hit_rate_5d != null ? f.hit_rate_5d * 100 : null);
+    const ic5d = fwdData.map(f => f.ic_5d != null ? f.ic_5d * 100 : null);
+    if (hourlyFwdChartInst) hourlyFwdChartInst.destroy();
+    hourlyFwdChartInst = new Chart(document.getElementById('hourlyForwardChart'), {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          { label: 'Hit Rate 1d %', data: hit1d, backgroundColor: isDark ? '#5B9CF5' : '#0958D9', borderRadius: 2 },
+          { label: 'Hit Rate 5d %', data: hit5d, backgroundColor: isDark ? '#FF6B47' : '#D4380D', borderRadius: 2 },
+          { label: 'IC 5d (x100)', data: ic5d, type: 'line', borderColor: isDark ? '#52C41A' : '#1B7D3A', borderWidth: 1.5, fill: false, pointRadius: 2, yAxisID: 'y1' },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: true, position: 'bottom', labels: { font: monoFont } } },
+        scales: {
+          y: { min: 30, max: 80, title: { display: true, text: 'Hit Rate %', font: monoFont, color: txtColor }, ticks: { color: txtColor, font: monoFont }, grid: { color: gridColor } },
+          y1: { position: 'right', title: { display: true, text: 'IC x100', font: monoFont, color: txtColor }, ticks: { color: txtColor, font: monoFont }, grid: { display: false } },
+          x: { ticks: { color: txtColor, font: monoFont }, grid: { display: false } }
+        }
+      }
+    });
+  }
+
+  // ── Convergence summary ──
+  const conv = data.convergence || {};
+  const convEl = document.getElementById('hourlyConvergence');
+  if (convEl) {
+    let text = '';
+    if (conv.revenue_5pct) text += `Revenue projection stabilizes to <5% error by ${conv.revenue_5pct.label}. `;
+    if (conv.signal_90pct) text += `Signal matches EOD 90%+ by ${conv.signal_90pct.label}. `;
+    // Curve bias
+    const bias = data.curve_bias || [];
+    const overBias = bias.filter(b => b.mean_bias_pct > 2);
+    const underBias = bias.filter(b => b.mean_bias_pct < -2);
+    if (overBias.length) text += `Over-projects at: ${overBias.map(b => b.label).join(', ')}. `;
+    if (underBias.length) text += `Under-projects at: ${underBias.map(b => b.label).join(', ')}. `;
+    const dq = data.data_quality || {};
+    text += `(${dq.days_with_snapshots || 0} days analyzed)`;
+    convEl.textContent = text || 'Insufficient data for convergence analysis.';
+  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════

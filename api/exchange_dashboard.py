@@ -412,7 +412,17 @@ class handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin", "")
         cors = make_cors_headers(origin)
         try:
-            result = generate_exchange_dashboard()
+            from urllib.parse import urlparse, parse_qs
+            qs = parse_qs(urlparse(self.path).query)
+            view = qs.get("view", [None])[0]
+
+            if view == "intraday_curve":
+                from lib.intraday_curves import generate_intraday_curves
+                days = int(qs.get("days", ["30"])[0])
+                result = generate_intraday_curves(days=min(days, 90))
+            else:
+                result = generate_exchange_dashboard()
+
             self.send_response(200)
             for k, v in cors.items():
                 self.send_header(k, v)
