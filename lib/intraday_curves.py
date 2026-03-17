@@ -53,13 +53,14 @@ def _interpolate_volume(snapshots, target_elapsed):
 
 def _derive_bucket_weights(snapshots):
     """Derive 7 bucket weights from a single day's sorted snapshots.
-    Returns list of 7 floats summing to ~1.0, or None if insufficient data."""
+    Returns (weights, total_vol) where weights is a list of 7 floats summing to ~1.0,
+    or (None, 0) if insufficient data."""
     if len(snapshots) < 4:
-        return None
+        return None, 0
 
     total_vol = _interpolate_volume(snapshots, SESSION_TOTAL)
     if total_vol <= 0:
-        return None
+        return None, 0
 
     weights = []
     prev_cum = 0.0
@@ -70,7 +71,7 @@ def _derive_bucket_weights(snapshots):
         weights.append(bucket_vol / total_vol)
         prev_cum = cum
 
-    return weights
+    return weights, total_vol
 
 
 def _percentiles(values, pcts):
@@ -125,11 +126,9 @@ def generate_intraday_curves(days=30, include_today=True):
         snaps = by_date[dt_str]
         if len(snaps) < 4:
             continue
-        w = _derive_bucket_weights(snaps)
+        w, total_vol = _derive_bucket_weights(snaps)
         if w is None:
             continue
-
-        total_vol = _interpolate_volume(snaps, SESSION_TOTAL)
         daily_curves.append({
             "date": dt_str,
             "total_volume_cr": round(total_vol, 1),

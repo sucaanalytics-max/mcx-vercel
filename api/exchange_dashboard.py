@@ -11,7 +11,6 @@ from datetime import date, timedelta
 from collections import defaultdict
 
 from lib.mcx_config import (
-    SUPABASE_URL, SUPABASE_ANON_KEY,
     supabase_read_all, now_ist, make_cors_headers,
 )
 

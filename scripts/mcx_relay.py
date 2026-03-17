@@ -28,7 +28,8 @@ from lib.mcx_config import (
     INTRADAY_BUCKETS, DAY_MULTIPLIER, DAY_DESCRIPTION,
     MCX_HOLIDAYS_2026,
     now_ist, get_day_type, get_intraday_weight,
-    project_full_day, calc_revenue,
+    project_full_day, calc_revenue, calc_uncertainty,
+    supabase_upsert,
 )
 
 LOOP_INTERVAL = 900  # 15 minutes in seconds
@@ -40,14 +41,6 @@ MCX_HOLIDAYS = MCX_HOLIDAYS_2026
 def is_trading_day(d):
     return d.weekday() < 5 and d.strftime("%Y-%m-%d") not in MCX_HOLIDAYS
 
-
-def calc_uncertainty(time_pct, day_type, dual_call=False):
-    base = 0.35 * math.exp(-3.0 * time_pct) + 0.03
-    if day_type == "EXPIRY":
-        base *= 1.15
-    if dual_call:
-        base *= 0.92
-    return min(base, 0.40)
 
 
 # ── MCX API (curl_cffi with Chrome TLS impersonation) ───────────────────────
@@ -101,18 +94,6 @@ def extract_notionals(raw_json):
     opt_prem = sum(c.get("PremiumValue", 0) for c in options) / 100
     return fut_notl, opt_notl, opt_prem, futures, options
 
-
-def supabase_upsert(table, data):
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-    body = json.dumps(data).encode()
-    req = urllib.request.Request(url, data=body, method="POST", headers={
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates,return=representation",
-    })
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode())
 
 
 def run_snapshot():

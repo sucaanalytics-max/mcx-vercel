@@ -94,19 +94,19 @@
   "crons": [
     {
       "path": "/api/cron?job=valuation&mode=recent",
-      "schedule": "30 19 * * 1-5"
+      "schedule": "0 14 * * 1-5"
     },
     {
       "path": "/api/cron?job=models&mode=recent",
-      "schedule": "45 19 * * 1-5"
+      "schedule": "15 14 * * 1-5"
     },
     {
       "path": "/api/cron?job=commodity_signals&mode=recent",
-      "schedule": "50 19 * * 1-5"
+      "schedule": "20 14 * * 1-5"
     },
     {
       "path": "/api/cron?job=margins&mode=recent",
-      "schedule": "55 19 * * 1-5"
+      "schedule": "25 14 * * 1-5"
     }
   ]
 }

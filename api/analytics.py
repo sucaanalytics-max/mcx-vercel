@@ -13,82 +13,39 @@ Data: reads mcx_model_signals + mcx_share_price.
 from http.server import BaseHTTPRequestHandler
 import json, math
 
-try:
-    from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read,
-        now_ist, make_cors_headers,
-    )
-except ImportError:
-    from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read,
-        now_ist, make_cors_headers,
-    )
-
-
-def _f(v):
-    if v is None:
-        return None
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
-
-
-def _fetch_all(table, select, limit=2000):
-    """Paginated fetch from Supabase."""
-    all_rows, offset = [], 0
-    while True:
-        rows = supabase_read(
-            table,
-            f"?select={select}&order=trading_date.asc&limit=1000&offset={offset}"
-        )
-        all_rows.extend(rows)
-        if len(rows) < 1000 or len(all_rows) >= limit:
-            break
-        offset += 1000
-    return all_rows
-
-
-def _pearson(xs, ys):
-    """Pearson correlation for two lists (skipping None pairs)."""
-    pairs = [(x, y) for x, y in zip(xs, ys) if x is not None and y is not None]
-    n = len(pairs)
-    if n < 10:
-        return None
-    mx = sum(p[0] for p in pairs) / n
-    my = sum(p[1] for p in pairs) / n
-    num = sum((p[0] - mx) * (p[1] - my) for p in pairs)
-    dx = math.sqrt(sum((p[0] - mx) ** 2 for p in pairs))
-    dy = math.sqrt(sum((p[1] - my) ** 2 for p in pairs))
-    if dx == 0 or dy == 0:
-        return None
-    return round(num / (dx * dy), 4)
+from lib.mcx_config import (
+    supabase_read_all, now_ist, make_cors_headers,
+    safe_float as _f, pearson as _pearson,
+)
 
 
 def generate_analytics():
     ist_now = now_ist()
 
     # Fetch model signals (all history)
-    signals = _fetch_all(
+    signals = supabase_read_all(
         "mcx_model_signals",
-        "trading_date,ecm_spread_zscore,mf_revenue_z,mf_turnover_z,"
-        "mf_composite_z,ensemble_score,ensemble_signal,position_score,conviction",
-        limit=2000
+        "?select=trading_date,ecm_spread_zscore,mf_revenue_z,mf_turnover_z,"
+        "mf_composite_z,ensemble_score,ensemble_signal,position_score,conviction"
+        "&order=trading_date.asc",
+        max_rows=2000,
     )
     if not signals:
         return {"success": False, "error": "No model signals available."}
 
     # Fetch share prices for forward returns
-    prices = _fetch_all(
+    prices = supabase_read_all(
         "mcx_share_price",
-        "trading_date,close",
-        limit=2000
+        "?select=trading_date,close&order=trading_date.asc",
+        max_rows=2000,
     )
     price_map = {}
     price_dates = []
+    price_date_idx = {}  # O(1) lookup replacing O(n) list.index()
     for p in prices:
         c = _f(p.get("close"))
         if c is not None and c > 0:
+            price_date_idx[p["trading_date"]] = len(price_dates)
             price_map[p["trading_date"]] = c
             price_dates.append(p["trading_date"])
 
@@ -113,13 +70,9 @@ def generate_analytics():
     sig_dates = [s["trading_date"] for s in signals]
     fwd_5d = {}
     for dt in sig_dates:
-        if dt not in price_map:
+        if dt not in price_date_idx:
             continue
-        # Find price 5 trading days ahead
-        try:
-            idx = price_dates.index(dt)
-        except ValueError:
-            continue
+        idx = price_date_idx[dt]
         if idx + 5 < len(price_dates):
             p0 = price_map[dt]
             p5 = price_map[price_dates[idx + 5]]
@@ -206,12 +159,9 @@ def generate_analytics():
         for s in window:
             dt = s["trading_date"]
             ens = _f(s.get("ensemble_score"))
-            if ens is None or dt not in price_map:
+            if ens is None or dt not in price_date_idx:
                 continue
-            try:
-                idx = price_dates.index(dt)
-            except ValueError:
-                continue
+            idx = price_date_idx[dt]
             if idx + 1 < len(price_dates):
                 p0 = price_map[dt]
                 p1 = price_map[price_dates[idx + 1]]

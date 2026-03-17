@@ -4064,7 +4064,7 @@ let anCache = null, anLoading = false;
 let icChartInst = null, perfChartInst = null;
 
 async function loadAnalytics() {
-  if (anCache && (Date.now() - anCache._ts < 300000)) { renderAnalytics(anCache); return; }
+  if (anCache && (Date.now() - anCache._ts < 300000)) { renderAnalytics(anCache); loadHourlyAccuracy(); return; }
   if (anLoading) return;
   anLoading = true;
   try {

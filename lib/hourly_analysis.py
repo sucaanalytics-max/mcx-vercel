@@ -7,14 +7,13 @@ against actual EOD revenue and next-day returns.
 
 Used by analytics?section=hourly_accuracy.
 """
-import math
-from datetime import date, timedelta
+from datetime import date, datetime as dt_cls, timedelta
 from collections import defaultdict
 
 from lib.mcx_config import (
-    INTRADAY_BUCKETS, SESSION_START, SESSION_TOTAL,
-    supabase_read_all, supabase_read, now_ist,
-    get_intraday_weight, project_full_day, calc_revenue, get_day_type,
+    supabase_read_all, now_ist,
+    project_full_day, calc_revenue, get_day_type,
+    safe_float as _f, pearson as _pearson,
 )
 
 # Target hours: elapsed minutes from session start (09:00 IST)
@@ -29,15 +28,6 @@ TARGET_HOURS = [
     (810,  "22:30"),
     (870,  "23:30"),   # session end
 ]
-
-
-def _f(v):
-    if v is None:
-        return None
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
 
 
 def _interpolate_snapshot(snapshots, target_elapsed):
@@ -75,22 +65,6 @@ def _interpolate_snapshot(snapshots, target_elapsed):
             return fut, opt
 
     return _get(snapshots[-1], "fut_notl_cr"), _get(snapshots[-1], "opt_prem_cr")
-
-
-def _pearson(xs, ys):
-    """Pearson correlation (None-safe)."""
-    pairs = [(x, y) for x, y in zip(xs, ys) if x is not None and y is not None]
-    n = len(pairs)
-    if n < 10:
-        return None
-    mx = sum(p[0] for p in pairs) / n
-    my = sum(p[1] for p in pairs) / n
-    num = sum((p[0] - mx) * (p[1] - my) for p in pairs)
-    dx = math.sqrt(sum((p[0] - mx) ** 2 for p in pairs))
-    dy = math.sqrt(sum((p[1] - my) ** 2 for p in pairs))
-    if dx == 0 or dy == 0:
-        return None
-    return round(num / (dx * dy), 4)
 
 
 def _zscore(value, window):
@@ -150,6 +124,7 @@ def generate_hourly_accuracy(lookback_days=90):
 
     rev_map = {}
     rev_list = []  # ordered list of (date_str, total_rev)
+    rev_idx_map = {}  # O(1) lookup replacing O(n) linear scan
     for r in daily_revenue:
         total = _f(r.get("total_rev_cr"))
         if total and total > 0:
@@ -158,6 +133,7 @@ def generate_hourly_accuracy(lookback_days=90):
                 "fut_notl_cr": _f(r.get("fut_notl_cr")) or 0,
                 "opt_prem_cr": _f(r.get("opt_prem_cr")) or 0,
             }
+            rev_idx_map[r["trading_date"]] = len(rev_list)
             rev_list.append((r["trading_date"], total))
 
     signal_map = {}
@@ -209,7 +185,6 @@ def generate_hourly_accuracy(lookback_days=90):
             # Project full day from this partial observation
             try:
                 dt_obj = date.fromisoformat(dt_str)
-                from datetime import datetime as dt_cls
                 day_type = get_day_type(dt_cls(dt_obj.year, dt_obj.month, dt_obj.day))
             except Exception:
                 day_type = "LOW"
@@ -235,7 +210,7 @@ def generate_hourly_accuracy(lookback_days=90):
 
                 # Recompute rev_z with projected revenue
                 # Build revenue window (last 60 days before this date)
-                dt_idx = next((i for i, (d, _) in enumerate(rev_list) if d == dt_str), None)
+                dt_idx = rev_idx_map.get(dt_str)
                 if dt_idx is not None and dt_idx >= 30:
                     rev_window = [r for _, r in rev_list[max(0, dt_idx - 59):dt_idx]]
                     proj_rev_z = _zscore(proj_rev, rev_window + [proj_rev])
