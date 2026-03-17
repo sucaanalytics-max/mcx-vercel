@@ -8,23 +8,26 @@ Schedule: 19:55 IST weekdays (after market close).
 Source: https://www.sharekhan.com/MediaGalary/Commodity/McxSpan.xls
 """
 from http.server import BaseHTTPRequestHandler
-import json, urllib.request, urllib.error, os
+import json, urllib.request, urllib.error, os, time
 from io import BytesIO
+from datetime import timedelta
 from urllib.parse import urlparse, parse_qs
 
 try:
     from lib.mcx_config import (
         SUPABASE_URL, SUPABASE_ANON_KEY,
-        now_ist, make_cors_headers,
+        now_ist, is_trading_day, make_cors_headers,
     )
 except ImportError:
     from lib.mcx_config import (
         SUPABASE_URL, SUPABASE_ANON_KEY,
-        now_ist, make_cors_headers,
+        now_ist, is_trading_day, make_cors_headers,
     )
 
 CRON_SECRET = os.environ.get("CRON_SECRET", "")
 SHAREKHAN_URL = "https://www.sharekhan.com/MediaGalary/Commodity/McxSpan.xls"
+MAX_RETRIES = 2
+RETRY_DELAY = 3  # seconds
 
 # Column mapping from XLS → database
 # XLS columns (0-indexed):
@@ -35,13 +38,23 @@ SHAREKHAN_URL = "https://www.sharekhan.com/MediaGalary/Commodity/McxSpan.xls"
 # 12=ELMLong%, 13=ELMShort%, 14=DeliveryMargin%
 
 
-def _download_xls():
-    """Download the Sharekhan MCX SPAN XLS file."""
-    req = urllib.request.Request(SHAREKHAN_URL, headers={
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    })
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return resp.read()
+def _download_xls(log=None):
+    """Download the Sharekhan MCX SPAN XLS file with retry."""
+    last_err = None
+    for attempt in range(1, MAX_RETRIES + 2):  # 1 initial + MAX_RETRIES
+        try:
+            req = urllib.request.Request(SHAREKHAN_URL, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            })
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                return resp.read()
+        except Exception as e:
+            last_err = e
+            if attempt <= MAX_RETRIES:
+                if log is not None:
+                    log.append(f"Download attempt {attempt} failed: {e}, retrying in {RETRY_DELAY}s...")
+                time.sleep(RETRY_DELAY)
+    raise last_err
 
 
 def _parse_xls(data):
@@ -103,7 +116,7 @@ def _parse_xls(data):
 
 
 def sb_upsert(table, rows):
-    """Upsert rows to Supabase in batches."""
+    """Upsert rows to Supabase in batches. Treats 409 (duplicate) as success."""
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     headers = {
         "apikey": SUPABASE_ANON_KEY,
@@ -120,9 +133,41 @@ def sb_upsert(table, rows):
             with urllib.request.urlopen(req, timeout=15) as resp:
                 pass
         except urllib.error.HTTPError as e:
+            if e.code == 409:
+                continue  # duplicate key — data already exists, skip
             err_body = e.read().decode()[:200] if e.fp else ""
             errors.append(f"batch {i}: HTTP {e.code} — {err_body}")
     return errors
+
+
+def get_existing_margin_dates():
+    """Fetch distinct snapshot_dates from mcx_margin_daily."""
+    url = (f"{SUPABASE_URL}/rest/v1/mcx_margin_daily"
+           f"?select=snapshot_date&order=snapshot_date.desc&limit=500")
+    headers = {
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+    }
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            rows = json.loads(resp.read().decode())
+            return set(r["snapshot_date"] for r in rows)
+    except Exception:
+        return set()
+
+
+def detect_gaps(lookback_days=7):
+    """Find missing trading days in last N days that have no margin data."""
+    existing = get_existing_margin_dates()
+    today = now_ist().date()
+    missing = []
+    for i in range(1, lookback_days + 1):  # skip today (may not be captured yet)
+        d = today - timedelta(days=i)
+        ds = d.strftime("%Y-%m-%d")
+        if is_trading_day(d) and ds not in existing:
+            missing.append(ds)
+    return sorted(missing)
 
 
 def refresh_margins():
@@ -132,7 +177,7 @@ def refresh_margins():
     # Download XLS
     log.append("Downloading Sharekhan MCX SPAN file...")
     try:
-        data = _download_xls()
+        data = _download_xls(log=log)
         log.append(f"Downloaded {len(data)} bytes")
     except Exception as e:
         return {"success": False, "error": f"Download failed: {e}", "log": log}
@@ -159,7 +204,13 @@ def refresh_margins():
     symbols = sorted(set(r["symbol"] for r in rows))
     avg_total_margin = sum(r["total_margin_pct"] or 0 for r in rows) / len(rows)
 
-    return {
+    # Gap detection
+    gaps = detect_gaps(lookback_days=7)
+    if gaps:
+        log.append(f"Gaps detected: {', '.join(gaps)}")
+        log.append("Backfill via: python3 scripts/margin_refresh.py --backfill 7")
+
+    result = {
         "success": len(errors) == 0,
         "snapshot_date": snapshot_date,
         "rows_upserted": len(rows),
@@ -168,6 +219,9 @@ def refresh_margins():
         "log": log,
         "errors": errors,
     }
+    if gaps:
+        result["gaps"] = gaps
+    return result
 
 
 class handler(BaseHTTPRequestHandler):

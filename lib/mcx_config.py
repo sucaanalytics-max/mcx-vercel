@@ -18,7 +18,8 @@ AV_KEY = os.environ.get("ALPHA_VANTAGE_KEY", "")
 
 # ─── Supabase (F-08: data relay) ─────────────────────────────────────────────
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supabase.co")
-SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY",
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2cXdwZWJ2ZXFldHd3emttdHV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDkwMzMsImV4cCI6MjA4Njk4NTAzM30.U_Ug61Fp1NSCesXBkYU7GJGTbuATFtXsz6GTi5948Rw")
 
 # ─── CORS (F-13: restricted to deployment domains) ───────────────────────────
 ALLOWED_ORIGINS = os.environ.get(
@@ -267,6 +268,32 @@ def project_full_day(realized_fut, realized_opt, elapsed_min, day_type="LOW"):
     return realized_fut * mult_c, realized_opt * mult_c, conf_label
 
 
+def safe_float(v):
+    """Convert a value to float, returning None on failure. Shared across all modules."""
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def pearson(xs, ys):
+    """Pearson correlation for two lists (skipping None pairs). Shared across all modules."""
+    pairs = [(x, y) for x, y in zip(xs, ys) if x is not None and y is not None]
+    n = len(pairs)
+    if n < 10:
+        return None
+    mx = sum(p[0] for p in pairs) / n
+    my = sum(p[1] for p in pairs) / n
+    num = sum((p[0] - mx) * (p[1] - my) for p in pairs)
+    dx = math.sqrt(sum((p[0] - mx) ** 2 for p in pairs))
+    dy = math.sqrt(sum((p[1] - my) ** 2 for p in pairs))
+    if dx == 0 or dy == 0:
+        return None
+    return round(num / (dx * dy), 4)
+
+
 def calc_revenue(fut_notl_cr, opt_prem_cr):
     """Compute revenue breakdown from notional/premium volumes."""
     fut_rev = 2 * fut_notl_cr * FUTURES_RATE / 1e7
@@ -289,6 +316,11 @@ def now_ist() -> datetime:
     """Return current time in IST."""
     from datetime import timezone
     return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=5, minutes=30)
+
+
+def is_trading_day(d) -> bool:
+    """Check if date is a weekday and not a full-closure MCX holiday."""
+    return d.weekday() < 5 and d.strftime("%Y-%m-%d") not in MCX_HOLIDAYS_2026
 
 
 def is_market_open(dt=None) -> bool:
