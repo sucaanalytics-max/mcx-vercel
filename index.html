@@ -2231,7 +2231,29 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 <div id="tabCommodity" style="display:none">
 <div class="wrap">
 
-<h2 style="margin-bottom:16px">Commodity-Level Analytics</h2>
+<!-- ── Commodity Revenue Breakdown (from /api/commodity_dashboard) ─── -->
+<h2 style="margin-bottom:16px">Revenue Breakdown</h2>
+  <div class="card" id="cmdSection" style="display:none">
+    <div class="card-title">Commodity Revenue Breakdown</div>
+    <div id="cmdAsOf" style="font-size:10px;color:var(--text-secondary);margin-bottom:8px"></div>
+    <div style="overflow-x:auto"><table class="exd-table" id="cmdSummaryTable"></table></div>
+  </div>
+  <div class="card" id="cmdQtrSection" style="display:none">
+    <div class="card-title">Quarterly by Commodity</div>
+    <div style="overflow-x:auto"><table class="exd-table" id="cmdQtrTable"></table></div>
+  </div>
+  <div class="card" id="cmdMonthSection" style="display:none">
+    <div class="card-title">Monthly by Commodity</div>
+    <div style="overflow-x:auto"><table class="exd-table" id="cmdMonthTable"></table></div>
+  </div>
+  <div class="card" id="cmdTrendSection" style="display:none">
+    <div class="card-title">Commodity Trend (Last 60 Days)</div>
+    <div style="position:relative;height:320px">
+      <canvas id="cmdTrendChart"></canvas>
+    </div>
+  </div>
+
+<h2 style="margin-top:32px;margin-bottom:16px">Commodity-Level Analytics</h2>
 <p id="commAsOf" style="font-size:11px;color:var(--text-secondary);margin-bottom:16px">Loading…</p>
 
 <!-- Today's Commodity Lineup -->
@@ -2285,28 +2307,6 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 </table>
 </div>
 </div>
-
-<!-- ── Commodity Revenue Breakdown (from /api/commodity_dashboard) ─── -->
-<h2 style="margin-top:32px;margin-bottom:16px">Revenue Breakdown</h2>
-  <div class="card" id="cmdSection" style="display:none">
-    <div class="card-title">Commodity Revenue Breakdown</div>
-    <div id="cmdAsOf" style="font-size:10px;color:var(--text-secondary);margin-bottom:8px"></div>
-    <div style="overflow-x:auto"><table class="exd-table" id="cmdSummaryTable"></table></div>
-  </div>
-  <div class="card" id="cmdQtrSection" style="display:none">
-    <div class="card-title">Quarterly by Commodity</div>
-    <div style="overflow-x:auto"><table class="exd-table" id="cmdQtrTable"></table></div>
-  </div>
-  <div class="card" id="cmdMonthSection" style="display:none">
-    <div class="card-title">Monthly by Commodity</div>
-    <div style="overflow-x:auto"><table class="exd-table" id="cmdMonthTable"></table></div>
-  </div>
-  <div class="card" id="cmdTrendSection" style="display:none">
-    <div class="card-title">Commodity Trend (Last 60 Days)</div>
-    <div style="position:relative;height:320px">
-      <canvas id="cmdTrendChart"></canvas>
-    </div>
-  </div>
 
 </div>
 </div><!-- /tabCommodity -->
