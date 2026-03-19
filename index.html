@@ -2953,8 +2953,26 @@ async function doRefresh(silent) {
   btn.disabled = true;
 
   try {
-    const resp = await fetch('/api/refresh');
-    const data = await resp.json();
+    let data;
+    if (!silent) {
+      // Manual click: try live MCX fetch first, fall back to cached
+      try {
+        const liveResp = await fetch('/api/refresh', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: '{}'
+        });
+        data = await liveResp.json();
+        if (!data.success) throw new Error(data.error);
+      } catch(e) {
+        const cacheResp = await fetch('/api/refresh');
+        data = await cacheResp.json();
+      }
+    } else {
+      const resp = await fetch('/api/refresh');
+      data = await resp.json();
+    }
+
     if (data.success) {
       updateSnapshotFromAPI(data);
       if (!silent) showToast('Data refreshed', 'success');
