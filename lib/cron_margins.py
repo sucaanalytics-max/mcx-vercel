@@ -195,6 +195,11 @@ def refresh_margins():
     snapshot_date = rows[0]["snapshot_date"]
     log.append(f"Snapshot date: {snapshot_date}")
 
+    # Stale-data check: warn if XLS date is not today
+    today_str = now_ist().strftime("%Y-%m-%d")
+    if snapshot_date != today_str:
+        log.append(f"⚠ STALE: XLS date {snapshot_date} ≠ today {today_str} — Sharekhan may not have updated yet")
+
     # Upsert
     errors = sb_upsert("mcx_margin_daily", rows)
     if errors:
@@ -210,8 +215,10 @@ def refresh_margins():
         log.append(f"Gaps detected: {', '.join(gaps)}")
         log.append("Backfill via: python3 scripts/margin_refresh.py --backfill 7")
 
+    is_stale = snapshot_date != today_str
     result = {
         "success": len(errors) == 0,
+        "stale": is_stale,
         "snapshot_date": snapshot_date,
         "rows_upserted": len(rows),
         "symbols": symbols,

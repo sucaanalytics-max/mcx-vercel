@@ -21,6 +21,7 @@ from datetime import datetime, timedelta, timezone
 
 # Add parent to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from lib.mcx_config import get_day_type
 
 # ── Config ──────────────────────────────────────────────────────────────────
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supabase.co")
@@ -282,8 +283,10 @@ def fetch_and_compute(date_iso):
         if hist["total_rev_cr"] < 1.0 or hist["total_rev_cr"] > 50.0:
             print(f"  ⚠ {date_iso}: historical API revenue {hist['total_rev_cr']} out of range")
         else:
+            dt = datetime.strptime(date_iso, "%Y-%m-%d")
             return {
                 "trading_date": date_iso,
+                "day_type": get_day_type(dt),
                 "source": "mcx_historical",
                 "data_source": "mcx_historical_detailed",
                 "is_actual": True,

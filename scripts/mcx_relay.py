@@ -306,6 +306,7 @@ def capture_eod():
                 "opt_rev_cr": round(opt_rev, 4),
                 "nontx_rev_cr": NONTX_DAILY,
                 "total_rev_cr": round(total_rev, 4),
+                "day_type": get_day_type(t),
                 "source": "mcx_relay_eod",
                 "is_actual": True,
                 "active_futures": len(futures1),
@@ -323,6 +324,7 @@ def capture_eod():
         if hist and 1.0 <= hist["total_rev_cr"] <= 50.0:
             eod_record = {
                 "trading_date": date_iso,
+                "day_type": get_day_type(t),
                 "source": "mcx_historical",
                 "is_actual": True,
                 **hist,
@@ -424,6 +426,7 @@ def catchup_missing(days=7):
         if hist and 0.5 <= hist["total_rev_cr"] <= 50.0:
             record = {
                 "trading_date": ds,
+                "day_type": get_day_type(datetime.combine(d, datetime.min.time())),
                 "source": "mcx_historical",
                 "is_actual": True,
                 **hist,

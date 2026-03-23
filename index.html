@@ -808,7 +808,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 /* EPS Chain */
 .val-chain-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 2px;
   margin: 12px 0;
 }
@@ -1689,6 +1689,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
     <div class="val-chain-step"><div class="val-chain-key">Annual Rev</div><div class="val-chain-val" id="valC_annRev">—</div></div>
     <div class="val-chain-step"><div class="val-chain-key">PAT (55%)</div><div class="val-chain-val" id="valC_pat">—</div></div>
     <div class="val-chain-step"><div class="val-chain-key">EPS</div><div class="val-chain-val" id="valC_eps">—</div></div>
+    <div class="val-chain-step"><div class="val-chain-key">P/E</div><div class="val-chain-val" id="valC_pe">—</div></div>
     <div class="val-chain-step"><div class="val-chain-key">Fair Value</div><div class="val-chain-val" id="valC_fv">—</div></div>
   </div>
   <div style="font-family:var(--mono);font-size:9px;color:var(--text-secondary);margin-top:6px">
@@ -3512,6 +3513,7 @@ function renderValuation(data) {
     document.getElementById('valC_annRev').textContent = `₹${Math.round(c.annual_total_rev_cr).toLocaleString('en-IN')} Cr`;
     document.getElementById('valC_pat').textContent = `₹${Math.round(c.pat_cr).toLocaleString('en-IN')} Cr`;
     document.getElementById('valC_eps').textContent = `₹${c.eps}`;
+    document.getElementById('valC_pe').textContent = pe.mean ? `${pe.mean}x` : '—';
     document.getElementById('valC_fv').textContent = `₹${Math.round(fvBase).toLocaleString('en-IN')}`;
   }
 
