@@ -32,6 +32,11 @@ from lib.mcx_config import (
     supabase_upsert,
 )
 
+from lib.cron_margins import (
+    _download_xls, _parse_xls,
+    sb_upsert as margin_upsert,
+)
+
 LOOP_INTERVAL = 900  # 15 minutes in seconds
 
 # Alias for backward compat (relay uses MCX_HOLIDAYS directly)
@@ -347,6 +352,29 @@ def capture_eod():
     return True
 
 
+
+
+def refresh_margins_local():
+    """Download and upsert margin data from Sharekhan (runs locally to bypass cloud IP blocks)."""
+    print(f"\n  ── Margin Refresh ──")
+    try:
+        data = _download_xls(log=[])
+        rows = _parse_xls(data)
+        if not rows:
+            print("  ✗ No margin rows parsed")
+            return
+        snapshot_date = rows[0]["snapshot_date"]
+        today_str = now_ist().strftime("%Y-%m-%d")
+        if snapshot_date != today_str:
+            print(f"  ⚠ Stale: XLS date {snapshot_date} ≠ today {today_str}")
+        errors = margin_upsert("mcx_margin_daily", rows)
+        if errors:
+            print(f"  ⚠ Upsert errors: {errors[:2]}")
+        else:
+            print(f"  ✓ Margins upserted: {snapshot_date} ({len(rows)} rows)")
+    except Exception as e:
+        print(f"  ✗ Margin refresh failed: {e}")
+
 def run_loop():
     """Run snapshots every 15 minutes until trading session ends.
     After session close, captures authoritative EOD record for mcx_daily_revenue."""
@@ -383,6 +411,7 @@ def run_loop():
             # Session ended — capture EOD authoritative record
             print("\nSession ended. Capturing EOD record...")
             capture_eod()
+            refresh_margins_local()
             break
 
         print(f"  Next snapshot in {LOOP_INTERVAL//60} min...")
@@ -452,6 +481,7 @@ def catchup_missing(days=7):
 if __name__ == "__main__":
     if "--loop" in sys.argv:
         catchup_missing(7)  # Self-heal before starting loop
+        refresh_margins_local()  # Catch up margins on startup
         run_loop()
     elif "--catchup" in sys.argv:
         days = 7
