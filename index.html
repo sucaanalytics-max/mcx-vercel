@@ -2699,18 +2699,110 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 <!-- ═══ TAB: OI PARTICIPANTS ═══════════════════════════════════════════════ -->
 <div id="tabOIP" style="display:none">
 <div class="wrap">
-  <h2 style="margin-bottom:16px">Open Interest — Participant Categories</h2>
-  <p id="oipAsOf" style="font-size:11px;color:var(--text-secondary);margin-bottom:16px">Loading...</p>
+  <h2 style="margin-bottom:8px">Open Interest — Participant Categories</h2>
+  <p id="oipAsOf" style="font-size:11px;color:var(--text-secondary);margin-bottom:12px">Loading...</p>
 
-  <!-- Current Participant Distribution -->
-  <div class="card" id="oipCurrentSection">
-    <div class="card-title">Current Participant Distribution</div>
-    <div style="overflow-x:auto">
-      <table class="exd-table" id="oipCurrentTable"></table>
+  <!-- Legend/Key (collapsible) -->
+  <details style="margin-bottom:12px">
+    <summary style="font-size:10px;color:var(--text-secondary);cursor:pointer;user-select:none">Legend / Key</summary>
+    <div class="card" style="padding:8px 14px;margin-top:6px;font-size:10px;line-height:1.8;font-family:var(--mono)">
+      <div style="display:flex;flex-wrap:wrap;gap:4px 16px;color:var(--text-secondary)">
+        <span><b style="color:var(--text-primary)">FPOs</b> Farmer Producer Organisations</span>
+        <span><b style="color:var(--positive)">VCPs</b> Value Chain Participants / Hedgers</span>
+        <span><b style="color:var(--warning)">Prop</b> Proprietary Traders</span>
+        <span><b style="color:var(--text-primary)">DFI</b> Domestic Financial Institutional Investors</span>
+        <span><b style="color:var(--text-primary)">For</b> Foreign Participants</span>
+        <span><b style="color:var(--warning)">Oth</b> Others (Retail + Unclassified)</span>
+        <span><b>L/S</b> Long / Short</span>
+        <span><b style="font-style:italic">&lt;10</b> Suppressed (fewer than 10)</span>
+      </div>
+    </div>
+  </details>
+
+  <!-- ── Controls Bar ── -->
+  <div class="card" style="padding:10px 14px;margin-bottom:14px">
+    <!-- Row 1: Time period + Instrument toggle -->
+    <div style="display:flex;flex-wrap:wrap;gap:8px 24px;align-items:center;margin-bottom:8px">
+      <div>
+        <label style="font-size:9px;color:var(--text-secondary);text-transform:uppercase;font-weight:700;display:block;margin-bottom:3px">Period</label>
+        <div id="oipTimeBtns" style="display:flex;gap:3px">
+          <span class="margin-chip" data-period="1M" onclick="oipSetPeriod('1M')">1M</span>
+          <span class="margin-chip" data-period="3M" onclick="oipSetPeriod('3M')">3M</span>
+          <span class="margin-chip" data-period="6M" onclick="oipSetPeriod('6M')">6M</span>
+          <span class="margin-chip" data-period="1Y" onclick="oipSetPeriod('1Y')">1Y</span>
+          <span class="margin-chip active" data-period="ALL" onclick="oipSetPeriod('ALL')">All</span>
+        </div>
+      </div>
+      <div>
+        <label style="font-size:9px;color:var(--text-secondary);text-transform:uppercase;font-weight:700;display:block;margin-bottom:3px">Instrument</label>
+        <div id="oipInstBtns" style="display:flex;gap:3px">
+          <span class="margin-chip" data-inst="Futures" onclick="oipSetInstrument('Futures')">Futures</span>
+          <span class="margin-chip" data-inst="Options" onclick="oipSetInstrument('Options')">Options</span>
+          <span class="margin-chip active" data-inst="Overall" onclick="oipSetInstrument('Overall')">Overall</span>
+        </div>
+      </div>
+      <div style="margin-left:auto">
+        <label style="font-size:9px;color:var(--text-secondary);text-transform:uppercase;font-weight:700;display:block;margin-bottom:3px">30-day MA</label>
+        <span class="margin-chip" id="oipMaToggle" onclick="oipToggleMA()">Show MA</span>
+      </div>
+    </div>
+    <!-- Row 2: Commodity multi-select -->
+    <div>
+      <label style="font-size:9px;color:var(--text-secondary);text-transform:uppercase;font-weight:700;display:block;margin-bottom:3px">Commodities</label>
+      <div style="display:flex;flex-wrap:wrap;gap:0;align-items:center">
+        <span class="margin-chip-ctrl" onclick="oipSelectAll(true)">All</span>
+        <span class="margin-chip-ctrl" onclick="oipSelectAll(false)">None</span>
+        <span class="margin-chip active" data-cmd="ALL" onclick="oipToggleCommodity('ALL')" style="font-weight:700">Exchange Total</span>
+        <span id="oipCommodityChips"></span>
+      </div>
     </div>
   </div>
 
-  <!-- Hedger vs Speculator -->
+  <!-- ── Summary Cards ── -->
+  <div id="oipSummaryCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:14px">
+    <div class="card" style="padding:10px 12px;text-align:center">
+      <div style="font-size:9px;color:var(--text-secondary);text-transform:uppercase;font-weight:700">Total Participants</div>
+      <div id="oipStatTotal" style="font-size:20px;font-weight:800;font-family:var(--mono);margin:4px 0">--</div>
+    </div>
+    <div class="card" style="padding:10px 12px;text-align:center">
+      <div style="font-size:9px;color:var(--text-secondary);text-transform:uppercase;font-weight:700">WoW</div>
+      <div id="oipStatWow" style="font-size:18px;font-weight:800;font-family:var(--mono);margin:4px 0">--</div>
+    </div>
+    <div class="card" style="padding:10px 12px;text-align:center">
+      <div style="font-size:9px;color:var(--text-secondary);text-transform:uppercase;font-weight:700">MoM</div>
+      <div id="oipStatMom" style="font-size:18px;font-weight:800;font-family:var(--mono);margin:4px 0">--</div>
+    </div>
+    <div class="card" style="padding:10px 12px;text-align:center">
+      <div style="font-size:9px;color:var(--text-secondary);text-transform:uppercase;font-weight:700">QoQ</div>
+      <div id="oipStatQoq" style="font-size:18px;font-weight:800;font-family:var(--mono);margin:4px 0">--</div>
+    </div>
+    <div class="card" style="padding:10px 12px;text-align:center">
+      <div style="font-size:9px;color:var(--text-secondary);text-transform:uppercase;font-weight:700">YoY</div>
+      <div id="oipStatYoy" style="font-size:18px;font-weight:800;font-family:var(--mono);margin:4px 0">--</div>
+    </div>
+    <div class="card" style="padding:10px 12px;text-align:center">
+      <div style="font-size:9px;color:var(--text-secondary);text-transform:uppercase;font-weight:700">Top Commodity</div>
+      <div id="oipStatTop" style="font-size:13px;font-weight:700;font-family:var(--mono);margin:4px 0">--</div>
+    </div>
+  </div>
+
+  <!-- ── Hero: Participant Trend Chart ── -->
+  <div class="card" id="oipHeroSection">
+    <div class="card-title">Participant Trend</div>
+    <div style="position:relative;height:340px">
+      <canvas id="oipHeroChart"></canvas>
+    </div>
+  </div>
+
+  <!-- ── Monthly Growth Rate ── -->
+  <div class="card" id="oipGrowthSection" style="display:none">
+    <div class="card-title">Monthly Growth Rate (MoM %)</div>
+    <div style="position:relative;height:260px">
+      <canvas id="oipGrowthChart"></canvas>
+    </div>
+  </div>
+
+  <!-- ── Hedger vs Speculator ── -->
   <div class="card" id="oipHedgerSection" style="display:none">
     <div class="card-title">Hedger vs Speculator Ratio</div>
     <div style="position:relative;height:360px">
@@ -2718,39 +2810,33 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
     </div>
   </div>
 
-  <!-- Net Positioning Trend -->
-  <div class="card" id="oipNetSection" style="display:none">
-    <div class="card-title">Net Positioning Trend (Long - Short)</div>
-    <div style="display:flex;gap:10px;margin-bottom:12px;align-items:end">
+  <!-- ── Category Composition Trend ── -->
+  <div class="card" id="oipCompSection" style="display:none">
+    <div class="card-title">Category Composition Trend</div>
+    <div style="display:flex;gap:10px;margin-bottom:8px;align-items:end">
       <div>
         <label style="font-size:10px;color:var(--text-secondary);display:block;margin-bottom:3px">Commodity</label>
-        <select id="oipNetSelect" onchange="updateOipNetChart()" style="padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:11px;min-width:160px"></select>
+        <select id="oipCompSelect" onchange="updateOipCompChart()" style="padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:11px;min-width:160px"></select>
       </div>
     </div>
     <div style="position:relative;height:300px">
-      <canvas id="oipNetChart"></canvas>
+      <canvas id="oipCompChart"></canvas>
     </div>
   </div>
 
-  <!-- Participation Trend -->
-  <div class="card" id="oipTrendSection" style="display:none">
-    <div class="card-title">Participation Trend</div>
-    <div style="display:flex;gap:10px;margin-bottom:12px;align-items:end">
-      <div>
-        <label style="font-size:10px;color:var(--text-secondary);display:block;margin-bottom:3px">Commodity</label>
-        <select id="oipTrendSelect" onchange="updateOipTrendChart()" style="padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:11px;min-width:160px"></select>
-      </div>
-    </div>
-    <div style="position:relative;height:300px">
-      <canvas id="oipTrendChart"></canvas>
-    </div>
-  </div>
-
-  <!-- Cross-Commodity Comparison -->
-  <div class="card" id="oipCrossSection" style="display:none">
-    <div class="card-title">Cross-Commodity Participant Comparison</div>
+  <!-- ── Current Distribution Table ── -->
+  <div class="card" id="oipCurrentSection">
+    <div class="card-title">Current Participant Distribution</div>
     <div style="overflow-x:auto">
-      <table class="exd-table" id="oipCrossTable"></table>
+      <table class="exd-table" id="oipCurrentTable"></table>
+    </div>
+  </div>
+
+  <!-- ── Growth Table ── -->
+  <div class="card" id="oipGrowthTableSection" style="display:none">
+    <div class="card-title">Growth by Commodity</div>
+    <div style="overflow-x:auto">
+      <table class="exd-table" id="oipGrowthTable"></table>
     </div>
   </div>
 </div>
@@ -6085,21 +6171,36 @@ function renderMomTable(hist) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  OI PARTICIPANTS — Participant Category Analytics
+//  OI PARTICIPANTS — Participant Category Analytics (Enhanced)
 // ════════════════════════════════════════════════════════════════════════════
 var oipCache = null;
+var oipHeroChartInst = null;
+var oipGrowthChartInst = null;
 var oipHedgerChartInst = null;
-var oipNetChartInst = null;
-var oipTrendChartInst = null;
+var oipCompChartInst = null;
+
+// State
+var oipTimePeriod = 'ALL';
+var oipInstrument = 'Overall';
+var oipSelectedCommodities = {};
+var oipShowMA = false;
+var OIP_COLORS = [
+  '#1890FF','#52C41A','#FAAD14','#722ED1','#FF4D4F','#13C2C2',
+  '#EB2F96','#FA8C16','#2F54EB','#A0D911','#F5222D','#597EF7',
+  '#36CFC9','#FFC53D','#9254DE','#FF7A45','#73D13D','#40A9FF','#F759AB'
+];
 
 function loadOIParticipants() {
-  if (oipCache && (Date.now() - oipCache._ts < 600000)) { renderOIParticipants(oipCache); return; }
+  if (oipCache && (Date.now() - oipCache._ts < 600000)) { oipRenderAll(); return; }
   document.getElementById('oipAsOf').textContent = 'Loading...';
   fetch('/api/commodity_dashboard?view=oi_participants')
     .then(function(r) { return r.json(); })
     .then(function(d) {
-      if (d.success) { d._ts = Date.now(); oipCache = d; renderOIParticipants(d); }
-      else { document.getElementById('oipAsOf').textContent = d.error || 'No data'; }
+      if (d.success) {
+        d._ts = Date.now(); oipCache = d;
+        oipInitControls(d);
+        oipRenderAll();
+      } else { document.getElementById('oipAsOf').textContent = d.error || 'No data'; }
     })
     .catch(function(e) { document.getElementById('oipAsOf').textContent = 'Error: ' + e; });
 }
@@ -6109,122 +6210,292 @@ function oipVal(v) {
   if (v === null || v === undefined) return '--';
   return v.toLocaleString('en-IN');
 }
+function oipPair(l, s) { return oipVal(l) + ' / ' + oipVal(s); }
 
-function oipPair(l, s) {
-  return oipVal(l) + ' / ' + oipVal(s);
+function oipGrowthHtml(pct) {
+  if (pct === null || pct === undefined) return '<span style="color:var(--text-secondary)">N/A</span>';
+  var cls = pct > 0 ? 'color:var(--positive)' : pct < 0 ? 'color:var(--negative)' : 'color:var(--text-secondary)';
+  var arrow = pct > 0 ? '\u25B2 +' : pct < 0 ? '\u25BC ' : '';
+  return '<span style="' + cls + ';font-weight:700">' + arrow + pct.toFixed(1) + '%</span>';
 }
 
-function renderOIParticipants(data) {
-  document.getElementById('oipAsOf').textContent = 'As of ' + data.as_of + ' \u2022 ' + data.snapshot_dates + ' snapshot(s)';
-
-  // ── 1. Current Participant Distribution Table ──
-  var tbl = document.getElementById('oipCurrentTable');
-  var h = '<thead><tr>' +
-    '<th style="text-align:left">Commodity</th><th>Inst</th><th>Total</th>' +
-    '<th>FPOs L/S</th><th>VCPs L/S</th><th>Prop L/S</th>' +
-    '<th>DFI L/S</th><th>Foreign L/S</th><th>Others L/S</th>' +
-    '</tr></thead><tbody>';
-
-  data.participants.forEach(function(p) {
-    h += '<tr>' +
-      '<td style="font-weight:600;text-align:left">' + p.commodity + '</td>' +
-      '<td style="font-size:10px;color:var(--text-secondary)">' + p.instrument.charAt(0) + '</td>' +
-      '<td style="font-weight:700">' + (p.total_participation || 0).toLocaleString('en-IN') + '</td>' +
-      '<td>' + oipPair(p.fpo_long, p.fpo_short) + '</td>' +
-      '<td style="color:var(--positive)">' + oipPair(p.vcp_long, p.vcp_short) + '</td>' +
-      '<td style="color:var(--warning)">' + oipPair(p.prop_long, p.prop_short) + '</td>' +
-      '<td>' + oipPair(p.dfi_long, p.dfi_short) + '</td>' +
-      '<td>' + oipPair(p.foreign_long, p.foreign_short) + '</td>' +
-      '<td style="color:var(--warning)">' + oipPair(p.others_long, p.others_short) + '</td>' +
-      '</tr>';
+function oipInitControls(data) {
+  // Build commodity chips
+  var container = document.getElementById('oipCommodityChips');
+  if (container.children.length > 0) return; // already init
+  oipSelectedCommodities = { ALL: true };
+  (data.unique_commodities || []).forEach(function(c) {
+    oipSelectedCommodities[c] = false;
+    var chip = document.createElement('span');
+    chip.className = 'margin-chip';
+    chip.setAttribute('data-cmd', c);
+    chip.textContent = c;
+    chip.onclick = function() { oipToggleCommodity(c); };
+    container.appendChild(chip);
   });
-  tbl.innerHTML = h + '</tbody>';
-
-  // ── 2. Hedger vs Speculator Chart ──
-  if (data.hedger_speculator && data.hedger_speculator.length > 0) {
-    document.getElementById('oipHedgerSection').style.display = '';
-    renderHedgerSpecChart(data);
-  }
-
-  // ── 3. Net Positioning ──
-  if (data.net_positioning && data.commodities && data.commodities.length > 0) {
-    document.getElementById('oipNetSection').style.display = '';
-    var sel = document.getElementById('oipNetSelect');
-    if (sel.options.length === 0) {
-      data.commodities.forEach(function(c) {
-        var o = document.createElement('option');
-        o.value = c; o.textContent = c.replace('_', ' ');
-        sel.appendChild(o);
-      });
-    }
-    updateOipNetChart();
-  }
-
-  // ── 4. Participation Trend ──
-  if (data.trend && data.commodities && data.commodities.length > 0) {
-    document.getElementById('oipTrendSection').style.display = '';
-    var sel2 = document.getElementById('oipTrendSelect');
-    if (sel2.options.length === 0) {
-      data.commodities.forEach(function(c) {
-        var o = document.createElement('option');
-        o.value = c; o.textContent = c.replace('_', ' ');
-        sel2.appendChild(o);
-      });
-    }
-    updateOipTrendChart();
-  }
-
-  // ── 5. Cross-Commodity Comparison Table ──
-  if (data.cross_commodity && data.cross_commodity.length > 0) {
-    document.getElementById('oipCrossSection').style.display = '';
-    var ct = document.getElementById('oipCrossTable');
-    var ch = '<thead><tr>' +
-      '<th style="text-align:left">Commodity</th><th>Inst</th><th>Total</th>' +
-      '<th>Dominant</th><th>Dom %</th>' +
-      '<th>VCPs</th><th>Prop</th><th>Others</th><th>Foreign</th>' +
-      '</tr></thead><tbody>';
-    data.cross_commodity.forEach(function(c) {
-      ch += '<tr>' +
-        '<td style="font-weight:600;text-align:left">' + c.commodity + '</td>' +
-        '<td style="font-size:10px;color:var(--text-secondary)">' + c.instrument.charAt(0) + '</td>' +
-        '<td style="font-weight:700">' + (c.total || 0).toLocaleString('en-IN') + '</td>' +
-        '<td style="font-weight:600">' + (c.dominant_category || '--') + '</td>' +
-        '<td>' + (c.dominant_pct || 0).toFixed(1) + '%</td>' +
-        '<td>' + (c.vcp_total || 0).toLocaleString('en-IN') + '</td>' +
-        '<td>' + (c.prop_total || 0).toLocaleString('en-IN') + '</td>' +
-        '<td>' + (c.others_total || 0).toLocaleString('en-IN') + '</td>' +
-        '<td>' + (c.foreign_total || 0).toLocaleString('en-IN') + '</td>' +
-        '</tr>';
+  // Init composition select
+  var sel = document.getElementById('oipCompSelect');
+  if (sel.options.length === 0) {
+    (data.commodities || []).forEach(function(c) {
+      var o = document.createElement('option');
+      o.value = c; o.textContent = c.replace('_', ' ');
+      sel.appendChild(o);
     });
-    ct.innerHTML = ch + '</tbody>';
   }
 }
 
-function renderHedgerSpecChart(data) {
+function oipSetPeriod(p) {
+  oipTimePeriod = p;
+  document.querySelectorAll('#oipTimeBtns .margin-chip').forEach(function(el) {
+    el.className = el.getAttribute('data-period') === p ? 'margin-chip active' : 'margin-chip';
+  });
+  oipRenderAll();
+}
+
+function oipSetInstrument(inst) {
+  oipInstrument = inst;
+  document.querySelectorAll('#oipInstBtns .margin-chip').forEach(function(el) {
+    el.className = el.getAttribute('data-inst') === inst ? 'margin-chip active' : 'margin-chip';
+  });
+  oipRenderAll();
+}
+
+function oipToggleCommodity(c) {
+  if (c === 'ALL') {
+    // Toggle exchange total — exclusive with individual commodities
+    var wasAll = oipSelectedCommodities.ALL;
+    Object.keys(oipSelectedCommodities).forEach(function(k) { oipSelectedCommodities[k] = false; });
+    oipSelectedCommodities.ALL = !wasAll;
+  } else {
+    oipSelectedCommodities.ALL = false;
+    oipSelectedCommodities[c] = !oipSelectedCommodities[c];
+    // If nothing selected, select ALL
+    var anySelected = Object.keys(oipSelectedCommodities).some(function(k) { return oipSelectedCommodities[k]; });
+    if (!anySelected) oipSelectedCommodities.ALL = true;
+  }
+  // Update chip visuals
+  document.querySelectorAll('[data-cmd]').forEach(function(el) {
+    var key = el.getAttribute('data-cmd');
+    el.className = oipSelectedCommodities[key] ? 'margin-chip active' : 'margin-chip';
+    if (key === 'ALL') el.style.fontWeight = '700';
+  });
+  oipRenderAll();
+}
+
+function oipSelectAll(selectAll) {
+  Object.keys(oipSelectedCommodities).forEach(function(k) {
+    oipSelectedCommodities[k] = (k === 'ALL') ? !selectAll : selectAll;
+  });
+  if (!selectAll) oipSelectedCommodities.ALL = true;
+  document.querySelectorAll('[data-cmd]').forEach(function(el) {
+    var key = el.getAttribute('data-cmd');
+    el.className = oipSelectedCommodities[key] ? 'margin-chip active' : 'margin-chip';
+  });
+  oipRenderAll();
+}
+
+function oipToggleMA() {
+  oipShowMA = !oipShowMA;
+  document.getElementById('oipMaToggle').className = oipShowMA ? 'margin-chip active' : 'margin-chip';
+  oipRenderAll();
+}
+
+function oipFilterDates(allDates) {
+  if (oipTimePeriod === 'ALL') return allDates;
+  var now = new Date(allDates[allDates.length - 1]);
+  var cutoff = new Date(now);
+  if (oipTimePeriod === '1M') cutoff.setMonth(cutoff.getMonth() - 1);
+  else if (oipTimePeriod === '3M') cutoff.setMonth(cutoff.getMonth() - 3);
+  else if (oipTimePeriod === '6M') cutoff.setMonth(cutoff.getMonth() - 6);
+  else if (oipTimePeriod === '1Y') cutoff.setFullYear(cutoff.getFullYear() - 1);
+  var cutStr = cutoff.toISOString().slice(0, 10);
+  return allDates.filter(function(d) { return d >= cutStr; });
+}
+
+function oipGetSelectedKeys() {
+  // Returns trend keys matching selected commodities + instrument
+  var keys = [];
+  if (oipSelectedCommodities.ALL) {
+    keys.push('ALL_' + oipInstrument);
+  } else {
+    Object.keys(oipSelectedCommodities).forEach(function(c) {
+      if (c !== 'ALL' && oipSelectedCommodities[c]) {
+        keys.push(c + '_' + oipInstrument);
+      }
+    });
+  }
+  return keys;
+}
+
+function oipFmtMonth(dateStr) {
+  var d = new Date(dateStr);
+  var m = d.toLocaleString('en', { month: 'short' });
+  var y = String(d.getFullYear()).slice(2);
+  return m + "'" + y;
+}
+
+// ── MASTER RENDER ──
+function oipRenderAll() {
+  if (!oipCache) return;
+  var data = oipCache;
+  document.getElementById('oipAsOf').textContent = 'As of ' + data.as_of + ' \u2022 ' + data.snapshot_dates + ' snapshots';
+
+  oipRenderSummaryCards(data);
+  oipRenderHeroChart(data);
+  oipRenderGrowthChart(data);
+  oipRenderHedgerChart(data);
+  oipRenderCurrentTable(data);
+  oipRenderGrowthTable(data);
+  updateOipCompChart();
+}
+
+// ── SUMMARY CARDS ──
+function oipRenderSummaryCards(data) {
+  var go = data.growth_overall[oipInstrument] || {};
+  document.getElementById('oipStatTotal').textContent = go.current != null ? go.current.toLocaleString('en-IN') : '--';
+  document.getElementById('oipStatWow').innerHTML = oipGrowthHtml(go.wow_pct);
+  document.getElementById('oipStatMom').innerHTML = oipGrowthHtml(go.mom_pct);
+  document.getElementById('oipStatQoq').innerHTML = oipGrowthHtml(go.qoq_pct);
+  document.getElementById('oipStatYoy').innerHTML = oipGrowthHtml(go.yoy_pct);
+  // Top commodity
+  var topRow = data.participants[0];
+  document.getElementById('oipStatTop').textContent = topRow ? topRow.commodity + ' (' + (topRow.total_participation || 0).toLocaleString('en-IN') + ')' : '--';
+}
+
+// ── HERO TREND CHART ──
+function oipRenderHeroChart(data) {
+  var tr = data.trend;
+  if (!tr || !tr.dates) return;
+
+  var allDates = tr.dates;
+  var dates = oipFilterDates(allDates);
+  var startIdx = allDates.indexOf(dates[0]);
+  var keys = oipGetSelectedKeys();
+  if (keys.length === 0) return;
+
+  var ctx = document.getElementById('oipHeroChart').getContext('2d');
+  if (oipHeroChartInst) oipHeroChartInst.destroy();
+
+  var labels = dates.map(oipFmtMonth);
+  var datasets = [];
+  keys.forEach(function(key, i) {
+    var series = tr[key];
+    if (!series) return;
+    var totals = series.total.slice(startIdx, startIdx + dates.length);
+    var label = key.replace('_', ' ');
+    datasets.push({
+      label: label, data: totals,
+      borderColor: OIP_COLORS[i % OIP_COLORS.length],
+      backgroundColor: 'transparent',
+      borderWidth: 2, tension: 0.3, pointRadius: 0
+    });
+    if (oipShowMA && series.ma30) {
+      var ma = series.ma30.slice(startIdx, startIdx + dates.length);
+      datasets.push({
+        label: label + ' (30d MA)', data: ma,
+        borderColor: OIP_COLORS[i % OIP_COLORS.length],
+        backgroundColor: 'transparent',
+        borderWidth: 1.5, borderDash: [6, 3], tension: 0.3, pointRadius: 0
+      });
+    }
+  });
+
+  // Deduplicate monthly labels (show only first occurrence of each month)
+  var seen = {};
+  var cleanLabels = labels.map(function(l) {
+    if (seen[l]) return '';
+    seen[l] = true;
+    return l;
+  });
+
+  oipHeroChartInst = new Chart(ctx, {
+    type: 'line',
+    data: { labels: cleanLabels, datasets: datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { ticks: { maxTicksLimit: 14, font: { size: 9, family: 'var(--mono)' } }, grid: { color: 'rgba(128,128,128,0.12)' } },
+        y: { beginAtZero: false, ticks: { font: { size: 10 }, callback: function(v) { return v >= 1000 ? (v/1000).toFixed(0) + 'k' : v; } }, grid: { color: 'rgba(128,128,128,0.12)' } }
+      },
+      plugins: {
+        legend: { position: 'top', labels: { font: { size: 10 }, boxWidth: 12, usePointStyle: true } },
+        tooltip: { mode: 'index', intersect: false, callbacks: {
+          title: function(items) { return dates[items[0].dataIndex]; },
+          label: function(ctx) { return ctx.dataset.label + ': ' + (ctx.parsed.y != null ? ctx.parsed.y.toLocaleString('en-IN') : '--'); }
+        }}
+      }
+    }
+  });
+}
+
+// ── MONTHLY GROWTH CHART ──
+function oipRenderGrowthChart(data) {
+  var mg = data.monthly_growth;
+  if (!mg || !mg.months || mg.months.length < 2) return;
+  document.getElementById('oipGrowthSection').style.display = '';
+
+  var ctx = document.getElementById('oipGrowthChart').getContext('2d');
+  if (oipGrowthChartInst) oipGrowthChartInst.destroy();
+
+  var instKey = oipInstrument + '_mom_pct';
+  var pcts = mg[instKey] || [];
+  var months = mg.months.map(function(m) {
+    var parts = m.split('-');
+    var d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1);
+    return d.toLocaleString('en', { month: 'short', year: '2-digit' });
+  });
+
+  var bgColors = pcts.map(function(v) {
+    if (v === null) return 'rgba(140,140,140,0.3)';
+    return v >= 0 ? 'rgba(82,196,26,0.7)' : 'rgba(255,77,79,0.7)';
+  });
+
+  oipGrowthChartInst = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: months,
+      datasets: [{ label: 'MoM Growth %', data: pcts, backgroundColor: bgColors, borderRadius: 3 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { ticks: { font: { size: 9, family: 'var(--mono)' } }, grid: { display: false } },
+        y: { ticks: { font: { size: 10 }, callback: function(v) { return v + '%'; } }, grid: { color: 'rgba(128,128,128,0.12)' } }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: function(ctx) { return (ctx.parsed.y != null ? ctx.parsed.y.toFixed(1) + '%' : 'N/A'); } } }
+      }
+    }
+  });
+}
+
+// ── HEDGER VS SPECULATOR ──
+function oipRenderHedgerChart(data) {
+  if (!data.hedger_speculator || data.hedger_speculator.length === 0) return;
+  document.getElementById('oipHedgerSection').style.display = '';
+
   var ctx = document.getElementById('oipHedgerChart').getContext('2d');
   if (oipHedgerChartInst) oipHedgerChartInst.destroy();
 
   var items = data.hedger_speculator.filter(function(x) { return x.total > 0; }).slice(0, 15);
   var labels = items.map(function(x) { return x.commodity + ' ' + x.instrument.charAt(0); });
-  var hedgerData = items.map(function(x) { return x.hedger_pct; });
-  var specData = items.map(function(x) { return x.speculator_pct; });
-  var otherData = items.map(function(x) { return Math.max(0, 100 - x.hedger_pct - x.speculator_pct); });
 
   oipHedgerChartInst = new Chart(ctx, {
     type: 'bar',
     data: {
       labels: labels,
       datasets: [
-        { label: 'Hedgers (VCPs)', data: hedgerData, backgroundColor: 'rgba(82,196,26,0.7)' },
-        { label: 'Speculators (Prop+Others)', data: specData, backgroundColor: 'rgba(250,173,20,0.7)' },
-        { label: 'Other Categories', data: otherData, backgroundColor: 'rgba(140,140,140,0.3)' }
+        { label: 'Hedgers (VCPs)', data: items.map(function(x) { return x.hedger_pct; }), backgroundColor: 'rgba(82,196,26,0.7)' },
+        { label: 'Speculators (Prop+Others)', data: items.map(function(x) { return x.speculator_pct; }), backgroundColor: 'rgba(250,173,20,0.7)' },
+        { label: 'Other', data: items.map(function(x) { return Math.max(0, 100 - x.hedger_pct - x.speculator_pct); }), backgroundColor: 'rgba(140,140,140,0.3)' }
       ]
     },
     options: {
-      indexAxis: 'y',
-      responsive: true, maintainAspectRatio: false,
+      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
       scales: {
-        x: { stacked: true, max: 100, ticks: { callback: function(v) { return v + '%'; }, font: { size: 10 } }, grid: { color: 'rgba(128,128,128,0.15)' } },
+        x: { stacked: true, max: 100, ticks: { callback: function(v) { return v + '%'; }, font: { size: 10 } }, grid: { color: 'rgba(128,128,128,0.12)' } },
         y: { stacked: true, ticks: { font: { size: 10, family: 'var(--mono)' } }, grid: { display: false } }
       },
       plugins: {
@@ -6235,31 +6506,52 @@ function renderHedgerSpecChart(data) {
   });
 }
 
-function updateOipNetChart() {
-  if (!oipCache || !oipCache.net_positioning) return;
-  var sel = document.getElementById('oipNetSelect');
+// ── CATEGORY COMPOSITION TREND ──
+function updateOipCompChart() {
+  if (!oipCache || !oipCache.trend) return;
+  var sel = document.getElementById('oipCompSelect');
   var key = sel.value;
-  var np = oipCache.net_positioning;
-  if (!np[key]) return;
+  var tr = oipCache.trend;
+  if (!tr[key]) return;
+  document.getElementById('oipCompSection').style.display = '';
 
-  var ctx = document.getElementById('oipNetChart').getContext('2d');
-  if (oipNetChartInst) oipNetChartInst.destroy();
+  var allDates = tr.dates;
+  var dates = oipFilterDates(allDates);
+  var startIdx = allDates.indexOf(dates[0]);
 
-  var dates = np.dates || [];
-  oipNetChartInst = new Chart(ctx, {
+  var ctx = document.getElementById('oipCompChart').getContext('2d');
+  if (oipCompChartInst) oipCompChartInst.destroy();
+
+  var series = tr[key];
+  var catColors = {
+    vcp: 'rgba(82,196,26,0.7)', prop: 'rgba(250,173,20,0.7)',
+    others: 'rgba(24,144,255,0.7)', foreign: 'rgba(114,46,209,0.7)',
+    dfi: 'rgba(255,77,79,0.7)', fpo: 'rgba(140,140,140,0.5)'
+  };
+  var catLabels = { vcp: 'VCPs/Hedgers', prop: 'Proprietary', others: 'Others', foreign: 'Foreign', dfi: 'DFI', fpo: 'FPOs/Farmers' };
+  var labels = dates.map(oipFmtMonth);
+
+  var datasets = ['vcp', 'prop', 'others', 'foreign', 'dfi', 'fpo'].map(function(cat) {
+    var longArr = series[cat + '_long'];
+    var shortArr = series[cat + '_short'];
+    if (!longArr) return null;
+    return {
+      label: catLabels[cat],
+      data: longArr.slice(startIdx, startIdx + dates.length).map(function(v, i) {
+        return (v || 0) + ((shortArr || [])[startIdx + i] || 0);
+      }),
+      backgroundColor: catColors[cat], fill: true, tension: 0.3, pointRadius: 0
+    };
+  }).filter(Boolean);
+
+  oipCompChartInst = new Chart(ctx, {
     type: 'line',
-    data: {
-      labels: dates,
-      datasets: [
-        { label: 'Hedger Net (L-S)', data: np[key].hedger_net, borderColor: 'rgba(82,196,26,1)', backgroundColor: 'rgba(82,196,26,0.1)', fill: true, tension: 0.3, pointRadius: 0 },
-        { label: 'Speculator Net (L-S)', data: np[key].speculator_net, borderColor: 'rgba(250,173,20,1)', backgroundColor: 'rgba(250,173,20,0.1)', fill: true, tension: 0.3, pointRadius: 0 }
-      ]
-    },
+    data: { labels: labels, datasets: datasets },
     options: {
       responsive: true, maintainAspectRatio: false,
       scales: {
-        x: { ticks: { maxTicksLimit: 10, font: { size: 9 } }, grid: { color: 'rgba(128,128,128,0.15)' } },
-        y: { ticks: { font: { size: 10 } }, grid: { color: 'rgba(128,128,128,0.15)' } }
+        x: { ticks: { maxTicksLimit: 12, font: { size: 9 } }, grid: { color: 'rgba(128,128,128,0.12)' } },
+        y: { stacked: true, ticks: { font: { size: 10 } }, grid: { color: 'rgba(128,128,128,0.12)' } }
       },
       plugins: {
         legend: { position: 'top', labels: { font: { size: 10 }, boxWidth: 12 } },
@@ -6269,55 +6561,77 @@ function updateOipNetChart() {
   });
 }
 
-function updateOipTrendChart() {
-  if (!oipCache || !oipCache.trend) return;
-  var sel = document.getElementById('oipTrendSelect');
-  var key = sel.value;
-  var tr = oipCache.trend;
-  if (!tr[key]) return;
+// ── CURRENT DISTRIBUTION TABLE ──
+function oipRenderCurrentTable(data) {
+  function safeSum(rows, field) {
+    return rows.reduce(function(a, r) { var v = r[field]; return a + (v > 0 ? v : 0); }, 0);
+  }
+  function subtotalRow(label, rows, bg) {
+    return '<tr style="' + bg + 'font-weight:700;border-top:2px solid var(--border-heavy)">' +
+      '<td style="text-align:left">' + label + '</td><td></td>' +
+      '<td>' + safeSum(rows,'total_participation').toLocaleString('en-IN') + '</td>' +
+      '<td>' + safeSum(rows,'fpo_long').toLocaleString('en-IN') + '/' + safeSum(rows,'fpo_short').toLocaleString('en-IN') + '</td>' +
+      '<td style="color:var(--positive)">' + safeSum(rows,'vcp_long').toLocaleString('en-IN') + '/' + safeSum(rows,'vcp_short').toLocaleString('en-IN') + '</td>' +
+      '<td style="color:var(--warning)">' + safeSum(rows,'prop_long').toLocaleString('en-IN') + '/' + safeSum(rows,'prop_short').toLocaleString('en-IN') + '</td>' +
+      '<td>' + safeSum(rows,'dfi_long').toLocaleString('en-IN') + '/' + safeSum(rows,'dfi_short').toLocaleString('en-IN') + '</td>' +
+      '<td>' + safeSum(rows,'foreign_long').toLocaleString('en-IN') + '/' + safeSum(rows,'foreign_short').toLocaleString('en-IN') + '</td>' +
+      '<td style="color:var(--warning)">' + safeSum(rows,'others_long').toLocaleString('en-IN') + '/' + safeSum(rows,'others_short').toLocaleString('en-IN') + '</td></tr>';
+  }
 
-  var ctx = document.getElementById('oipTrendChart').getContext('2d');
-  if (oipTrendChartInst) oipTrendChartInst.destroy();
+  var tbl = document.getElementById('oipCurrentTable');
+  var h = '<thead><tr><th style="text-align:left">Commodity</th><th>Type</th><th>Total</th>' +
+    '<th>FPOs L/S</th><th>VCPs L/S</th><th>Prop L/S</th><th>DFI L/S</th><th>For L/S</th><th>Others L/S</th></tr></thead><tbody>';
 
-  var dates = tr.dates || [];
-  var series = tr[key];
-  var catColors = {
-    vcp: 'rgba(82,196,26,0.7)', prop: 'rgba(250,173,20,0.7)',
-    others: 'rgba(24,144,255,0.7)', foreign: 'rgba(114,46,209,0.7)',
-    dfi: 'rgba(255,77,79,0.7)', fpo: 'rgba(140,140,140,0.5)'
-  };
-  var catLabels = {
-    vcp: 'VCPs/Hedgers', prop: 'Proprietary', others: 'Others',
-    foreign: 'Foreign', dfi: 'DFI', fpo: 'FPOs/Farmers'
-  };
-
-  var datasets = ['vcp', 'prop', 'others', 'foreign', 'dfi', 'fpo'].map(function(cat) {
-    return {
-      label: catLabels[cat],
-      data: (series[cat + '_long'] || []).map(function(v, i) {
-        var l = v || 0; var s = (series[cat + '_short'] || [])[i] || 0;
-        return l + s;
-      }),
-      backgroundColor: catColors[cat],
-      fill: true, tension: 0.3, pointRadius: 0
-    };
+  var sorted = data.participants.slice().sort(function(a, b) {
+    var cmp = a.commodity.localeCompare(b.commodity);
+    return cmp !== 0 ? cmp : (a.instrument === 'Futures' ? -1 : 1);
   });
-
-  oipTrendChartInst = new Chart(ctx, {
-    type: 'line',
-    data: { labels: dates, datasets: datasets },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      scales: {
-        x: { ticks: { maxTicksLimit: 10, font: { size: 9 } }, grid: { color: 'rgba(128,128,128,0.15)' } },
-        y: { stacked: true, ticks: { font: { size: 10 } }, grid: { color: 'rgba(128,128,128,0.15)' } }
-      },
-      plugins: {
-        legend: { position: 'top', labels: { font: { size: 10 }, boxWidth: 12 } },
-        tooltip: { mode: 'index', intersect: false }
-      }
-    }
+  sorted.forEach(function(p) {
+    h += '<tr><td style="font-weight:600;text-align:left">' + p.commodity + '</td>' +
+      '<td style="font-size:10px;color:var(--text-secondary)">' + p.instrument.charAt(0) + '</td>' +
+      '<td style="font-weight:700">' + (p.total_participation||0).toLocaleString('en-IN') + '</td>' +
+      '<td>' + oipPair(p.fpo_long,p.fpo_short) + '</td>' +
+      '<td style="color:var(--positive)">' + oipPair(p.vcp_long,p.vcp_short) + '</td>' +
+      '<td style="color:var(--warning)">' + oipPair(p.prop_long,p.prop_short) + '</td>' +
+      '<td>' + oipPair(p.dfi_long,p.dfi_short) + '</td>' +
+      '<td>' + oipPair(p.foreign_long,p.foreign_short) + '</td>' +
+      '<td style="color:var(--warning)">' + oipPair(p.others_long,p.others_short) + '</td></tr>';
   });
+  var futR = sorted.filter(function(p) { return p.instrument==='Futures'; });
+  var optR = sorted.filter(function(p) { return p.instrument==='Options'; });
+  h += subtotalRow('Futures Sub-Total', futR, 'background:rgba(82,196,26,0.06);');
+  h += subtotalRow('Options Sub-Total', optR, 'background:rgba(24,144,255,0.06);');
+  h += subtotalRow('GRAND TOTAL', sorted, 'background:rgba(250,173,20,0.1);');
+  tbl.innerHTML = h + '</tbody>';
+}
+
+// ── GROWTH TABLE ──
+function oipRenderGrowthTable(data) {
+  if (!data.growth || data.growth.length === 0) return;
+  document.getElementById('oipGrowthTableSection').style.display = '';
+
+  var filtered = data.growth.filter(function(g) { return g.instrument === oipInstrument || oipInstrument === 'Overall'; });
+  if (oipInstrument !== 'Overall') {
+    filtered = data.growth.filter(function(g) { return g.instrument === oipInstrument; });
+  } else {
+    filtered = data.growth.filter(function(g) { return g.instrument === 'Overall'; });
+  }
+  filtered.sort(function(a, b) { return (b.current || 0) - (a.current || 0); });
+
+  var tbl = document.getElementById('oipGrowthTable');
+  var h = '<thead><tr><th style="text-align:left">Commodity</th><th>Type</th><th>Current</th>' +
+    '<th>WoW %</th><th>MoM %</th><th>QoQ %</th><th>YoY %</th></tr></thead><tbody>';
+
+  filtered.forEach(function(g) {
+    h += '<tr><td style="font-weight:600;text-align:left">' + g.commodity + '</td>' +
+      '<td style="font-size:10px;color:var(--text-secondary)">' + (g.instrument||'').charAt(0) + '</td>' +
+      '<td style="font-weight:700">' + (g.current||0).toLocaleString('en-IN') + '</td>' +
+      '<td>' + oipGrowthHtml(g.wow_pct) + '</td>' +
+      '<td>' + oipGrowthHtml(g.mom_pct) + '</td>' +
+      '<td>' + oipGrowthHtml(g.qoq_pct) + '</td>' +
+      '<td>' + oipGrowthHtml(g.yoy_pct) + '</td></tr>';
+  });
+  tbl.innerHTML = h + '</tbody>';
 }
 
 </script>

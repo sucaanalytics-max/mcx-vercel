@@ -97,7 +97,7 @@ def _parse_value(val):
 
 def _find_title_row(df):
     """Dynamically find the 'Number of participants' title row."""
-    for i in range(60, min(len(df), 100)):
+    for i in range(0, len(df)):
         cell = str(df.iloc[i, 0]) if df.iloc[i, 0] is not None else ""
         if "number of participants" in cell.lower():
             return i

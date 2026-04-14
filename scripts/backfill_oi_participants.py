@@ -126,16 +126,18 @@ def backfill(start_date, end_date):
     progress = load_progress()
     completed_set = set(progress["completed"])
 
-    # Create curl_cffi session
-    try:
-        session = cfreq.Session(impersonate="chrome142")
-    except Exception:
-        session = cfreq.Session(impersonate="chrome")
+    # Create curl_cffi session (try chrome142 for newer curl_cffi, fallback to chrome)
+    session = cfreq.Session(impersonate="chrome")
     print("  Warming up session...")
     try:
         session.get("https://www.mcxindia.com/", timeout=30)
-    except Exception as e:
-        print(f"  Warning: session warmup failed: {e}")
+    except Exception:
+        # Retry with different impersonate if first attempt fails
+        try:
+            session = cfreq.Session(impersonate="chrome142")
+            session.get("https://www.mcxindia.com/", timeout=30)
+        except Exception as e:
+            print(f"  Warning: session warmup failed: {e}")
 
     # Iterate trading days
     d = start_date

@@ -387,10 +387,7 @@ def refresh_oi_participants_local():
     try:
         dt = now_ist().date()
         url = oi_build_url(dt)
-        try:
-            session = cfreq.Session(impersonate="chrome142")
-        except Exception:
-            session = cfreq.Session(impersonate="chrome")
+        session = cfreq.Session(impersonate="chrome142")
         session.get("https://www.mcxindia.com/market-operations/trading-survelliance", timeout=30)
         resp = session.get(url, timeout=30)
         if resp.status_code != 200:
