@@ -136,7 +136,7 @@ def _parse_participants(xlsx_bytes):
 
         instrument = str(df.iloc[i, 1]).strip()
         if instrument not in ("Futures", "Options"):
-            break
+            continue  # Skip unrecognized instruments (e.g. OPTIDX) but keep parsing
 
         rows.append({
             "report_date": report_date,
