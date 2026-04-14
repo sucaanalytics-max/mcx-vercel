@@ -36,6 +36,11 @@ from lib.cron_margins import (
     _download_xls, _parse_xls,
     sb_upsert as margin_upsert,
 )
+from lib.cron_oi_participants import (
+    _build_url as oi_build_url,
+    _parse_participants as oi_parse_participants,
+    sb_upsert as oi_upsert,
+)
 
 LOOP_INTERVAL = 900  # 15 minutes in seconds
 
@@ -375,6 +380,35 @@ def refresh_margins_local():
     except Exception as e:
         print(f"  ✗ Margin refresh failed: {e}")
 
+
+def refresh_oi_participants_local():
+    """Download and upsert OI participant category data from MCX (runs locally to bypass Akamai)."""
+    print(f"\n  ── OI Participants Refresh ──")
+    try:
+        dt = now_ist().date()
+        url = oi_build_url(dt)
+        try:
+            session = cfreq.Session(impersonate="chrome142")
+        except Exception:
+            session = cfreq.Session(impersonate="chrome")
+        session.get("https://www.mcxindia.com/market-operations/trading-survelliance", timeout=30)
+        resp = session.get(url, timeout=30)
+        if resp.status_code != 200:
+            print(f"  ✗ Download failed: HTTP {resp.status_code}")
+            return
+        report_date, rows = oi_parse_participants(resp.content)
+        if not rows:
+            print("  ✗ No OI participant rows parsed")
+            return
+        errors = oi_upsert("mcx_oi_participants", rows)
+        if errors:
+            print(f"  ⚠ Upsert errors: {errors[:2]}")
+        else:
+            print(f"  ✓ OI participants upserted: {report_date} ({len(rows)} rows)")
+    except Exception as e:
+        print(f"  ✗ OI participants refresh failed: {e}")
+
+
 def run_loop():
     """Run snapshots every 15 minutes until trading session ends.
     After session close, captures authoritative EOD record for mcx_daily_revenue."""
@@ -412,6 +446,7 @@ def run_loop():
             print("\nSession ended. Capturing EOD record...")
             capture_eod()
             refresh_margins_local()
+            refresh_oi_participants_local()
             break
 
         print(f"  Next snapshot in {LOOP_INTERVAL//60} min...")
@@ -482,6 +517,7 @@ if __name__ == "__main__":
     if "--loop" in sys.argv:
         catchup_missing(7)  # Self-heal before starting loop
         refresh_margins_local()  # Catch up margins on startup
+        refresh_oi_participants_local()  # Catch up OI participants on startup
         run_loop()
     elif "--catchup" in sys.argv:
         days = 7

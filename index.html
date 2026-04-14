@@ -1176,6 +1176,11 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 .chg-pos { color: var(--positive); font-weight: 600; }
 .chg-neg { color: var(--negative); font-weight: 600; }
 .chg-neutral { color: var(--text-secondary); }
+.margin-chip { display:inline-block; padding:4px 10px; margin:3px; border-radius:14px; border:1px solid var(--border); font-size:11px; cursor:pointer; transition:all .15s; background:var(--bg-card); color:var(--text-secondary); user-select:none; }
+.margin-chip:hover { border-color:var(--accent2); color:var(--accent2); }
+.margin-chip.active { background:var(--accent2); color:#fff; border-color:var(--accent2); }
+.margin-chip-ctrl { display:inline-block; padding:3px 8px; margin:3px; border-radius:6px; border:1px solid var(--border); font-size:10px; cursor:pointer; background:var(--surface); color:var(--text-secondary); font-weight:600; user-select:none; }
+.margin-chip-ctrl:hover { border-color:var(--text-secondary); color:var(--text-primary); }
 .exd-kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1rem; }
 .exd-kpi { text-align: center; }
 .exd-kpi-label { font-size: 0.7rem; color: var(--text-secondary); font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.5px; }
@@ -1336,6 +1341,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   <button class="tab-btn" data-tab="tabExchange" onclick="switchTab('tabExchange')">Timeline Dashboard</button>
   <button class="tab-btn" data-tab="tabMargins" onclick="switchTab('tabMargins')">Margins</button>
   <button class="tab-btn" data-tab="tabMomentum" onclick="switchTab('tabMomentum')">Momentum</button>
+  <button class="tab-btn" data-tab="tabOIP" onclick="switchTab('tabOIP')">OI Participants</button>
 </div>
 
 <!-- ═══ TAB: DAILY PREDICTOR ════════════════════════════════════════════════ -->
@@ -2540,6 +2546,16 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   <h2 style="margin-bottom:16px">MCX Margin Requirements</h2>
   <p id="marginAsOf" style="font-size:11px;color:var(--text-secondary);margin-bottom:16px">Loading…</p>
 
+  <!-- Commodity Filter -->
+  <div class="card" id="marginCommodityFilter" style="display:none;margin-bottom:12px;padding:10px 14px">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-right:4px">Commodities</span>
+      <span class="margin-chip-ctrl" onclick="setAllMarginCommodities(true)">All</span>
+      <span class="margin-chip-ctrl" onclick="setAllMarginCommodities(false)">None</span>
+      <span id="marginChipContainer" style="display:inline"></span>
+    </div>
+  </div>
+
   <!-- Current Margins Table -->
   <div class="card" id="marginCurrentSection">
     <div class="card-title">Current Margin Requirements</div>
@@ -2559,36 +2575,6 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   <!-- Margin History Chart -->
   <div class="card" id="marginChartSection" style="display:none">
     <div class="card-title">Margin History (Total Margin %)</div>
-    <div id="marginChartControls" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px;align-items:end">
-      <div>
-        <label style="font-size:10px;color:var(--text-secondary);display:block;margin-bottom:3px">Commodity 1</label>
-        <select id="marginSym1" onchange="updateMarginChart()" style="padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:11px;min-width:110px"></select>
-      </div>
-      <div>
-        <label style="font-size:10px;color:var(--text-secondary);display:block;margin-bottom:3px">Commodity 2</label>
-        <select id="marginSym2" onchange="updateMarginChart()" style="padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:11px;min-width:110px"></select>
-      </div>
-      <div>
-        <label style="font-size:10px;color:var(--text-secondary);display:block;margin-bottom:3px">Commodity 3</label>
-        <select id="marginSym3" onchange="updateMarginChart()" style="padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:11px;min-width:110px"></select>
-      </div>
-      <div>
-        <label style="font-size:10px;color:var(--text-secondary);display:block;margin-bottom:3px">Commodity 4</label>
-        <select id="marginSym4" onchange="updateMarginChart()" style="padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:11px;min-width:110px"></select>
-      </div>
-      <div>
-        <label style="font-size:10px;color:var(--text-secondary);display:block;margin-bottom:3px">Commodity 5</label>
-        <select id="marginSym5" onchange="updateMarginChart()" style="padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:11px;min-width:110px"></select>
-      </div>
-      <div>
-        <label style="font-size:10px;color:var(--text-secondary);display:block;margin-bottom:3px">Commodity 6</label>
-        <select id="marginSym6" onchange="updateMarginChart()" style="padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:11px;min-width:110px"></select>
-      </div>
-      <div>
-        <label style="font-size:10px;color:var(--text-secondary);display:block;margin-bottom:3px">&nbsp;</label>
-        <button onclick="marginShowAll()" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:11px;cursor:pointer">Show All</button>
-      </div>
-    </div>
     <div style="position:relative;height:320px">
       <canvas id="marginHistoryChart"></canvas>
     </div>
@@ -2710,6 +2696,65 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 </div>
 </div><!-- /tabMomentum -->
 
+<!-- ═══ TAB: OI PARTICIPANTS ═══════════════════════════════════════════════ -->
+<div id="tabOIP" style="display:none">
+<div class="wrap">
+  <h2 style="margin-bottom:16px">Open Interest — Participant Categories</h2>
+  <p id="oipAsOf" style="font-size:11px;color:var(--text-secondary);margin-bottom:16px">Loading...</p>
+
+  <!-- Current Participant Distribution -->
+  <div class="card" id="oipCurrentSection">
+    <div class="card-title">Current Participant Distribution</div>
+    <div style="overflow-x:auto">
+      <table class="exd-table" id="oipCurrentTable"></table>
+    </div>
+  </div>
+
+  <!-- Hedger vs Speculator -->
+  <div class="card" id="oipHedgerSection" style="display:none">
+    <div class="card-title">Hedger vs Speculator Ratio</div>
+    <div style="position:relative;height:360px">
+      <canvas id="oipHedgerChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Net Positioning Trend -->
+  <div class="card" id="oipNetSection" style="display:none">
+    <div class="card-title">Net Positioning Trend (Long - Short)</div>
+    <div style="display:flex;gap:10px;margin-bottom:12px;align-items:end">
+      <div>
+        <label style="font-size:10px;color:var(--text-secondary);display:block;margin-bottom:3px">Commodity</label>
+        <select id="oipNetSelect" onchange="updateOipNetChart()" style="padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:11px;min-width:160px"></select>
+      </div>
+    </div>
+    <div style="position:relative;height:300px">
+      <canvas id="oipNetChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Participation Trend -->
+  <div class="card" id="oipTrendSection" style="display:none">
+    <div class="card-title">Participation Trend</div>
+    <div style="display:flex;gap:10px;margin-bottom:12px;align-items:end">
+      <div>
+        <label style="font-size:10px;color:var(--text-secondary);display:block;margin-bottom:3px">Commodity</label>
+        <select id="oipTrendSelect" onchange="updateOipTrendChart()" style="padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:11px;min-width:160px"></select>
+      </div>
+    </div>
+    <div style="position:relative;height:300px">
+      <canvas id="oipTrendChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Cross-Commodity Comparison -->
+  <div class="card" id="oipCrossSection" style="display:none">
+    <div class="card-title">Cross-Commodity Participant Comparison</div>
+    <div style="overflow-x:auto">
+      <table class="exd-table" id="oipCrossTable"></table>
+    </div>
+  </div>
+</div>
+</div><!-- /tabOIP -->
 
 <!-- ═══ COOKIE MODAL ═══════════════════════════════════════════════════════ -->
 <div class="modal-overlay hidden" id="cookieModal" onclick="if(event.target===this)closeCookieModal()">
@@ -3323,7 +3368,7 @@ setTimeout(() => doRefresh(true), 800);
 function switchTab(tabId) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
-  const tabs = ['tabPredictor', 'tabForecast', 'tabValuation', 'tabAnalytics', 'tabBacktest', 'tabCommodity', 'tabQuarterly', 'tabExchange', 'tabMargins', 'tabMomentum'];
+  const tabs = ['tabPredictor', 'tabForecast', 'tabValuation', 'tabAnalytics', 'tabBacktest', 'tabCommodity', 'tabQuarterly', 'tabExchange', 'tabMargins', 'tabMomentum', 'tabOIP'];
   tabs.forEach(t => {
     const el = document.getElementById(t);
     if (el) el.style.display = t === tabId ? 'block' : 'none';
@@ -3337,6 +3382,7 @@ function switchTab(tabId) {
   if (tabId === 'tabExchange') { loadExchange(); }
   if (tabId === 'tabMargins') loadMargins();
   if (tabId === 'tabMomentum') loadMomentum();
+  if (tabId === 'tabOIP') loadOIParticipants();
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -5597,11 +5643,69 @@ function loadMargins() {
     .catch(function(e) { document.getElementById('marginAsOf').textContent = 'Error: ' + e; });
 }
 
+var marginFullData = null;       // full API response, stored for re-filtering
+var marginSelectedSymbols = {};  // map sym→true for selected commodities
+
 function renderMargins(data) {
   var asOfText = 'As of ' + data.as_of + ' \u2022 ' + data.snapshot_dates + ' snapshot(s)';
   document.getElementById('marginAsOf').innerHTML = asOfText +
     (data.snapshot_dates === 1 ? '<br><span style="color:var(--text-secondary);font-style:italic">First snapshot collected today. Change tracking begins with tomorrow\u2019s data.</span>' : '');
 
+  marginFullData = data;
+  marginHistData = (data.margin_history && data.margin_history.dates && data.margin_history.dates.length > 1)
+    ? { hist: data.margin_history, commodities: data.commodities } : null;
+
+  // Build commodity chips — all selected by default
+  marginSelectedSymbols = {};
+  var container = document.getElementById('marginChipContainer');
+  container.innerHTML = '';
+  data.commodities.forEach(function(sym) {
+    marginSelectedSymbols[sym] = true;
+    var chip = document.createElement('span');
+    chip.className = 'margin-chip active';
+    chip.textContent = sym;
+    chip.setAttribute('data-sym', sym);
+    chip.onclick = function() { toggleMarginCommodity(sym); };
+    container.appendChild(chip);
+  });
+  document.getElementById('marginCommodityFilter').style.display = '';
+
+  applyMarginFilter();
+}
+
+function toggleMarginCommodity(sym) {
+  if (marginSelectedSymbols[sym]) {
+    delete marginSelectedSymbols[sym];
+  } else {
+    marginSelectedSymbols[sym] = true;
+  }
+  var chips = document.getElementById('marginChipContainer').children;
+  for (var i = 0; i < chips.length; i++) {
+    if (chips[i].getAttribute('data-sym') === sym) {
+      chips[i].className = marginSelectedSymbols[sym] ? 'margin-chip active' : 'margin-chip';
+      break;
+    }
+  }
+  applyMarginFilter();
+}
+
+function setAllMarginCommodities(selectAll) {
+  if (!marginFullData) return;
+  marginSelectedSymbols = {};
+  if (selectAll) {
+    marginFullData.commodities.forEach(function(sym) { marginSelectedSymbols[sym] = true; });
+  }
+  var chips = document.getElementById('marginChipContainer').children;
+  for (var i = 0; i < chips.length; i++) {
+    chips[i].className = selectAll ? 'margin-chip active' : 'margin-chip';
+  }
+  applyMarginFilter();
+}
+
+function applyMarginFilter() {
+  if (!marginFullData) return;
+  var data = marginFullData;
+  var selected = marginSelectedSymbols;
   var isDark = document.documentElement.classList.contains('dark');
   var multiSnapshot = data.snapshot_dates > 1;
 
@@ -5612,14 +5716,14 @@ function renderMargins(data) {
     '<th>ELM Long %</th><th>Delivery %</th><th>Last Changed</th>' +
     '</tr></thead><tbody>';
 
-  data.current_margins.forEach(function(m) {
+  var filtered = data.current_margins.filter(function(m) { return selected[m.symbol]; });
+  filtered.forEach(function(m) {
     var changeCell = '';
     var rowBg = '';
     if (m.change_pct !== null && m.change_pct !== undefined && m.change_pct !== 0) {
       var cls = m.change_pct > 0 ? 'chg-neg' : 'chg-pos';
       var arrow = m.change_pct > 0 ? '\u25B2' : '\u25BC';
       changeCell = '<span class="' + cls + '">' + arrow + ' ' + Math.abs(m.change_pct).toFixed(1) + '%</span>';
-      // Row-level tint
       if (m.change_pct > 0) {
         rowBg = isDark ? 'background:rgba(255,77,79,0.1)' : 'background:rgba(207,19,34,0.08)';
       } else {
@@ -5631,7 +5735,6 @@ function renderMargins(data) {
       changeCell = multiSnapshot ? '<span style="color:var(--text-secondary)">N/A</span>' : '\u2014';
     }
 
-    // Last changed — bold if within 7 days
     var lastChangedHtml = '\u2014';
     if (m.last_change_date) {
       var daysSince = Math.floor((new Date(data.as_of) - new Date(m.last_change_date)) / 86400000);
@@ -5652,19 +5755,20 @@ function renderMargins(data) {
       '<td style="font-size:10px;color:var(--text-secondary)">' + lastChangedHtml + '</td>' +
       '</tr>';
   });
+  if (!filtered.length) h += '<tr><td colspan="7" style="text-align:center;color:var(--text-secondary);padding:16px">No commodities selected</td></tr>';
   h += '</tbody>';
   tbl.innerHTML = h;
 
   // ── Margin Changes Log ──
   var changesSection = document.getElementById('marginChangesSection');
-  var changes = data.margin_changes || [];
+  var changes = (data.margin_changes || []).filter(function(c) { return selected[c.symbol]; });
   if (changes.length > 0) {
     changesSection.style.display = '';
     var ctbl = document.getElementById('marginChangesTable');
     var ch = '<thead><tr><th>Date</th><th>Symbol</th><th>Old Total %</th><th>New Total %</th><th>Change</th></tr></thead><tbody>';
     changes.forEach(function(c) {
       var cls = c.direction === 'up' ? 'chg-neg' : 'chg-pos';
-      var arrow = c.direction === 'up' ? '▲' : '▼';
+      var arrow = c.direction === 'up' ? '\u25B2' : '\u25BC';
       ch += '<tr>' +
         '<td>' + c.date + '</td>' +
         '<td style="font-weight:600">' + c.symbol + '</td>' +
@@ -5679,60 +5783,25 @@ function renderMargins(data) {
     changesSection.style.display = 'none';
   }
 
-  // ── Margin History Chart — populate dropdowns and render ──
+  // ── Margin History Chart ──
   var chartSection = document.getElementById('marginChartSection');
-  var hist = data.margin_history;
-  if (hist && hist.dates && hist.dates.length > 1) {
-    chartSection.style.display = '';
-    marginHistData = { hist: hist, commodities: data.commodities };
-
-    // Populate commodity selectors using safe DOM methods
-    var selIds = ['marginSym1','marginSym2','marginSym3','marginSym4','marginSym5','marginSym6'];
-    var sels = selIds.map(function(id) { return document.getElementById(id); });
-
-    sels.forEach(function(sel, idx) {
-      sel.length = 0;
-      if (idx > 0) sel.add(new Option('\u2014 None \u2014', ''));
-      data.commodities.forEach(function(sym) { sel.add(new Option(sym, sym)); });
-    });
-
-    // Default to GOLD if available
-    var defaultSym = data.commodities.indexOf('GOLD') >= 0 ? 'GOLD' : data.commodities[0];
-    sels[0].value = defaultSym;
-
-    updateMarginChart();
+  if (marginHistData) {
+    var syms = Object.keys(selected);
+    if (syms.length > 0) {
+      chartSection.style.display = '';
+      updateMarginChart(syms);
+    } else {
+      chartSection.style.display = 'none';
+    }
   } else {
     chartSection.style.display = 'none';
   }
 }
 
-function marginShowAll() {
-  if (!marginHistData) return;
-  // Set all selects to "None", then render all commodities
-  ['marginSym1','marginSym2','marginSym3','marginSym4','marginSym5','marginSym6'].forEach(function(id) {
-    document.getElementById(id).value = '';
-  });
-  updateMarginChart(true);
-}
-
-function updateMarginChart(showAll) {
+function updateMarginChart(syms) {
   if (!marginHistData) return;
   var hist = marginHistData.hist;
-  var syms;
-
-  if (showAll) {
-    syms = marginHistData.commodities.slice();
-  } else {
-    syms = ['marginSym1','marginSym2','marginSym3','marginSym4','marginSym5','marginSym6']
-      .map(function(id) { return document.getElementById(id).value; })
-      .filter(function(s) { return s && s !== ''; });
-  }
-
-  // Deduplicate
-  var seen = {};
-  syms = syms.filter(function(s) { if (seen[s]) return false; seen[s] = true; return true; });
-
-  if (!syms.length) return;
+  if (!syms || !syms.length) return;
 
   var isDark = document.documentElement.classList.contains('dark');
   var gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
@@ -6013,6 +6082,242 @@ function renderMomTable(hist) {
       '<td style="font-family:var(--mono);font-size:11px;font-weight:700;color:' + sigColor + '">' + (r.composite_signal || '--').replace('_',' ') + '</td>' +
       '</tr>';
   }).join('');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  OI PARTICIPANTS — Participant Category Analytics
+// ════════════════════════════════════════════════════════════════════════════
+var oipCache = null;
+var oipHedgerChartInst = null;
+var oipNetChartInst = null;
+var oipTrendChartInst = null;
+
+function loadOIParticipants() {
+  if (oipCache && (Date.now() - oipCache._ts < 600000)) { renderOIParticipants(oipCache); return; }
+  document.getElementById('oipAsOf').textContent = 'Loading...';
+  fetch('/api/commodity_dashboard?view=oi_participants')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.success) { d._ts = Date.now(); oipCache = d; renderOIParticipants(d); }
+      else { document.getElementById('oipAsOf').textContent = d.error || 'No data'; }
+    })
+    .catch(function(e) { document.getElementById('oipAsOf').textContent = 'Error: ' + e; });
+}
+
+function oipVal(v) {
+  if (v === -1) return '<span style="color:var(--text-secondary);font-style:italic">&lt;10</span>';
+  if (v === null || v === undefined) return '--';
+  return v.toLocaleString('en-IN');
+}
+
+function oipPair(l, s) {
+  return oipVal(l) + ' / ' + oipVal(s);
+}
+
+function renderOIParticipants(data) {
+  document.getElementById('oipAsOf').textContent = 'As of ' + data.as_of + ' \u2022 ' + data.snapshot_dates + ' snapshot(s)';
+
+  // ── 1. Current Participant Distribution Table ──
+  var tbl = document.getElementById('oipCurrentTable');
+  var h = '<thead><tr>' +
+    '<th style="text-align:left">Commodity</th><th>Inst</th><th>Total</th>' +
+    '<th>FPOs L/S</th><th>VCPs L/S</th><th>Prop L/S</th>' +
+    '<th>DFI L/S</th><th>Foreign L/S</th><th>Others L/S</th>' +
+    '</tr></thead><tbody>';
+
+  data.participants.forEach(function(p) {
+    h += '<tr>' +
+      '<td style="font-weight:600;text-align:left">' + p.commodity + '</td>' +
+      '<td style="font-size:10px;color:var(--text-secondary)">' + p.instrument.charAt(0) + '</td>' +
+      '<td style="font-weight:700">' + (p.total_participation || 0).toLocaleString('en-IN') + '</td>' +
+      '<td>' + oipPair(p.fpo_long, p.fpo_short) + '</td>' +
+      '<td style="color:var(--positive)">' + oipPair(p.vcp_long, p.vcp_short) + '</td>' +
+      '<td style="color:var(--warning)">' + oipPair(p.prop_long, p.prop_short) + '</td>' +
+      '<td>' + oipPair(p.dfi_long, p.dfi_short) + '</td>' +
+      '<td>' + oipPair(p.foreign_long, p.foreign_short) + '</td>' +
+      '<td style="color:var(--warning)">' + oipPair(p.others_long, p.others_short) + '</td>' +
+      '</tr>';
+  });
+  tbl.innerHTML = h + '</tbody>';
+
+  // ── 2. Hedger vs Speculator Chart ──
+  if (data.hedger_speculator && data.hedger_speculator.length > 0) {
+    document.getElementById('oipHedgerSection').style.display = '';
+    renderHedgerSpecChart(data);
+  }
+
+  // ── 3. Net Positioning ──
+  if (data.net_positioning && data.commodities && data.commodities.length > 0) {
+    document.getElementById('oipNetSection').style.display = '';
+    var sel = document.getElementById('oipNetSelect');
+    if (sel.options.length === 0) {
+      data.commodities.forEach(function(c) {
+        var o = document.createElement('option');
+        o.value = c; o.textContent = c.replace('_', ' ');
+        sel.appendChild(o);
+      });
+    }
+    updateOipNetChart();
+  }
+
+  // ── 4. Participation Trend ──
+  if (data.trend && data.commodities && data.commodities.length > 0) {
+    document.getElementById('oipTrendSection').style.display = '';
+    var sel2 = document.getElementById('oipTrendSelect');
+    if (sel2.options.length === 0) {
+      data.commodities.forEach(function(c) {
+        var o = document.createElement('option');
+        o.value = c; o.textContent = c.replace('_', ' ');
+        sel2.appendChild(o);
+      });
+    }
+    updateOipTrendChart();
+  }
+
+  // ── 5. Cross-Commodity Comparison Table ──
+  if (data.cross_commodity && data.cross_commodity.length > 0) {
+    document.getElementById('oipCrossSection').style.display = '';
+    var ct = document.getElementById('oipCrossTable');
+    var ch = '<thead><tr>' +
+      '<th style="text-align:left">Commodity</th><th>Inst</th><th>Total</th>' +
+      '<th>Dominant</th><th>Dom %</th>' +
+      '<th>VCPs</th><th>Prop</th><th>Others</th><th>Foreign</th>' +
+      '</tr></thead><tbody>';
+    data.cross_commodity.forEach(function(c) {
+      ch += '<tr>' +
+        '<td style="font-weight:600;text-align:left">' + c.commodity + '</td>' +
+        '<td style="font-size:10px;color:var(--text-secondary)">' + c.instrument.charAt(0) + '</td>' +
+        '<td style="font-weight:700">' + (c.total || 0).toLocaleString('en-IN') + '</td>' +
+        '<td style="font-weight:600">' + (c.dominant_category || '--') + '</td>' +
+        '<td>' + (c.dominant_pct || 0).toFixed(1) + '%</td>' +
+        '<td>' + (c.vcp_total || 0).toLocaleString('en-IN') + '</td>' +
+        '<td>' + (c.prop_total || 0).toLocaleString('en-IN') + '</td>' +
+        '<td>' + (c.others_total || 0).toLocaleString('en-IN') + '</td>' +
+        '<td>' + (c.foreign_total || 0).toLocaleString('en-IN') + '</td>' +
+        '</tr>';
+    });
+    ct.innerHTML = ch + '</tbody>';
+  }
+}
+
+function renderHedgerSpecChart(data) {
+  var ctx = document.getElementById('oipHedgerChart').getContext('2d');
+  if (oipHedgerChartInst) oipHedgerChartInst.destroy();
+
+  var items = data.hedger_speculator.filter(function(x) { return x.total > 0; }).slice(0, 15);
+  var labels = items.map(function(x) { return x.commodity + ' ' + x.instrument.charAt(0); });
+  var hedgerData = items.map(function(x) { return x.hedger_pct; });
+  var specData = items.map(function(x) { return x.speculator_pct; });
+  var otherData = items.map(function(x) { return Math.max(0, 100 - x.hedger_pct - x.speculator_pct); });
+
+  oipHedgerChartInst = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'Hedgers (VCPs)', data: hedgerData, backgroundColor: 'rgba(82,196,26,0.7)' },
+        { label: 'Speculators (Prop+Others)', data: specData, backgroundColor: 'rgba(250,173,20,0.7)' },
+        { label: 'Other Categories', data: otherData, backgroundColor: 'rgba(140,140,140,0.3)' }
+      ]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { stacked: true, max: 100, ticks: { callback: function(v) { return v + '%'; }, font: { size: 10 } }, grid: { color: 'rgba(128,128,128,0.15)' } },
+        y: { stacked: true, ticks: { font: { size: 10, family: 'var(--mono)' } }, grid: { display: false } }
+      },
+      plugins: {
+        legend: { position: 'top', labels: { font: { size: 10 }, boxWidth: 12 } },
+        tooltip: { callbacks: { label: function(ctx) { return ctx.dataset.label + ': ' + ctx.parsed.x.toFixed(1) + '%'; } } }
+      }
+    }
+  });
+}
+
+function updateOipNetChart() {
+  if (!oipCache || !oipCache.net_positioning) return;
+  var sel = document.getElementById('oipNetSelect');
+  var key = sel.value;
+  var np = oipCache.net_positioning;
+  if (!np[key]) return;
+
+  var ctx = document.getElementById('oipNetChart').getContext('2d');
+  if (oipNetChartInst) oipNetChartInst.destroy();
+
+  var dates = np.dates || [];
+  oipNetChartInst = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: dates,
+      datasets: [
+        { label: 'Hedger Net (L-S)', data: np[key].hedger_net, borderColor: 'rgba(82,196,26,1)', backgroundColor: 'rgba(82,196,26,0.1)', fill: true, tension: 0.3, pointRadius: 0 },
+        { label: 'Speculator Net (L-S)', data: np[key].speculator_net, borderColor: 'rgba(250,173,20,1)', backgroundColor: 'rgba(250,173,20,0.1)', fill: true, tension: 0.3, pointRadius: 0 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { ticks: { maxTicksLimit: 10, font: { size: 9 } }, grid: { color: 'rgba(128,128,128,0.15)' } },
+        y: { ticks: { font: { size: 10 } }, grid: { color: 'rgba(128,128,128,0.15)' } }
+      },
+      plugins: {
+        legend: { position: 'top', labels: { font: { size: 10 }, boxWidth: 12 } },
+        tooltip: { mode: 'index', intersect: false }
+      }
+    }
+  });
+}
+
+function updateOipTrendChart() {
+  if (!oipCache || !oipCache.trend) return;
+  var sel = document.getElementById('oipTrendSelect');
+  var key = sel.value;
+  var tr = oipCache.trend;
+  if (!tr[key]) return;
+
+  var ctx = document.getElementById('oipTrendChart').getContext('2d');
+  if (oipTrendChartInst) oipTrendChartInst.destroy();
+
+  var dates = tr.dates || [];
+  var series = tr[key];
+  var catColors = {
+    vcp: 'rgba(82,196,26,0.7)', prop: 'rgba(250,173,20,0.7)',
+    others: 'rgba(24,144,255,0.7)', foreign: 'rgba(114,46,209,0.7)',
+    dfi: 'rgba(255,77,79,0.7)', fpo: 'rgba(140,140,140,0.5)'
+  };
+  var catLabels = {
+    vcp: 'VCPs/Hedgers', prop: 'Proprietary', others: 'Others',
+    foreign: 'Foreign', dfi: 'DFI', fpo: 'FPOs/Farmers'
+  };
+
+  var datasets = ['vcp', 'prop', 'others', 'foreign', 'dfi', 'fpo'].map(function(cat) {
+    return {
+      label: catLabels[cat],
+      data: (series[cat + '_long'] || []).map(function(v, i) {
+        var l = v || 0; var s = (series[cat + '_short'] || [])[i] || 0;
+        return l + s;
+      }),
+      backgroundColor: catColors[cat],
+      fill: true, tension: 0.3, pointRadius: 0
+    };
+  });
+
+  oipTrendChartInst = new Chart(ctx, {
+    type: 'line',
+    data: { labels: dates, datasets: datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { ticks: { maxTicksLimit: 10, font: { size: 9 } }, grid: { color: 'rgba(128,128,128,0.15)' } },
+        y: { stacked: true, ticks: { font: { size: 10 } }, grid: { color: 'rgba(128,128,128,0.15)' } }
+      },
+      plugins: {
+        legend: { position: 'top', labels: { font: { size: 10 }, boxWidth: 12 } },
+        tooltip: { mode: 'index', intersect: false }
+      }
+    }
+  });
 }
 
 </script>

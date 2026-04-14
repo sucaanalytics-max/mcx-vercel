@@ -17,12 +17,14 @@ try:
     from lib.cron_commodity_signals import handler as signals_handler
     from lib.cron_margins import handler as margins_handler
     from lib.cron_momentum import handler as momentum_handler
+    from lib.cron_oi_participants import handler as oi_participants_handler
 except ImportError:
     from lib.cron_valuation import handler as valuation_handler
     from lib.cron_models import handler as models_handler
     from lib.cron_commodity_signals import handler as signals_handler
     from lib.cron_margins import handler as margins_handler
     from lib.cron_momentum import handler as momentum_handler
+    from lib.cron_oi_participants import handler as oi_participants_handler
 
 # Map job names to handler classes
 _HANDLERS = {
@@ -31,6 +33,7 @@ _HANDLERS = {
     "commodity_signals": signals_handler,
     "margins": margins_handler,
     "momentum": momentum_handler,
+    "oi_participants": oi_participants_handler,
 }
 
 

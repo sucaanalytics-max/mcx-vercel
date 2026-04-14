@@ -18,6 +18,7 @@ from lib.mcx_config import (
     supabase_read_all, now_ist, make_cors_headers,
 )
 from lib.margin_dashboard import generate_margin_dashboard
+from lib.oi_participants_dashboard import generate_oi_participants_dashboard
 
 # Fee rates (SEBI Oct 2024)
 FUTURES_RATE = 210.0      # ₹ per crore notional (both sides)
@@ -337,6 +338,9 @@ class handler(BaseHTTPRequestHandler):
             if view == "margins":
                 result = generate_margin_dashboard()
                 cache = "public, max-age=300, s-maxage=300"
+            elif view == "oi_participants":
+                result = generate_oi_participants_dashboard()
+                cache = "public, max-age=600, s-maxage=600"
             else:
                 result = generate_commodity_dashboard()
                 cache = "public, max-age=120, s-maxage=120"

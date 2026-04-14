@@ -106,11 +106,15 @@
     },
     {
       "path": "/api/cron?job=margins&mode=recent",
-      "schedule": "25 14 * * 1-5"
+      "schedule": "30 20 * * *"
     },
     {
       "path": "/api/cron?job=momentum&mode=recent",
       "schedule": "10 14 * * 1-5"
+    },
+    {
+      "path": "/api/cron?job=oi_participants&mode=recent",
+      "schedule": "30 14 * * 1-5"
     }
   ]
 }
