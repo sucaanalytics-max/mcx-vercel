@@ -1183,6 +1183,128 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 .exd-kpi-sub { font-size: 0.7rem; }
 .exd-kpi-subs { font-size: 0.65rem; font-family: var(--mono); line-height: 1.6; margin-top: 0.25rem; }
 .exd-kpi-sublabel { color: var(--text-secondary); }
+
+/* ═══ MOMENTUM TAB STYLES ════════════════════════════════════════════════ */
+.mom-hero-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+@media (max-width: 700px) {
+  .mom-hero-grid { grid-template-columns: 1fr !important; }
+}
+.mom-hero-card {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  padding: 24px;
+  position: relative;
+}
+.mom-hero-card--signal { border-width: 3px; }
+.mom-hero-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin-bottom: 6px;
+}
+.mom-hero-num {
+  font-family: var(--mono);
+  font-size: 42px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -2px;
+}
+.mom-hero-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 8px;
+}
+.mom-signal {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 800;
+  padding: 5px 14px;
+  border: 2px solid;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 8px;
+}
+.mom-signal.STRONG_BUY { border-color: var(--positive); color: var(--positive); background: color-mix(in srgb, var(--positive) 10%, transparent); }
+.mom-signal.BUY { border-color: #0958D9; color: #0958D9; background: color-mix(in srgb, #0958D9 10%, transparent); }
+.mom-signal.HOLD { border-color: var(--text-secondary); color: var(--text-secondary); background: color-mix(in srgb, var(--text-secondary) 8%, transparent); }
+.mom-signal.WATCH { border-color: var(--warning); color: var(--warning); background: color-mix(in srgb, var(--warning) 10%, transparent); }
+.mom-signal.SELL { border-color: var(--negative); color: var(--negative); background: color-mix(in srgb, var(--negative) 10%, transparent); }
+.mom-regime {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 800;
+  padding: 5px 14px;
+  border: 2px solid;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 8px;
+}
+.mom-regime.HOT { border-color: #D4380D; color: #D4380D; background: color-mix(in srgb, #D4380D 10%, transparent); }
+.mom-regime.NEUTRAL { border-color: var(--text-secondary); color: var(--text-secondary); background: color-mix(in srgb, var(--text-secondary) 8%, transparent); }
+.mom-regime.COLD { border-color: #0958D9; color: #0958D9; background: color-mix(in srgb, #0958D9 10%, transparent); }
+.mom-chart-wrap {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  padding: 20px;
+  margin-bottom: 20px;
+  position: relative;
+}
+.mom-chart-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+.mom-method-card {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+.mom-method-toggle {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+}
+.mom-method-body {
+  display: none;
+  margin-top: 16px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+.mom-method-body.open { display: block; }
+.mom-method-body table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+.mom-method-body th, .mom-method-body td {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+.mom-method-body th { background: var(--surface2); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
 </style>
 </head>
 <body>
@@ -1213,6 +1335,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   <button class="tab-btn" data-tab="tabQuarterly" onclick="switchTab('tabQuarterly')">Quarterly P&L</button>
   <button class="tab-btn" data-tab="tabExchange" onclick="switchTab('tabExchange')">Timeline Dashboard</button>
   <button class="tab-btn" data-tab="tabMargins" onclick="switchTab('tabMargins')">Margins</button>
+  <button class="tab-btn" data-tab="tabMomentum" onclick="switchTab('tabMomentum')">Momentum</button>
 </div>
 
 <!-- ═══ TAB: DAILY PREDICTOR ════════════════════════════════════════════════ -->
@@ -2474,6 +2597,120 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 </div><!-- /tabMargins -->
 
 
+<div id="tabMomentum" style="display:none">
+<div class="wrap">
+  <h2 style="margin-bottom:4px">Momentum Entry / Exit Signals</h2>
+  <p id="momAsOf" style="font-size:11px;color:var(--text-secondary);margin-bottom:16px">Loading...</p>
+
+  <!-- Hero Row: 3 cards -->
+  <div class="mom-hero-grid">
+    <div class="mom-hero-card mom-hero-card--signal">
+      <div class="mom-hero-label">Composite Signal</div>
+      <div id="momSignalBadge"></div>
+      <div class="mom-hero-sub" id="momSignalDesc">--</div>
+    </div>
+    <div class="mom-hero-card">
+      <div class="mom-hero-label">Revenue Regime</div>
+      <div id="momRegimeBadge"></div>
+      <div class="mom-hero-sub" id="momRatioText">10D/45D Ratio: --</div>
+      <div class="mom-hero-sub" id="momMaText">MA10: -- vs MA45: --</div>
+    </div>
+    <div class="mom-hero-card">
+      <div class="mom-hero-label">ADR Signal</div>
+      <div id="momAdrBadge"></div>
+      <div class="mom-hero-sub" id="momAdrRatioText">ADR Ratio: --</div>
+      <div class="mom-hero-sub" id="momPriceMomText">Price Mom 5D: --</div>
+    </div>
+  </div>
+
+  <!-- Regime Streak + Price -->
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:20px">
+    <div class="card" style="text-align:center;padding:16px">
+      <div style="font-size:10px;font-family:var(--mono);color:var(--text-secondary);text-transform:uppercase;letter-spacing:1px">MCX Price</div>
+      <div id="momPrice" style="font-size:24px;font-weight:800;font-family:var(--mono);margin-top:4px">--</div>
+    </div>
+    <div class="card" style="text-align:center;padding:16px">
+      <div style="font-size:10px;font-family:var(--mono);color:var(--text-secondary);text-transform:uppercase;letter-spacing:1px">Regime Streak</div>
+      <div id="momStreak" style="font-size:24px;font-weight:800;font-family:var(--mono);margin-top:4px">--</div>
+    </div>
+    <div class="card" style="text-align:center;padding:16px">
+      <div style="font-size:10px;font-family:var(--mono);color:var(--text-secondary);text-transform:uppercase;letter-spacing:1px">F&O Revenue</div>
+      <div id="momRevenue" style="font-size:24px;font-weight:800;font-family:var(--mono);margin-top:4px">--</div>
+    </div>
+    <div class="card" style="text-align:center;padding:16px">
+      <div style="font-size:10px;font-family:var(--mono);color:var(--text-secondary);text-transform:uppercase;letter-spacing:1px">Daily Range</div>
+      <div id="momDailyRange" style="font-size:24px;font-weight:800;font-family:var(--mono);margin-top:4px">--</div>
+    </div>
+  </div>
+
+  <!-- Revenue Regime Chart -->
+  <div class="mom-chart-wrap">
+    <div class="mom-chart-title">Revenue Regime: MA10 vs MA45 & 10D/45D Ratio (60 days)</div>
+    <div style="position:relative;height:300px">
+      <canvas id="momRegimeChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Price + Signal Chart -->
+  <div class="mom-chart-wrap">
+    <div class="mom-chart-title">Price & Composite Signal (60 days)</div>
+    <div style="position:relative;height:300px">
+      <canvas id="momPriceChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Signal History Table -->
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-title" style="font-family:var(--mono);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);margin-bottom:12px">Signal History (Last 15 Days)</div>
+    <div style="overflow-x:auto">
+      <table class="exd-table" id="momSignalTable">
+        <thead>
+          <tr>
+            <th>Date</th><th>F&O Rev</th><th>Price</th><th>10D/45D</th><th>Regime</th><th>ADR Signal</th><th>Signal</th>
+          </tr>
+        </thead>
+        <tbody id="momSignalTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Methodology Accordion -->
+  <div class="mom-method-card">
+    <div class="mom-method-toggle" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('span').textContent=this.nextElementSibling.classList.contains('open')?'[-]':'[+]'">
+      <span>[+]</span> Methodology & Signal Rules
+    </div>
+    <div class="mom-method-body">
+      <p style="margin-bottom:12px"><strong>Layer 1 — Revenue Regime (10D/45D Ratio):</strong> Compares trailing 10-day avg F&O revenue against 45-day baseline. Ratio > 1.05 = HOT, < 0.95 = COLD.</p>
+      <table>
+        <tr><th>Regime</th><th>Threshold</th><th>Avg 10D Return</th><th>Win Rate</th><th>Action</th></tr>
+        <tr><td style="color:#D4380D;font-weight:700">HOT</td><td>> 1.05</td><td>+5.44%</td><td>82.5%</td><td>Buy / Accumulate</td></tr>
+        <tr><td>NEUTRAL</td><td>0.95 -- 1.05</td><td>+1.90%</td><td>61.3%</td><td>Hold</td></tr>
+        <tr><td style="color:#0958D9;font-weight:700">COLD</td><td>< 0.95</td><td>-1.07%</td><td>35.3%</td><td>Sell / Avoid</td></tr>
+      </table>
+      <p style="margin:12px 0"><strong>Layer 2 — ADR Divergence Overlay:</strong> Detects price/volatility divergence to time entries.</p>
+      <table>
+        <tr><th>ADR Signal</th><th>Condition</th><th>Avg 10D Return</th></tr>
+        <tr><td>BREAKOUT</td><td>PriceMom5D > +1.5% AND ADR Ratio > 1.50</td><td>+8.2%</td></tr>
+        <tr><td>BULL_CONT</td><td>PriceMom5D > +1.0% AND ADR Ratio < 0.80</td><td>+6.1%</td></tr>
+        <tr><td>OVERSOLD</td><td>PriceMom5D < -1.0% AND ADR Ratio > 1.30</td><td>+5.2%</td></tr>
+        <tr><td>NEUTRAL</td><td>None of the above</td><td>+2.1%</td></tr>
+      </table>
+      <p style="margin:12px 0"><strong>Composite Signal Matrix:</strong></p>
+      <table>
+        <tr><th>Signal</th><th>Condition</th></tr>
+        <tr><td style="color:var(--positive);font-weight:700">STRONG BUY</td><td>HOT + (BULL_CONT / BREAKOUT / NEUTRAL)</td></tr>
+        <tr><td style="color:#0958D9;font-weight:700">BUY</td><td>HOT + OVERSOLD  or  NEUTRAL + (BULL_CONT / BREAKOUT)</td></tr>
+        <tr><td>HOLD</td><td>NEUTRAL + No special ADR signal</td></tr>
+        <tr><td style="color:var(--warning);font-weight:700">WATCH</td><td>COLD + OVERSOLD (possible reversal)</td></tr>
+        <tr><td style="color:var(--negative);font-weight:700">SELL</td><td>COLD + (NEUTRAL / BREAKOUT / BULL_CONT)</td></tr>
+      </table>
+    </div>
+  </div>
+
+</div>
+</div><!-- /tabMomentum -->
+
+
 <!-- ═══ COOKIE MODAL ═══════════════════════════════════════════════════════ -->
 <div class="modal-overlay hidden" id="cookieModal" onclick="if(event.target===this)closeCookieModal()">
   <div class="modal-box">
@@ -3086,7 +3323,7 @@ setTimeout(() => doRefresh(true), 800);
 function switchTab(tabId) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
-  const tabs = ['tabPredictor', 'tabForecast', 'tabValuation', 'tabAnalytics', 'tabBacktest', 'tabCommodity', 'tabQuarterly', 'tabExchange', 'tabMargins'];
+  const tabs = ['tabPredictor', 'tabForecast', 'tabValuation', 'tabAnalytics', 'tabBacktest', 'tabCommodity', 'tabQuarterly', 'tabExchange', 'tabMargins', 'tabMomentum'];
   tabs.forEach(t => {
     const el = document.getElementById(t);
     if (el) el.style.display = t === tabId ? 'block' : 'none';
@@ -3099,6 +3336,7 @@ function switchTab(tabId) {
   if (tabId === 'tabQuarterly') loadQuarterly();
   if (tabId === 'tabExchange') { loadExchange(); }
   if (tabId === 'tabMargins') loadMargins();
+  if (tabId === 'tabMomentum') loadMomentum();
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -5539,6 +5777,242 @@ function updateMarginChart(showAll) {
       }
     }
   });
+}
+
+
+// ════════════════════════════════════════════════════════════════════════════
+//  MOMENTUM TAB — Entry / Exit Signals (10D/45D Revenue Regime + ADR)
+// ════════════════════════════════════════════════════════════════════════════
+
+let momRegimeChartInst = null;
+let momPriceChartInst = null;
+let momDataCache = null;
+
+function loadMomentum() {
+  if (momDataCache) { renderMomentum(momDataCache); return; }
+  fetch('/api/models?view=momentum')
+    .then(r => r.json())
+    .then(d => {
+      if (!d.success) { document.getElementById('momAsOf').textContent = 'Error: ' + (d.error || 'No data'); return; }
+      momDataCache = d;
+      renderMomentum(d);
+    })
+    .catch(e => { document.getElementById('momAsOf').textContent = 'Fetch error: ' + e.message; });
+}
+
+function renderMomentum(d) {
+  const snap = d.snapshot;
+  const hist = d.history || [];
+  const stats = d.regime_stats || {};
+
+  // As-of
+  document.getElementById('momAsOf').textContent = 'As of ' + (d.as_of || snap.date);
+
+  // Hero: Composite Signal
+  const sigDesc = {
+    'STRONG_BUY': 'Highest conviction entry',
+    'BUY': 'Good entry, confirm with price action',
+    'HOLD': 'Maintain positions, no new longs',
+    'WATCH': 'Possible reversal, wait for confirmation',
+    'SELL': 'Exit longs, edge fully disappears'
+  };
+  const sig = snap.composite_signal || '--';
+  document.getElementById('momSignalBadge').innerHTML =
+    '<span class="mom-signal ' + sig + '">' + sig.replace('_', ' ') + '</span>';
+  document.getElementById('momSignalDesc').textContent = sigDesc[sig] || '';
+
+  // Hero: Regime
+  const regime = snap.regime || '--';
+  document.getElementById('momRegimeBadge').innerHTML =
+    '<span class="mom-regime ' + regime + '">' + regime + '</span>';
+  document.getElementById('momRatioText').textContent =
+    '10D/45D Ratio: ' + (snap.ratio_10d_45d != null ? snap.ratio_10d_45d.toFixed(3) : '--');
+  document.getElementById('momMaText').textContent =
+    'MA10: ' + fmtCr(snap.ma10_rev_cr) + ' vs MA45: ' + fmtCr(snap.ma45_rev_cr);
+
+  // Hero: ADR Signal
+  const adrSig = snap.adr_signal || '--';
+  const adrColor = adrSig === 'BREAKOUT' ? 'var(--positive)' :
+                   adrSig === 'BULL_CONT' ? '#0958D9' :
+                   adrSig === 'OVERSOLD' ? 'var(--warning)' : 'var(--text-secondary)';
+  document.getElementById('momAdrBadge').innerHTML =
+    '<span style="display:inline-block;font-family:var(--mono);font-size:13px;font-weight:800;padding:5px 14px;border:2px solid ' + adrColor + ';color:' + adrColor + ';text-transform:uppercase;letter-spacing:1px;margin-top:8px">' + adrSig.replace('_', ' ') + '</span>';
+  document.getElementById('momAdrRatioText').textContent =
+    'ADR Ratio: ' + (snap.adr_ratio != null ? snap.adr_ratio.toFixed(3) : '--');
+  document.getElementById('momPriceMomText').textContent =
+    'Price Mom 5D: ' + (snap.price_mom_5d != null ? (snap.price_mom_5d * 100).toFixed(2) + '%' : '--');
+
+  // KPI cards
+  document.getElementById('momPrice').textContent = snap.close_price != null ? '\u20B9' + snap.close_price.toLocaleString('en-IN', {maximumFractionDigits:1}) : '--';
+  document.getElementById('momStreak').textContent = (stats.current_streak || '--') + 'd ' + (stats.streak_regime || '');
+  document.getElementById('momRevenue').textContent = fmtCr(snap.fno_rev_cr);
+  document.getElementById('momDailyRange').textContent = snap.close_price && hist.length > 0 && hist[hist.length-1].daily_range != null
+    ? '\u20B9' + hist[hist.length-1].daily_range.toFixed(1)
+    : '--';
+
+  // Charts
+  renderMomRegimeChart(hist);
+  renderMomPriceChart(hist);
+
+  // Signal table
+  renderMomTable(hist);
+}
+
+function fmtCr(v) {
+  return v != null ? '\u20B9' + v.toFixed(2) + ' Cr' : '--';
+}
+
+function renderMomRegimeChart(hist) {
+  const ctx = document.getElementById('momRegimeChart');
+  if (momRegimeChartInst) { momRegimeChartInst.destroy(); momRegimeChartInst = null; }
+
+  const labels = hist.map(r => r.date.slice(5));
+  const ma10 = hist.map(r => r.ma10_rev_cr);
+  const ma45 = hist.map(r => r.ma45_rev_cr);
+  const ratio = hist.map(r => r.ratio_10d_45d);
+
+  const isDark = document.documentElement.classList.contains('dark');
+  const gridColor = isDark ? '#333' : '#E0DDD8';
+  const txtColor = isDark ? '#aaa' : '#6B6560';
+
+  momRegimeChartInst = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'MA10 F&O Rev', data: ma10, borderColor: '#D4380D', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: 'y' },
+        { label: 'MA45 F&O Rev', data: ma45, borderColor: '#0958D9', backgroundColor: 'transparent', borderWidth: 2, borderDash: [6,3], pointRadius: 0, tension: 0.3, yAxisID: 'y' },
+        { label: '10D/45D Ratio', data: ratio, borderColor: '#8B5CF6', backgroundColor: 'transparent', borderWidth: 2.5, pointRadius: 0, tension: 0.3, yAxisID: 'y1' },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: true, labels: { color: txtColor, font: { size: 10, family: "'JetBrains Mono', monospace" }, usePointStyle: true, pointStyle: 'line' } }
+      },
+      scales: {
+        x: { ticks: { color: txtColor, font: {size: 9}, maxRotation: 45, maxTicksLimit: 12 }, grid: { display: false } },
+        y: { position: 'left', title: { display: true, text: 'F&O Revenue (Cr)', color: txtColor, font: {size: 10} }, ticks: { color: txtColor }, grid: { color: gridColor } },
+        y1: { position: 'right', title: { display: true, text: '10D/45D Ratio', color: txtColor, font: {size: 10} }, ticks: { color: txtColor }, grid: { display: false },
+              suggestedMin: 0.7, suggestedMax: 1.4 },
+      }
+    },
+    plugins: [{
+      id: 'regimeBands',
+      beforeDraw(chart) {
+        const { ctx: c, chartArea: { top, bottom, left, right }, scales: { y1 } } = chart;
+        if (!y1) return;
+        const hotY = y1.getPixelForValue(1.05);
+        const coldY = y1.getPixelForValue(0.95);
+        const w = right - left;
+        // HOT band (above 1.05)
+        c.fillStyle = 'rgba(212,56,13,0.05)';
+        c.fillRect(left, top, w, hotY - top);
+        // COLD band (below 0.95)
+        c.fillStyle = 'rgba(9,88,217,0.05)';
+        c.fillRect(left, coldY, w, bottom - coldY);
+        // Threshold lines
+        c.setLineDash([4, 4]);
+        c.lineWidth = 1;
+        c.strokeStyle = 'rgba(212,56,13,0.4)';
+        c.beginPath(); c.moveTo(left, hotY); c.lineTo(right, hotY); c.stroke();
+        c.strokeStyle = 'rgba(9,88,217,0.4)';
+        c.beginPath(); c.moveTo(left, coldY); c.lineTo(right, coldY); c.stroke();
+        c.setLineDash([]);
+      }
+    }]
+  });
+}
+
+function renderMomPriceChart(hist) {
+  const ctx = document.getElementById('momPriceChart');
+  if (momPriceChartInst) { momPriceChartInst.destroy(); momPriceChartInst = null; }
+
+  const labels = hist.map(r => r.date.slice(5));
+  const prices = hist.map(r => r.close_price);
+  const signals = hist.map(r => r.composite_signal);
+
+  // Color the background segments by regime
+  const regimeColors = hist.map(r => {
+    if (r.regime === 'HOT') return 'rgba(212,56,13,0.08)';
+    if (r.regime === 'COLD') return 'rgba(9,88,217,0.08)';
+    return 'rgba(0,0,0,0)';
+  });
+
+  // Signal markers
+  const buyPoints = hist.map((r,i) => (r.composite_signal === 'STRONG_BUY' || r.composite_signal === 'BUY') ? r.close_price : null);
+  const sellPoints = hist.map((r,i) => r.composite_signal === 'SELL' ? r.close_price : null);
+
+  const isDark = document.documentElement.classList.contains('dark');
+  const gridColor = isDark ? '#333' : '#E0DDD8';
+  const txtColor = isDark ? '#aaa' : '#6B6560';
+
+  momPriceChartInst = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'MCX Price', data: prices, borderColor: isDark ? '#E0DDD8' : '#1A1A1A', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, tension: 0.3 },
+        { label: 'BUY / STRONG BUY', data: buyPoints, borderColor: 'transparent', backgroundColor: '#1B7D3A', pointRadius: 6, pointStyle: 'triangle', showLine: false },
+        { label: 'SELL', data: sellPoints, borderColor: 'transparent', backgroundColor: '#CF1322', pointRadius: 6, pointStyle: 'triangle', pointRotation: 180, showLine: false },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: true, labels: { color: txtColor, font: { size: 10, family: "'JetBrains Mono', monospace" }, usePointStyle: true } },
+        tooltip: {
+          callbacks: {
+            afterBody: function(items) {
+              const idx = items[0].dataIndex;
+              return 'Regime: ' + (hist[idx].regime || '--') + '\nADR: ' + (hist[idx].adr_signal || '--') + '\nSignal: ' + (hist[idx].composite_signal || '--');
+            }
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: txtColor, font: {size: 9}, maxRotation: 45, maxTicksLimit: 12 }, grid: { display: false } },
+        y: { title: { display: true, text: 'Price (\u20B9)', color: txtColor, font: {size: 10} }, ticks: { color: txtColor }, grid: { color: gridColor } }
+      }
+    },
+    plugins: [{
+      id: 'regimeBackground',
+      beforeDraw(chart) {
+        const { ctx: c, chartArea: { top, bottom, left, right }, scales: { x } } = chart;
+        if (!x) return;
+        const w = (right - left) / (hist.length || 1);
+        for (let i = 0; i < hist.length; i++) {
+          c.fillStyle = regimeColors[i];
+          const xPos = x.getPixelForValue(i) - w/2;
+          c.fillRect(xPos, top, w, bottom - top);
+        }
+      }
+    }]
+  });
+}
+
+function renderMomTable(hist) {
+  const tbody = document.getElementById('momSignalTableBody');
+  const recent = hist.slice(-15).reverse();
+  tbody.innerHTML = recent.map(r => {
+    const sigClass = r.composite_signal || '';
+    const regClass = r.regime || '';
+    const sigColor = sigClass === 'STRONG_BUY' ? 'var(--positive)' :
+                     sigClass === 'BUY' ? '#0958D9' :
+                     sigClass === 'SELL' ? 'var(--negative)' :
+                     sigClass === 'WATCH' ? 'var(--warning)' : 'var(--text-secondary)';
+    const regColor = regClass === 'HOT' ? '#D4380D' :
+                     regClass === 'COLD' ? '#0958D9' : 'var(--text-secondary)';
+    return '<tr>' +
+      '<td style="font-family:var(--mono);font-size:11px">' + r.date + '</td>' +
+      '<td style="font-family:var(--mono);font-size:11px">' + (r.fno_rev_cr != null ? r.fno_rev_cr.toFixed(2) : '--') + '</td>' +
+      '<td style="font-family:var(--mono);font-size:11px">\u20B9' + (r.close_price != null ? r.close_price.toLocaleString('en-IN',{maximumFractionDigits:1}) : '--') + '</td>' +
+      '<td style="font-family:var(--mono);font-size:11px">' + (r.ratio_10d_45d != null ? r.ratio_10d_45d.toFixed(3) : '--') + '</td>' +
+      '<td style="font-family:var(--mono);font-size:11px;font-weight:700;color:' + regColor + '">' + (r.regime || '--') + '</td>' +
+      '<td style="font-family:var(--mono);font-size:11px">' + (r.adr_signal || '--').replace('_',' ') + '</td>' +
+      '<td style="font-family:var(--mono);font-size:11px;font-weight:700;color:' + sigColor + '">' + (r.composite_signal || '--').replace('_',' ') + '</td>' +
+      '</tr>';
+  }).join('');
 }
 
 </script>

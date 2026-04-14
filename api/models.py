@@ -203,6 +203,141 @@ def _f(v):
         return None
 
 
+# ─── Momentum view ───────────────────────────────────────────────────────
+
+MOMENTUM_META = {
+    "revenue_regime": {
+        "name": "F&O Revenue Regime (10D/45D Ratio)",
+        "description": "Compares trailing 10-day avg F&O revenue against 45-day baseline. "
+                       "Ratio > 1.05 = HOT (elevated activity), < 0.95 = COLD (declining).",
+        "thresholds": {"HOT": "> 1.05", "NEUTRAL": "0.95 – 1.05", "COLD": "< 0.95"},
+        "backtested": {"HOT_avg_10d_return": "+5.44%", "HOT_win_rate": "82.5%",
+                       "COLD_avg_10d_return": "-1.07%", "COLD_win_rate": "35.3%"},
+    },
+    "adr_divergence": {
+        "name": "ADR Divergence Overlay",
+        "description": "Detects divergence between short-term price momentum and volatility. "
+                       "Sharpens entry/exit timing within the regime signal.",
+        "signals": {
+            "BREAKOUT": "PriceMom5D > +1.5% AND ADR Ratio > 1.50 — genuine breakout",
+            "BULL_CONT": "PriceMom5D > +1.0% AND ADR Ratio < 0.80 — quiet momentum",
+            "OVERSOLD": "PriceMom5D < -1.0% AND ADR Ratio > 1.30 — capitulation bounce",
+            "NEUTRAL": "None of the above — follow regime only",
+        },
+    },
+    "composite": {
+        "name": "Composite Signal",
+        "description": "Combines regime + ADR divergence into actionable output.",
+        "signals": {
+            "STRONG_BUY": "HOT + (BULL_CONT / BREAKOUT / NEUTRAL)",
+            "BUY": "HOT + OVERSOLD  OR  NEUTRAL + (BULL_CONT / BREAKOUT)",
+            "HOLD": "NEUTRAL regime + no special ADR signal",
+            "WATCH": "COLD + OVERSOLD — potential reversal, wait for confirmation",
+            "SELL": "COLD + (NEUTRAL / BREAKOUT / BULL_CONT)",
+        },
+    },
+}
+
+
+def _fetch_momentum_signals(limit=120):
+    """Fetch pre-computed momentum signals from Supabase."""
+    if not SUPABASE_ANON_KEY:
+        return []
+    try:
+        rows = supabase_read(
+            "mcx_momentum_signals",
+            f"?select=trading_date,fno_rev_cr,close_price,"
+            f"ma10_rev_cr,ma45_rev_cr,ratio_10d_45d,regime,"
+            f"daily_range,adr_5d,adr_20d,adr_ratio,price_mom_5d,"
+            f"adr_signal,composite_signal"
+            f"&order=trading_date.desc&limit={limit}"
+        )
+        return sorted(rows, key=lambda r: r["trading_date"])
+    except Exception:
+        return []
+
+
+def generate_momentum_response():
+    ist_now = now_ist()
+    rows = _fetch_momentum_signals(limit=120)
+
+    if not rows:
+        return {"success": False, "error": "No momentum signals available. Run cron_momentum first."}
+
+    latest = rows[-1]
+
+    # Build snapshot
+    snapshot = {
+        "date": latest["trading_date"],
+        "close_price": _f(latest.get("close_price")),
+        "fno_rev_cr": _f(latest.get("fno_rev_cr")),
+        "regime": latest.get("regime"),
+        "ratio_10d_45d": _f(latest.get("ratio_10d_45d")),
+        "ma10_rev_cr": _f(latest.get("ma10_rev_cr")),
+        "ma45_rev_cr": _f(latest.get("ma45_rev_cr")),
+        "adr_signal": latest.get("adr_signal"),
+        "adr_ratio": _f(latest.get("adr_ratio")),
+        "price_mom_5d": _f(latest.get("price_mom_5d")),
+        "composite_signal": latest.get("composite_signal"),
+    }
+
+    # Build history (last 60 entries for charting)
+    display_rows = rows[-60:]
+    history = []
+    for r in display_rows:
+        history.append({
+            "date": r["trading_date"],
+            "close_price": _f(r.get("close_price")),
+            "fno_rev_cr": _f(r.get("fno_rev_cr")),
+            "ma10_rev_cr": _f(r.get("ma10_rev_cr")),
+            "ma45_rev_cr": _f(r.get("ma45_rev_cr")),
+            "ratio_10d_45d": _f(r.get("ratio_10d_45d")),
+            "regime": r.get("regime"),
+            "daily_range": _f(r.get("daily_range")),
+            "adr_5d": _f(r.get("adr_5d")),
+            "adr_20d": _f(r.get("adr_20d")),
+            "adr_ratio": _f(r.get("adr_ratio")),
+            "price_mom_5d": _f(r.get("price_mom_5d")),
+            "adr_signal": r.get("adr_signal"),
+            "composite_signal": r.get("composite_signal"),
+        })
+
+    # Regime stats from full dataset
+    all_regimes = [r.get("regime") for r in rows if r.get("regime")]
+    hot_count = sum(1 for r in all_regimes if r == "HOT")
+    cold_count = sum(1 for r in all_regimes if r == "COLD")
+    neutral_count = sum(1 for r in all_regimes if r == "NEUTRAL")
+
+    # Current streak
+    streak_regime = latest.get("regime")
+    streak_count = 0
+    for r in reversed(rows):
+        if r.get("regime") == streak_regime:
+            streak_count += 1
+        else:
+            break
+
+    return {
+        "success": True,
+        "as_of": ist_now.strftime("%Y-%m-%d %H:%M IST"),
+        "snapshot": snapshot,
+        "history": history,
+        "regime_stats": {
+            "hot_days": hot_count,
+            "neutral_days": neutral_count,
+            "cold_days": cold_count,
+            "current_streak": streak_count,
+            "streak_regime": streak_regime,
+        },
+        "methodology": MOMENTUM_META,
+        "data_quality": {
+            "total_rows": len(rows),
+            "history_returned": len(history),
+            "latest_date": latest["trading_date"],
+        },
+    }
+
+
 # ─── Vercel handler ──────────────────────────────────────────────────────
 
 class handler(BaseHTTPRequestHandler):
@@ -233,8 +368,16 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(self.path)
+        qs = parse_qs(parsed.query)
+        view = qs.get("view", [None])[0]
+
         try:
-            result = generate_models_response()
+            if view == "momentum":
+                result = generate_momentum_response()
+            else:
+                result = generate_models_response()
             self.send_json(result)
         except Exception as e:
             self.send_json({"success": False, "error": str(e)[:200]}, 500)
