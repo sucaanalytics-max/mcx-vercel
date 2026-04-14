@@ -6387,7 +6387,7 @@ function oipRenderHeroChart(data) {
       label: label, data: totals,
       borderColor: OIP_COLORS[i % OIP_COLORS.length],
       backgroundColor: 'transparent',
-      borderWidth: 2, tension: 0.3, pointRadius: 0
+      borderWidth: 2, tension: 0.3, pointRadius: 0, spanGaps: true
     });
     if (oipShowMA && series.ma30) {
       var ma = series.ma30.slice(startIdx, startIdx + dates.length);
@@ -6395,7 +6395,7 @@ function oipRenderHeroChart(data) {
         label: label + ' (30d MA)', data: ma,
         borderColor: OIP_COLORS[i % OIP_COLORS.length],
         backgroundColor: 'transparent',
-        borderWidth: 1.5, borderDash: [6, 3], tension: 0.3, pointRadius: 0
+        borderWidth: 1.5, borderDash: [6, 3], tension: 0.3, pointRadius: 0, spanGaps: true
       });
     }
   });
@@ -6562,6 +6562,15 @@ function updateOipCompChart() {
 }
 
 // ── CURRENT DISTRIBUTION TABLE ──
+var oipTableSortCol = 'commodity';
+var oipTableSortAsc = true;
+
+function oipSortTable(col) {
+  if (oipTableSortCol === col) { oipTableSortAsc = !oipTableSortAsc; }
+  else { oipTableSortCol = col; oipTableSortAsc = col === 'commodity'; }
+  oipRenderCurrentTable(oipCache);
+}
+
 function oipRenderCurrentTable(data) {
   function safeSum(rows, field) {
     return rows.reduce(function(a, r) { var v = r[field]; return a + (v > 0 ? v : 0); }, 0);
@@ -6577,15 +6586,38 @@ function oipRenderCurrentTable(data) {
       '<td>' + safeSum(rows,'foreign_long').toLocaleString('en-IN') + '/' + safeSum(rows,'foreign_short').toLocaleString('en-IN') + '</td>' +
       '<td style="color:var(--warning)">' + safeSum(rows,'others_long').toLocaleString('en-IN') + '/' + safeSum(rows,'others_short').toLocaleString('en-IN') + '</td></tr>';
   }
+  function sortArrow(col) {
+    if (oipTableSortCol !== col) return '';
+    return oipTableSortAsc ? ' \u25B2' : ' \u25BC';
+  }
+  var thStyle = 'cursor:pointer;user-select:none';
 
   var tbl = document.getElementById('oipCurrentTable');
-  var h = '<thead><tr><th style="text-align:left">Commodity</th><th>Type</th><th>Total</th>' +
-    '<th>FPOs L/S</th><th>VCPs L/S</th><th>Prop L/S</th><th>DFI L/S</th><th>For L/S</th><th>Others L/S</th></tr></thead><tbody>';
+  var h = '<thead><tr>' +
+    '<th style="text-align:left;' + thStyle + '" onclick="oipSortTable(\'commodity\')">Commodity' + sortArrow('commodity') + '</th>' +
+    '<th style="' + thStyle + '" onclick="oipSortTable(\'instrument\')">Type' + sortArrow('instrument') + '</th>' +
+    '<th style="' + thStyle + '" onclick="oipSortTable(\'total_participation\')">Total' + sortArrow('total_participation') + '</th>' +
+    '<th style="' + thStyle + '" onclick="oipSortTable(\'fpo\')">FPOs L/S' + sortArrow('fpo') + '</th>' +
+    '<th style="' + thStyle + '" onclick="oipSortTable(\'vcp\')">VCPs L/S' + sortArrow('vcp') + '</th>' +
+    '<th style="' + thStyle + '" onclick="oipSortTable(\'prop\')">Prop L/S' + sortArrow('prop') + '</th>' +
+    '<th style="' + thStyle + '" onclick="oipSortTable(\'dfi\')">DFI L/S' + sortArrow('dfi') + '</th>' +
+    '<th style="' + thStyle + '" onclick="oipSortTable(\'foreign\')">For L/S' + sortArrow('foreign') + '</th>' +
+    '<th style="' + thStyle + '" onclick="oipSortTable(\'others\')">Others L/S' + sortArrow('others') + '</th>' +
+    '</tr></thead><tbody>';
 
+  // Sort data
+  var sc = oipTableSortCol;
+  var dir = oipTableSortAsc ? 1 : -1;
   var sorted = data.participants.slice().sort(function(a, b) {
-    var cmp = a.commodity.localeCompare(b.commodity);
-    return cmp !== 0 ? cmp : (a.instrument === 'Futures' ? -1 : 1);
+    if (sc === 'commodity') return dir * a.commodity.localeCompare(b.commodity);
+    if (sc === 'instrument') return dir * a.instrument.localeCompare(b.instrument);
+    if (sc === 'total_participation') return dir * ((a.total_participation||0) - (b.total_participation||0));
+    // Category columns: sort by long+short total
+    var aVal = (a[sc+'_long']>0?a[sc+'_long']:0) + (a[sc+'_short']>0?a[sc+'_short']:0);
+    var bVal = (b[sc+'_long']>0?b[sc+'_long']:0) + (b[sc+'_short']>0?b[sc+'_short']:0);
+    return dir * (aVal - bVal);
   });
+
   sorted.forEach(function(p) {
     h += '<tr><td style="font-weight:600;text-align:left">' + p.commodity + '</td>' +
       '<td style="font-size:10px;color:var(--text-secondary)">' + p.instrument.charAt(0) + '</td>' +

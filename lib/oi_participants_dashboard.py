@@ -165,17 +165,33 @@ def generate_oi_participants_dashboard():
     # ── 4. Trend Data (ALL dates, with Overall and exchange-wide) ──
     trend = {"dates": all_dates}
 
-    # 4a. Per commodity × instrument trends
+    # 4a. Per commodity × instrument trends (with per-category breakdowns)
     for commodity, instrument in pairs:
         series_key = f"{commodity}_{instrument}"
         totals = []
+        cat_arrays = {}
+        for prefix, _ in CATEGORIES:
+            cat_arrays[f"{prefix}_long"] = []
+            cat_arrays[f"{prefix}_short"] = []
+
         for dt in all_dates:
             r = keyed.get((dt, commodity, instrument))
-            totals.append(_safe(r.get("total_participation")) if r else None)
+            if r:
+                totals.append(_safe(r.get("total_participation")))
+                for prefix, _ in CATEGORIES:
+                    cat_arrays[f"{prefix}_long"].append(_safe(r.get(f"{prefix}_long")))
+                    cat_arrays[f"{prefix}_short"].append(_safe(r.get(f"{prefix}_short")))
+            else:
+                totals.append(None)
+                for prefix, _ in CATEGORIES:
+                    cat_arrays[f"{prefix}_long"].append(None)
+                    cat_arrays[f"{prefix}_short"].append(None)
+
         trend[series_key] = {
             "total": totals,
             "ma7": _rolling_avg(totals, 7),
             "ma30": _rolling_avg(totals, 30),
+            **cat_arrays,
         }
 
     # 4b. Overall (Futures + Options) per commodity
