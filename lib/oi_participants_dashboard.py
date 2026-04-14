@@ -34,6 +34,11 @@ SPECULATOR_CATS = {"prop", "others"}
 # Growth lookback windows (trading days)
 GROWTH_WINDOWS = {"wow": 5, "mom": 22, "qoq": 63, "yoy": 252}
 
+# Commodity renames — merge old names into current names for continuous series
+COMMODITY_RENAMES = {
+    "COTTONCNDY": "COTTON",
+}
+
 
 def _safe(val):
     """Return 0 for suppressed (-1) or None values in arithmetic."""
@@ -77,6 +82,10 @@ def generate_oi_participants_dashboard():
 
     if not rows:
         return {"success": False, "error": "No OI participant data yet. Run collection first."}
+
+    # ── Apply commodity renames for continuous series ──
+    for r in rows:
+        r["commodity"] = COMMODITY_RENAMES.get(r["commodity"], r["commodity"])
 
     # ── Group by date ──
     by_date = defaultdict(list)
