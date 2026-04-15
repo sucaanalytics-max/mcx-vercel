@@ -115,6 +115,8 @@ echo [5/5] Creating Windows Scheduled Task...
 
 REM Create a wrapper script that the Task Scheduler will run
 echo @echo off > "%PROJECT_DIR%\scripts\run_relay.bat"
+echo chcp 65001 ^>nul >> "%PROJECT_DIR%\scripts\run_relay.bat"
+echo set PYTHONIOENCODING=utf-8 >> "%PROJECT_DIR%\scripts\run_relay.bat"
 echo cd /d "%PROJECT_DIR%" >> "%PROJECT_DIR%\scripts\run_relay.bat"
 echo "%PYTHON_EXE%" "%PROJECT_DIR%\scripts\mcx_relay.py" --loop ^>^> "%PROJECT_DIR%\logs\relay.log" 2^>^&1 >> "%PROJECT_DIR%\scripts\run_relay.bat"
 

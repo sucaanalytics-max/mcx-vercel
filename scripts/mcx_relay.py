@@ -13,6 +13,15 @@ Usage:
   python3 scripts/mcx_relay.py --loop   # loop every 15 min until session ends
 """
 import sys, os, json, math, time, urllib.request, urllib.error
+
+# Force UTF-8 output on Windows (cp1252 can't handle Unicode symbols)
+if sys.platform == "win32":
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 from curl_cffi import requests as cfreq
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
@@ -36,11 +45,15 @@ from lib.cron_margins import (
     _download_xls, _parse_xls,
     sb_upsert as margin_upsert,
 )
-from lib.cron_oi_participants import (
-    _build_url as oi_build_url,
-    _parse_participants as oi_parse_participants,
-    sb_upsert as oi_upsert,
-)
+try:
+    from lib.cron_oi_participants import (
+        _build_url as oi_build_url,
+        _parse_participants as oi_parse_participants,
+        sb_upsert as oi_upsert,
+    )
+    _HAS_OI = True
+except ImportError:
+    _HAS_OI = False
 
 LOOP_INTERVAL = 900  # 15 minutes in seconds
 RELAY_ID = os.environ.get("MCX_RELAY_ID", "default")
@@ -429,7 +442,10 @@ def refresh_margins_local():
 
 def refresh_oi_participants_local():
     """Download and upsert OI participant category data from MCX (runs locally to bypass Akamai)."""
-    print(f"\n  ── OI Participants Refresh ──")
+    if not _HAS_OI:
+        print("  OI participants module not available, skipping")
+        return
+    print(f"\n  -- OI Participants Refresh --")
     try:
         dt = now_ist().date()
         url = oi_build_url(dt)
