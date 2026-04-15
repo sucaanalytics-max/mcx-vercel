@@ -43,6 +43,7 @@ from lib.cron_oi_participants import (
 )
 
 LOOP_INTERVAL = 900  # 15 minutes in seconds
+RELAY_ID = os.environ.get("MCX_RELAY_ID", "default")
 
 # Alias for backward compat (relay uses MCX_HOLIDAYS directly)
 MCX_HOLIDAYS = MCX_HOLIDAYS_2026
@@ -58,41 +59,58 @@ _mw_session = None
 _hist_session = None
 
 
-def _get_mw_session():
+def _get_mw_session(force_new=False):
     """Shared curl_cffi session for MarketWatch API (bypasses Akamai)."""
     global _mw_session
-    if _mw_session is None:
+    if _mw_session is None or force_new:
         _mw_session = cfreq.Session(impersonate="chrome142")
         _mw_session.get("https://www.mcxindia.com/market-data/market-watch", timeout=30)
     return _mw_session
 
 
-def _get_hist_session():
+def _get_hist_session(force_new=False):
     """Shared curl_cffi session for Historical API (bypasses Akamai)."""
     global _hist_session
-    if _hist_session is None:
+    if _hist_session is None or force_new:
         _hist_session = cfreq.Session(impersonate="chrome142")
         _hist_session.get("https://www.mcxindia.com/market-data/historical-data", timeout=30)
     return _hist_session
 
 
 def fetch_market_watch(session=None, timeout=18):
-    """Call MCX GetMarketWatch API via curl_cffi."""
+    """Call MCX GetMarketWatch API via curl_cffi. Auto-retries with fresh session on failure."""
     if session is None:
         session = _get_mw_session()
-    resp = session.post(
-        "https://www.mcxindia.com/backpage.aspx/GetMarketWatch",
-        data="",
-        headers={
-            "Accept": "application/json, text/javascript, */*; q=0.01",
-            "Content-Type": "application/json",
-            "X-Requested-With": "XMLHttpRequest",
-            "Referer": "https://www.mcxindia.com/market-data/market-watch",
-        },
-        timeout=timeout,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    try:
+        resp = session.post(
+            "https://www.mcxindia.com/backpage.aspx/GetMarketWatch",
+            data="",
+            headers={
+                "Accept": "application/json, text/javascript, */*; q=0.01",
+                "Content-Type": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": "https://www.mcxindia.com/market-data/market-watch",
+            },
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        print(f"  ⚠ MarketWatch call failed ({e}), retrying with fresh session...")
+        session = _get_mw_session(force_new=True)
+        resp = session.post(
+            "https://www.mcxindia.com/backpage.aspx/GetMarketWatch",
+            data="",
+            headers={
+                "Accept": "application/json, text/javascript, */*; q=0.01",
+                "Content-Type": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": "https://www.mcxindia.com/market-data/market-watch",
+            },
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        return resp.json()
 
 
 def extract_notionals(raw_json):
@@ -143,6 +161,12 @@ def run_snapshot():
     else:
         fut_notl, opt_notl, opt_prem = fut_n1, opt_n1, opt_p1
         dual_call = False
+
+    # Stale data guard: if early in session but notionals are huge, API returned
+    # yesterday's cached data. Skip this snapshot.
+    if elapsed <= 15 and fut_notl > 30000:
+        print(f"  ⚠ Stale data detected: {fut_notl:.0f} Cr notional at {elapsed}m elapsed — skipping")
+        return False
 
     day_type = get_day_type(capture)
     proj_fut, proj_opt, conf = project_full_day(fut_notl, opt_prem, elapsed, day_type)
@@ -205,7 +229,8 @@ def run_snapshot():
           f"(Fut: {fut_notl:.0f} | Opt Prem: {opt_prem:.0f}) "
           f"[{conf}, ±{unc*100:.0f}%] "
           f"({len(futures)}F/{len(options)}O)")
-    return True
+    send_heartbeat("running", last_rev=total_rev, elapsed=elapsed)
+    return "closed" if snapshot["session_closed"] else True
 
 
 def fetch_mcx_historical(date_iso):
@@ -359,6 +384,27 @@ def capture_eod():
 
 
 
+def send_heartbeat(status="running", last_rev=None, elapsed=None, error=None):
+    """Push heartbeat to Supabase relay_heartbeat table."""
+    t = now_ist()
+    beat = {
+        "relay_id": RELAY_ID,
+        "heartbeat_at": t.strftime("%Y-%m-%dT%H:%M:%S+05:30"),
+        "trading_date": t.strftime("%Y-%m-%d"),
+        "status": status,  # running | eod_done | error | stopped
+    }
+    if last_rev is not None:
+        beat["last_rev_cr"] = round(last_rev, 4)
+    if elapsed is not None:
+        beat["elapsed_min"] = elapsed
+    if error:
+        beat["last_error"] = str(error)[:200]
+    try:
+        supabase_upsert("relay_heartbeat", beat)
+    except Exception as e:
+        print(f"  ⚠ Heartbeat failed: {e}")
+
+
 def refresh_margins_local():
     """Download and upsert margin data from Sharekhan (runs locally to bypass cloud IP blocks)."""
     print(f"\n  ── Margin Refresh ──")
@@ -420,7 +466,7 @@ def run_loop():
             print(f"{t.strftime('%H:%M IST')} — Not a trading day. Exiting.")
             break
 
-        if current_min > SESSION_END + 30:
+        if current_min > SESSION_END + 30 or (0 < current_min < SESSION_START - 60):
             print(f"{t.strftime('%H:%M IST')} — Session ended. Exiting.")
             break
 
@@ -431,16 +477,26 @@ def run_loop():
             continue
 
         try:
-            run_snapshot()
+            result = run_snapshot()
         except Exception as e:
             print(f"  ✗ Error: {e}")
+            send_heartbeat("error", error=e)
+            result = False
 
-        # Sleep until next interval
+        # Trigger EOD immediately when session closes (no timing race)
+        if result == "closed":
+            print("\nSession closed. Capturing EOD record...")
+            capture_eod()
+            refresh_margins_local()
+            refresh_oi_participants_local()
+            send_heartbeat("eod_done")
+            break
+
+        # Fallback: clock-based EOD check
         t2 = now_ist()
         current_min2 = t2.hour * 60 + t2.minute
         if current_min2 > SESSION_END + 15:
-            # Session ended — capture EOD authoritative record
-            print("\nSession ended. Capturing EOD record...")
+            print("\nSession ended (clock fallback). Capturing EOD record...")
             capture_eod()
             refresh_margins_local()
             refresh_oi_participants_local()
@@ -511,11 +567,32 @@ def catchup_missing(days=7):
 
 
 if __name__ == "__main__":
+    # Flush stdout after every print (critical for Windows log files)
+    sys.stdout.reconfigure(line_buffering=True)
+
     if "--loop" in sys.argv:
         catchup_missing(7)  # Self-heal before starting loop
         refresh_margins_local()  # Catch up margins on startup
         refresh_oi_participants_local()  # Catch up OI participants on startup
-        run_loop()
+        # Outer restart loop: if run_loop crashes (e.g. curl_cffi segfault recovery),
+        # wait 60s and retry — keeps the process alive all day
+        MAX_RESTARTS = 10
+        for attempt in range(1, MAX_RESTARTS + 1):
+            try:
+                run_loop()
+                break  # Clean exit (session ended normally)
+            except Exception as e:
+                print(f"\n*** RELAY CRASHED (attempt {attempt}/{MAX_RESTARTS}): {e} ***")
+                send_heartbeat("error", error=f"crash #{attempt}: {e}")
+                if attempt < MAX_RESTARTS:
+                    # Reset curl_cffi sessions before retry
+                    _get_mw_session(force_new=True)
+                    _get_hist_session(force_new=True)
+                    print(f"  Restarting in 60s...")
+                    time.sleep(60)
+                else:
+                    print(f"  Max restarts reached. Exiting.")
+                    sys.exit(1)
     elif "--catchup" in sys.argv:
         days = 7
         for i, arg in enumerate(sys.argv):

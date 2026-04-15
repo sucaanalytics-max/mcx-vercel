@@ -258,11 +258,67 @@ class handler(BaseHTTPRequestHandler):
         self._cors()
         self.end_headers()
 
+    def _health_check(self):
+        """Return relay health: last heartbeat + last snapshot age."""
+        from datetime import datetime, timezone
+        try:
+            t = now_ist()
+            today = t.strftime("%Y-%m-%d")
+
+            # Try heartbeat table first
+            heartbeat = None
+            try:
+                hb = supabase_read("relay_heartbeat", "?order=heartbeat_at.desc&limit=1")
+                if hb:
+                    heartbeat = hb[0]
+            except Exception:
+                pass  # Table may not exist yet
+
+            # Last snapshot (always available)
+            snaps = supabase_read("mcx_snapshots", f"?order=captured_at.desc&limit=1")
+            snap = snaps[0] if snaps else None
+
+            snap_age_min = None
+            if snap and snap.get("captured_at"):
+                cap = datetime.fromisoformat(snap["captured_at"].replace("Z", "+00:00"))
+                snap_age_min = round((t.astimezone(timezone.utc) - cap.astimezone(timezone.utc)).total_seconds() / 60, 1)
+
+            is_market_hours = (SESSION_START <= t.hour * 60 + t.minute <= SESSION_END) and is_trading_day(t.date())
+            alive = snap_age_min is not None and snap_age_min < 30 if is_market_hours else True
+
+            result = {
+                "success": True,
+                "healthy": alive,
+                "checked_at": t.strftime("%Y-%m-%dT%H:%M:%S+05:30"),
+                "market_open": is_market_hours,
+                "last_snapshot": {
+                    "captured_at": snap.get("captured_at") if snap else None,
+                    "trading_date": snap.get("trading_date") if snap else None,
+                    "total_rev_cr": snap.get("total_rev_cr") if snap else None,
+                    "elapsed_min": snap.get("elapsed_min") if snap else None,
+                    "age_min": snap_age_min,
+                },
+            }
+            if heartbeat:
+                result["heartbeat"] = heartbeat
+
+            self.send_json(result)
+        except Exception as e:
+            self.send_json({"success": False, "healthy": False, "error": str(e)[:200]})
+
     def do_GET(self):
-        """F-08: Read latest snapshot from Supabase and enrich for frontend."""
+        """F-08: Read latest snapshot from Supabase and enrich for frontend.
+        ?health=1 — relay health check (heartbeat + snapshot age)."""
         if not SUPABASE_ANON_KEY:
             self.send_json({"success": False, "error": "Supabase not configured"})
             return
+
+        # ── Health check endpoint ─────────────────────────────────────────
+        from urllib.parse import urlparse, parse_qs
+        qs = parse_qs(urlparse(self.path).query)
+        if "health" in qs:
+            return self._health_check()
+
         try:
             today = now_ist().strftime("%Y-%m-%d")
             rows = supabase_read(
