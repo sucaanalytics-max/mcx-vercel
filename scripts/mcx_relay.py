@@ -38,7 +38,7 @@ from lib.mcx_config import (
     MCX_HOLIDAYS_2026,
     now_ist, get_day_type, get_intraday_weight,
     project_full_day, calc_revenue, calc_uncertainty,
-    supabase_upsert,
+    check_regime_drift, supabase_upsert,
 )
 
 from lib.cron_margins import (
@@ -243,6 +243,28 @@ def run_snapshot():
           f"[{conf}, ±{unc*100:.0f}%] "
           f"({len(futures)}F/{len(options)}O)")
     send_heartbeat("running", last_rev=total_rev, elapsed=elapsed)
+
+    # Regime drift check — run once per session when ≥3 buckets complete (15:00-16:00)
+    today_iso = capture.strftime("%Y-%m-%d")
+    if 360 <= elapsed < 420 and getattr(run_snapshot, '_regime_done', None) != today_iso:
+        run_snapshot._regime_done = today_iso
+        try:
+            from lib.mcx_config import supabase_read_all
+            today_snaps = supabase_read_all(
+                "mcx_snapshots",
+                f"?select=elapsed_min,fut_notl_cr,opt_prem_cr"
+                f"&trading_date=eq.{today_iso}"
+                f"&order=elapsed_min.asc",
+                max_rows=100,
+            )
+            alerts = check_regime_drift(today_snaps)
+            for a in alerts:
+                print(f"  ⚠ REGIME SHIFT: {a['bucket']} volume {a['direction']} "
+                      f"(today={a['today_weight']:.1%} vs adaptive={a['adaptive_weight']:.1%}, "
+                      f"z={a['z_score']:.1f})")
+        except Exception as e:
+            print(f"  ⚠ Regime check failed: {e}")
+
     return "closed" if snapshot["session_closed"] else True
 
 

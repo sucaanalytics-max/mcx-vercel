@@ -231,6 +231,39 @@ def generate_intraday_curves(days=30, include_today=True):
             "diff_pct": round(diff / static_w * 100, 1) if static_w > 0 else 0,
         })
 
+    # Adaptive EWMA weights — computed locally to avoid circular import with mcx_config
+    adaptive_data = None
+    if n_days >= 10:
+        import math as _math
+        _halflife = 10
+        _lam = _math.log(2) / _halflife
+        ewma_buckets = [0.0] * 7
+        ewma_total_w = 0.0
+        # daily_curves is sorted most recent last; reverse for age calculation
+        for age, dc in enumerate(reversed(daily_curves)):
+            w = _math.exp(-_lam * age)
+            for b in range(7):
+                ewma_buckets[b] += w * dc["buckets"][b]
+            ewma_total_w += w
+        ewma_wts = [b / ewma_total_w for b in ewma_buckets] if ewma_total_w > 0 else None
+
+        if ewma_wts:
+            ewma_evening_pct = round(sum(ewma_wts[4:]) * 100, 1)
+            adaptive_data = {
+                "halflife_days": _halflife,
+                "buckets": [
+                    {"label": _BUCKET_LABELS[i], "weight": round(ewma_wts[i], 4)}
+                    for i in range(7)
+                ],
+                "evening_pct": ewma_evening_pct,
+                "vs_static": [
+                    {"label": _BUCKET_LABELS[i],
+                     "diff": round(ewma_wts[i] - _STATIC_WEIGHTS[i], 4),
+                     "diff_pct": round((ewma_wts[i] - _STATIC_WEIGHTS[i]) / _STATIC_WEIGHTS[i] * 100, 1) if _STATIC_WEIGHTS[i] > 0 else 0}
+                    for i in range(7)
+                ],
+            }
+
     return {
         "success": True,
         "as_of": ist.strftime("%Y-%m-%d %H:%M IST"),
@@ -249,6 +282,7 @@ def generate_intraday_curves(days=30, include_today=True):
             ],
             "evening_pct": evening_pct,
         },
+        "adaptive_ewma": adaptive_data,
         "today": today_data,
         "percentiles": percentiles,
         "divergences": divergences,

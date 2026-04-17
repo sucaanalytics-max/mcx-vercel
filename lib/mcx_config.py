@@ -3,7 +3,7 @@ MCX Revenue Model — Shared Configuration (F-02, F-22)
 Single source of truth for all fee rates, day classifications, volume curves,
 and projection logic. Imported by all API endpoints.
 """
-import os, math
+import os, math, time as _time
 from datetime import datetime, timedelta
 from collections import defaultdict
 
@@ -242,19 +242,130 @@ def get_intraday_weight_dynamic(elapsed_minutes: int, bucket_weights: list = Non
     return min(cumulative, 1.0)
 
 
+# ─── ADAPTIVE CURVE (EWMA) ──────────────────────────────────────────────────
+# VWAP-style exponentially weighted moving average of intraday bucket weights.
+# Halflife=10 trading days — adapts to regime shifts in ~5 days.
+_adaptive_cache = {"weights": None, "ts": 0}
+ADAPTIVE_HALFLIFE = 10   # trading days
+ADAPTIVE_MIN_DAYS = 10   # minimum days for adaptive curve
+ADAPTIVE_TTL = 900       # cache for 15 min (aligned with relay cycle)
+
+
+def get_adaptive_bucket_weights():
+    """Return EWMA-weighted bucket weights from recent snapshot data.
+    Returns list of 7 floats summing to ~1.0, or None (falls back to static).
+    Caches result (including None) to avoid repeated Supabase queries."""
+    if _adaptive_cache["ts"] > 0 and (_time.time() - _adaptive_cache["ts"]) < ADAPTIVE_TTL:
+        return _adaptive_cache["weights"]  # may be None (cached failure)
+    try:
+        ist = now_ist()
+        start_date = (ist - timedelta(days=40)).strftime("%Y-%m-%d")
+        today_str = ist.strftime("%Y-%m-%d")
+
+        snapshots = supabase_read_all(
+            "mcx_snapshots",
+            f"?select=trading_date,elapsed_min,fut_notl_cr,opt_prem_cr"
+            f"&trading_date=gte.{start_date}&trading_date=lt.{today_str}"
+            f"&order=trading_date.asc,elapsed_min.asc",
+            max_rows=5000,
+        )
+        if not snapshots:
+            _adaptive_cache["weights"] = None
+            _adaptive_cache["ts"] = _time.time()
+            return None
+
+        # Group by date
+        by_date = defaultdict(list)
+        for s in snapshots:
+            if s.get("elapsed_min") is not None:
+                by_date[s["trading_date"]].append(s)
+
+        # Derive bucket weights per day + apply EWMA
+        lam = math.log(2) / ADAPTIVE_HALFLIFE
+        weighted_buckets = [0.0] * 7
+        total_weight = 0.0
+        dates_used = 0
+
+        sorted_dates = sorted(by_date.keys(), reverse=True)  # most recent first
+        for age, dt_str in enumerate(sorted_dates):
+            snaps = sorted(by_date[dt_str], key=lambda s: s["elapsed_min"])
+            if len(snaps) < 4:
+                continue
+            # Derive bucket weights for this day
+            total_vol = _interpolate_vol(snaps, SESSION_TOTAL)
+            if total_vol <= 0:
+                continue
+            day_weights = []
+            prev_cum = 0.0
+            for i in range(len(INTRADAY_BUCKETS)):
+                edge_end = INTRADAY_BUCKETS[i][1] - SESSION_START
+                cum = _interpolate_vol(snaps, edge_end)
+                bucket_vol = max(0, cum - prev_cum)
+                day_weights.append(bucket_vol / total_vol)
+                prev_cum = cum
+            # EWMA decay
+            w = math.exp(-lam * age)
+            for b in range(7):
+                weighted_buckets[b] += w * day_weights[b]
+            total_weight += w
+            dates_used += 1
+
+        if dates_used < ADAPTIVE_MIN_DAYS or total_weight <= 0:
+            _adaptive_cache["weights"] = None
+            _adaptive_cache["ts"] = _time.time()
+            return None
+
+        result = [b / total_weight for b in weighted_buckets]
+        _adaptive_cache["weights"] = result
+        _adaptive_cache["ts"] = _time.time()
+        return result
+
+    except Exception:
+        _adaptive_cache["weights"] = None
+        _adaptive_cache["ts"] = _time.time()
+        return None
+
+
+def _interpolate_vol(snapshots, target_elapsed):
+    """Interpolate cumulative volume (fut_notl + opt_prem) at target elapsed."""
+    if not snapshots or target_elapsed <= 0:
+        return 0.0
+    def _vol(s):
+        return (s.get("fut_notl_cr") or 0) + (s.get("opt_prem_cr") or 0)
+    if target_elapsed <= snapshots[0]["elapsed_min"]:
+        v0 = _vol(snapshots[0])
+        em0 = snapshots[0]["elapsed_min"]
+        return v0 * (target_elapsed / em0) if em0 > 0 else 0.0
+    if target_elapsed >= snapshots[-1]["elapsed_min"]:
+        return _vol(snapshots[-1])
+    for i in range(len(snapshots) - 1):
+        s1, s2 = snapshots[i], snapshots[i + 1]
+        if s1["elapsed_min"] <= target_elapsed <= s2["elapsed_min"]:
+            span = s2["elapsed_min"] - s1["elapsed_min"]
+            if span == 0:
+                return _vol(s1)
+            frac = (target_elapsed - s1["elapsed_min"]) / span
+            return _vol(s1) + frac * (_vol(s2) - _vol(s1))
+    return _vol(snapshots[-1])
+
+
 def project_full_day(realized_fut, realized_opt, elapsed_min, day_type="LOW"):
-    """Apply hybrid projection with day-type fading prior."""
+    """Apply hybrid projection with adaptive EWMA curve + volume-based confidence."""
     if elapsed_min <= 0:
         return realized_fut, realized_opt, "LOW"
     if elapsed_min >= SESSION_TOTAL:
         return realized_fut, realized_opt, "CERTAIN"
 
     time_pct = elapsed_min / SESSION_TOTAL
-    hist_wt  = get_intraday_weight(elapsed_min)
+
+    # Use adaptive EWMA curve if available, else static
+    adaptive_wts = get_adaptive_bucket_weights()
+    hist_wt = get_intraday_weight_dynamic(elapsed_min, adaptive_wts)
 
     mult_a = 1.0 / time_pct if time_pct > 0 else 1.0
     mult_b = 1.0 / hist_wt  if hist_wt  > 0 else 1.0
-    confidence = time_pct ** 0.5
+    # Volume-based confidence: weight blend by how much volume observed, not clock time
+    confidence = hist_wt ** 0.5
     mult_c = confidence * mult_a + (1 - confidence) * mult_b
 
     # Day-type prior fades as session progresses
@@ -266,6 +377,45 @@ def project_full_day(realized_fut, realized_opt, elapsed_min, day_type="LOW"):
                   else "MEDIUM" if time_pct > 0.35
                   else "LOW")
     return realized_fut * mult_c, realized_opt * mult_c, conf_label
+
+
+def check_regime_drift(today_snapshots, threshold_z=2.0):
+    """Compare today's developing volume shape against adaptive baseline.
+    Returns list of bucket alerts where z-score > threshold, or empty list."""
+    if not today_snapshots or len(today_snapshots) < 3:
+        return []
+    adaptive_wts = get_adaptive_bucket_weights()
+    if not adaptive_wts:
+        return []
+    # Derive today's completed bucket weights
+    max_elapsed = max(s["elapsed_min"] for s in today_snapshots)
+    total_vol = _interpolate_vol(today_snapshots, max_elapsed)
+    if total_vol <= 0:
+        return []
+    alerts = []
+    _LABELS = ["09:00-10:30", "10:30-12:30", "12:30-15:00", "15:00-17:00",
+               "17:00-19:30", "19:30-22:00", "22:00-23:30"]
+    prev_cum = 0.0
+    for i in range(len(INTRADAY_BUCKETS)):
+        edge_end = INTRADAY_BUCKETS[i][1] - SESSION_START
+        if max_elapsed < edge_end:
+            break  # bucket not yet complete
+        cum = _interpolate_vol(today_snapshots, edge_end)
+        today_w = max(0, cum - prev_cum) / total_vol
+        prev_cum = cum
+        adapt_w = adaptive_wts[i]
+        # Use 15% of adaptive weight as approximate σ (robust estimate)
+        sigma = max(adapt_w * 0.15, 0.005)
+        z = abs(today_w - adapt_w) / sigma
+        if z > threshold_z:
+            alerts.append({
+                "bucket": _LABELS[i],
+                "today_weight": round(today_w, 4),
+                "adaptive_weight": round(adapt_w, 4),
+                "z_score": round(z, 1),
+                "direction": "higher" if today_w > adapt_w else "lower",
+            })
+    return alerts
 
 
 def safe_float(v):
