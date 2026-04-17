@@ -135,6 +135,16 @@ REM Also create a restart safety net: if relay dies, restart at 14:00 IST (08:30
 schtasks /delete /tn "MCXRelayRestart" /f >nul 2>&1
 schtasks /create /tn "MCXRelayRestart" /tr "\"%PROJECT_DIR%\scripts\run_relay.bat\"" /sc weekly /d MON,TUE,WED,THU,FRI /st 08:30 /ru SYSTEM /rl HIGHEST /f >nul 2>&1
 
+REM Create daily verification task at 01:30 UTC (07:00 IST)
+echo @echo off > "%PROJECT_DIR%\scripts\run_verify.bat"
+echo chcp 65001 ^>nul >> "%PROJECT_DIR%\scripts\run_verify.bat"
+echo set PYTHONIOENCODING=utf-8 >> "%PROJECT_DIR%\scripts\run_verify.bat"
+echo cd /d "%PROJECT_DIR%" >> "%PROJECT_DIR%\scripts\run_verify.bat"
+echo "%PYTHON_EXE%" "%PROJECT_DIR%\scripts\daily_verify.py" --days 3 ^>^> "%PROJECT_DIR%\logs\daily_verify.log" 2^>^&1 >> "%PROJECT_DIR%\scripts\run_verify.bat"
+
+schtasks /delete /tn "MCXDailyVerify" /f >nul 2>&1
+schtasks /create /tn "MCXDailyVerify" /tr "\"%PROJECT_DIR%\scripts\run_verify.bat\"" /sc weekly /d MON,TUE,WED,THU,FRI,SAT /st 01:30 /ru SYSTEM /rl HIGHEST /f
+
 echo.
 echo  ============================================
 echo   Setup Complete!
