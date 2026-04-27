@@ -1192,17 +1192,19 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 /* ── 4-UP GRID (PDF-style timeline mini-tables) ────────────────────────── */
 .exd-4up-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+  max-width: 1316px;
 }
-@media (max-width: 900px) { .exd-4up-grid { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 600px) { .exd-4up-grid { grid-template-columns: 1fr; } }
+@media (max-width: 899px) { .exd-4up-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: none; } }
+@media (max-width: 540px) { .exd-4up-grid { grid-template-columns: 1fr; } }
 .exd-mini {
   background: var(--surface);
   border: 1px solid var(--border);
   font-family: var(--mono);
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 .exd-mini-head {
   display: flex;
@@ -1228,18 +1230,17 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   letter-spacing: 0.5px;
   color: var(--text-secondary);
 }
-.exd-mini-head-chips span { min-width: 44px; text-align: right; }
+.exd-mini-head-chips span { min-width: 40px; text-align: right; }
 .exd-mini-row {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  align-items: baseline;
+  gap: 8px;
   padding: 5px 10px;
   font-size: 12px;
   border-bottom: 1px solid var(--border);
 }
 .exd-mini-row:last-child { border-bottom: none; }
 .exd-mini-row-label {
-  flex: 1;
   color: var(--text-secondary);
   font-size: 11px;
   font-weight: 500;
@@ -1248,35 +1249,38 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   text-overflow: ellipsis;
 }
 .exd-mini-row-val {
-  min-width: 56px;
+  margin-left: auto;
+  min-width: 50px;
   text-align: right;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--text);
 }
 .exd-mini-row-chg {
-  min-width: 44px;
+  min-width: 40px;
   text-align: right;
   font-size: 10px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
-.exd-mini-row--current { background: color-mix(in srgb, var(--accent2) 6%, transparent); }
+.exd-mini-row--current { background: color-mix(in srgb, var(--accent2) 6%, transparent); border-left: 3px solid var(--accent2); padding-left: 7px; }
 .exd-mini-row--current .exd-mini-row-val { color: var(--accent2); }
 .exd-mini-row--avg .exd-mini-row-label { font-style: italic; }
 
 /* ── PAT PREDICTOR (Interactive Forecast) ──────────────────────────────── */
-.pat-card { padding: 16px 20px; margin-bottom: 24px; }
+.pat-card { padding: 20px 24px; margin: 0 auto 24px; max-width: 720px; }
+.pat-card .card-title { text-align: center; font-size: 14px; letter-spacing: 1.5px; }
 .pat-block { margin-bottom: 18px; }
 .pat-block:last-child { margin-bottom: 0; }
 .pat-block-title {
   font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 10px;
+  font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 1.5px;
+  letter-spacing: 1.8px;
   color: var(--text-secondary);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
+  text-align: center;
 }
 .pat-table {
   width: 100%;
@@ -1286,40 +1290,58 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   table-layout: fixed;
 }
 .pat-table th, .pat-table td {
-  padding: 6px 10px;
+  padding: 5px 10px;
   text-align: right;
   font-variant-numeric: tabular-nums;
   border-bottom: 1px solid var(--border);
 }
 .pat-table th {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--text-secondary);
+  letter-spacing: 1.2px;
+  color: var(--text);
   border-bottom: 2px solid var(--border-heavy);
   background: var(--surface2);
+  padding: 8px 10px;
 }
 .pat-table th:first-child, .pat-table td:first-child {
   text-align: left;
   font-weight: 600;
   color: var(--text);
-  width: 38%;
+  width: 200px;
 }
-.pat-table tr:hover td { background: var(--surface2); }
+.pat-table tr:hover td { background: color-mix(in srgb, var(--surface2) 60%, transparent); }
+.pat-table tr.pat-group td {
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  text-align: left;
+  background: var(--surface2);
+  padding: 7px 10px 4px;
+  border-top: 1px solid var(--border-heavy);
+  border-bottom: 1px solid var(--border);
+}
+.pat-table tr.pat-group--first td { border-top: none; }
+.pat-table tr.pat-group:hover td { background: var(--surface2); }
 .pat-table tr.pat-row--total td {
   font-weight: 800;
-  border-top: 1px solid var(--border-heavy);
-  background: color-mix(in srgb, var(--accent2) 5%, transparent);
+  background: color-mix(in srgb, var(--accent2) 8%, transparent);
+  color: var(--accent2);
 }
 .pat-table tr.pat-row--target td {
   font-weight: 800;
+  font-size: 14px;
   border-top: 2px solid var(--border-heavy);
-  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
   color: var(--accent);
+  padding: 9px 10px;
 }
+.pat-table tr.pat-row--target:hover td { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .pat-input {
-  width: 100%;
+  width: 72px;
   font-family: var(--mono);
   font-size: 12px;
   font-weight: 700;
@@ -1332,8 +1354,10 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 .pat-input:focus { outline: none; border-color: var(--accent); }
 .pat-derived {
   font-weight: 700;
-  color: var(--text-secondary);
+  color: var(--text);
 }
+.pat-discount-row td:first-child { display: flex; align-items: center; gap: 8px; }
+.pat-discount-row .pat-input { width: 56px; }
 
 /* ═══ MOMENTUM TAB STYLES ════════════════════════════════════════════════ */
 .mom-hero-grid {
@@ -1749,6 +1773,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
         <tr><th></th><th>FY26</th><th>FY27</th><th>FY28</th></tr>
       </thead>
       <tbody>
+        <tr class="pat-group pat-group--first"><td colspan="4">Revenue Build-Up</td></tr>
         <tr><td>Revenue per day (₹ Cr)</td>
           <td><input type="number" class="pat-input" data-pt-input="adr" data-pt-yr="26" value="6.5" step="0.1"></td>
           <td><input type="number" class="pat-input" data-pt-input="adr" data-pt-yr="27" value="11.2" step="0.1"></td>
@@ -1774,6 +1799,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
           <td data-pt-out="totRev" data-pt-yr="27">—</td>
           <td data-pt-out="totRev" data-pt-yr="28">—</td>
         </tr>
+        <tr class="pat-group"><td colspan="4">Profitability</td></tr>
         <tr><td>PAT Margin (%)</td>
           <td><input type="number" class="pat-input" data-pt-input="margin" data-pt-yr="26" value="53" step="0.1"></td>
           <td><input type="number" class="pat-input" data-pt-input="margin" data-pt-yr="27" value="60" step="0.1"></td>
@@ -1789,6 +1815,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
           <td class="pat-derived" data-pt-out="eps" data-pt-yr="27">—</td>
           <td class="pat-derived" data-pt-out="eps" data-pt-yr="28">—</td>
         </tr>
+        <tr class="pat-group"><td colspan="4">Valuation</td></tr>
         <tr><td>P/E</td>
           <td><input type="number" class="pat-input" data-pt-input="pe" data-pt-yr="26" value="55" step="0.5"></td>
           <td><input type="number" class="pat-input" data-pt-input="pe" data-pt-yr="27" value="42" step="0.5"></td>
@@ -1810,6 +1837,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
         <tr><th></th><th>Bear</th><th>Base</th><th>Bull</th></tr>
       </thead>
       <tbody>
+        <tr class="pat-group pat-group--first"><td colspan="4">Revenue Build-Up</td></tr>
         <tr><td>Growth (%)</td>
           <td><input type="number" class="pat-input" data-ps-input="growth" data-ps-sc="bear" value="0" step="1"></td>
           <td><input type="number" class="pat-input" data-ps-input="growth" data-ps-sc="base" value="0" step="1"></td>
@@ -1825,11 +1853,12 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
           <td><input type="number" class="pat-input" data-ps-input="other" data-ps-sc="base" value="336" step="1"></td>
           <td><input type="number" class="pat-input" data-ps-input="other" data-ps-sc="bull" value="336" step="1"></td>
         </tr>
-        <tr><td>Total Income (₹ Cr)</td>
-          <td class="pat-derived" data-ps-out="totInc" data-ps-sc="bear">—</td>
-          <td class="pat-derived" data-ps-out="totInc" data-ps-sc="base">—</td>
-          <td class="pat-derived" data-ps-out="totInc" data-ps-sc="bull">—</td>
+        <tr class="pat-row--total"><td>Total Income (₹ Cr)</td>
+          <td data-ps-out="totInc" data-ps-sc="bear">—</td>
+          <td data-ps-out="totInc" data-ps-sc="base">—</td>
+          <td data-ps-out="totInc" data-ps-sc="bull">—</td>
         </tr>
+        <tr class="pat-group"><td colspan="4">Profitability</td></tr>
         <tr><td>PAT Margin (%)</td>
           <td><input type="number" class="pat-input" data-ps-input="margin" data-ps-sc="bear" value="60" step="0.1"></td>
           <td><input type="number" class="pat-input" data-ps-input="margin" data-ps-sc="base" value="60" step="0.1"></td>
@@ -1840,6 +1869,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
           <td class="pat-derived" data-ps-out="eps" data-ps-sc="base">—</td>
           <td class="pat-derived" data-ps-out="eps" data-ps-sc="bull">—</td>
         </tr>
+        <tr class="pat-group"><td colspan="4">Valuation</td></tr>
         <tr><td>P/E</td>
           <td><input type="number" class="pat-input" data-ps-input="pe" data-ps-sc="bear" value="36" step="0.5"></td>
           <td><input type="number" class="pat-input" data-ps-input="pe" data-ps-sc="base" value="42" step="0.5"></td>
@@ -1855,8 +1885,8 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
           <td class="pat-derived" data-ps-out="upside" data-ps-sc="base">—</td>
           <td class="pat-derived" data-ps-out="upside" data-ps-sc="bull">—</td>
         </tr>
-        <tr><td>Discount (%)
-          <input type="number" class="pat-input" id="patScenDiscount" value="18" step="0.5" style="width:60px;margin-left:8px"></td>
+        <tr class="pat-discount-row"><td>Discount (%)
+          <input type="number" class="pat-input" id="patScenDiscount" value="18" step="0.5"></td>
           <td class="pat-derived">—</td><td class="pat-derived">—</td><td class="pat-derived">—</td>
         </tr>
         <tr class="pat-row--target"><td>Target Price (₹)</td>
