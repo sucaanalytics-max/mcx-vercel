@@ -145,6 +145,16 @@ echo "%PYTHON_EXE%" "%PROJECT_DIR%\scripts\daily_verify.py" --days 3 ^>^> "%PROJ
 schtasks /delete /tn "MCXDailyVerify" /f >nul 2>&1
 schtasks /create /tn "MCXDailyVerify" /tr "\"%PROJECT_DIR%\scripts\run_verify.bat\"" /sc weekly /d MON,TUE,WED,THU,FRI,SAT /st 01:30 /ru SYSTEM /rl HIGHEST /f
 
+REM Backtest task at 02:00 UTC (07:30 IST), after daily_verify
+echo @echo off > "%PROJECT_DIR%\scripts\run_backtest.bat"
+echo chcp 65001 ^>nul >> "%PROJECT_DIR%\scripts\run_backtest.bat"
+echo set PYTHONIOENCODING=utf-8 >> "%PROJECT_DIR%\scripts\run_backtest.bat"
+echo cd /d "%PROJECT_DIR%" >> "%PROJECT_DIR%\scripts\run_backtest.bat"
+echo "%PYTHON_EXE%" "%PROJECT_DIR%\scripts\backtest_projection.py" --days 30 ^>^> "%PROJECT_DIR%\logs\backtest.log" 2^>^&1 >> "%PROJECT_DIR%\scripts\run_backtest.bat"
+
+schtasks /delete /tn "MCXBacktest" /f >nul 2>&1
+schtasks /create /tn "MCXBacktest" /tr "\"%PROJECT_DIR%\scripts\run_backtest.bat\"" /sc weekly /d MON,TUE,WED,THU,FRI,SAT /st 02:00 /ru SYSTEM /rl HIGHEST /f
+
 echo.
 echo  ============================================
 echo   Setup Complete!

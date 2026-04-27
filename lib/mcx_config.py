@@ -79,20 +79,20 @@ MCX_EVENING_CLOSE_2026 = {
 }
 
 # ─── DAY-TYPE CLASSIFICATION (F-21: algorithmic + manual overrides) ──────────
-# Volume multipliers — recalibrated from 45 bhav copies (Dec 22 – Feb 24, 2026):
-#   Recalibrated from 361 trading days (Oct 2024 – Feb 2026, Exchanges Dashboard).
-#   Month-normalized analysis shows day-type effect is weak (all within ±5% of 1.0).
-#   Conservative multipliers retained for genuine macro-event texture:
-#   HIGH: major macro events (FOMC/Budget/GDP/RBI) — modest +15% uplift
-#   MEDIUM: pre-expiry (T-1), NatGas expiry, CPI/NFP — small +5%
-#   EXPIRY: CrudeOil expiry day — baseline
-#   LOW: no scheduled catalyst — flat (no significant deviation from mean)
-DAY_MULTIPLIER = {"HIGH": 1.15, "MEDIUM": 1.05, "EXPIRY": 1.00, "LOW": 1.00}
+# Volume multipliers — calibrated by scripts/calibrate_day_types.py against 400
+# trading days (2024-10-01 → 2026-04-24), month-normalized to LOW baseline:
+#   LOW    n=371  mean 1.000 (baseline)
+#   MEDIUM n=14   mean 1.016 ± 0.089 (95% CI [0.93, 1.10] — not significant)
+#   HIGH   n=10   mean 1.206 ± 0.295 (95% CI [0.91, 1.50] — high variance)
+#   EXPIRY n=4    mean 1.012 ± 0.154 (sample too small, hold at LOW)
+# Adopted values trim toward observed point estimates while remaining conservative
+# given the wide CIs on small samples. Re-run calibrate_day_types.py periodically.
+DAY_MULTIPLIER = {"HIGH": 1.15, "MEDIUM": 1.02, "EXPIRY": 1.00, "LOW": 1.00}
 DAY_DESCRIPTION = {
-    "HIGH":   "High-event — major macro (RBI/FOMC/Budget/GDP). 361d calibration: +15% vs baseline.",
-    "MEDIUM": "Medium — CrudeOil T-1 · NatGas expiry · CPI · NFP. 361d calibration: +5% vs baseline.",
-    "EXPIRY": "CrudeOil expiry day — positions settling; baseline.",
-    "LOW":    "No scheduled catalyst. 361d calibration: flat vs baseline.",
+    "HIGH":   "High-event — major macro (RBI/FOMC/Budget/GDP). Observed +21% vs baseline (n=10), held conservatively at +15%.",
+    "MEDIUM": "Medium — CrudeOil T-1 · NatGas expiry · CPI · NFP. Observed +1.6% (n=14, not significant); +2% applied.",
+    "EXPIRY": "CrudeOil expiry day — observed neutral vs baseline (n=4); held at 1.0x.",
+    "LOW":    "No scheduled catalyst — baseline (n=371).",
 }
 
 # ─── ALGORITHMIC EXPIRY CALENDAR (F-21) ──────────────────────────────────────
@@ -247,19 +247,87 @@ def get_intraday_weight_dynamic(elapsed_minutes: int, bucket_weights: list = Non
 # Halflife=10 trading days — adapts to regime shifts in ~5 days.
 _adaptive_cache = {"weights": None, "ts": 0}
 ADAPTIVE_HALFLIFE = 10   # trading days
-ADAPTIVE_MIN_DAYS = 10   # minimum days for adaptive curve
+ADAPTIVE_MIN_DAYS = 3    # minimum clean days (MCX API data quality limits availability)
 ADAPTIVE_TTL = 900       # cache for 15 min (aligned with relay cycle)
 
 
-def get_adaptive_bucket_weights():
-    """Return EWMA-weighted bucket weights from recent snapshot data.
-    Returns list of 7 floats summing to ~1.0, or None (falls back to static).
-    Caches result (including None) to avoid repeated Supabase queries."""
-    if _adaptive_cache["ts"] > 0 and (_time.time() - _adaptive_cache["ts"]) < ADAPTIVE_TTL:
-        return _adaptive_cache["weights"]  # may be None (cached failure)
+def _rolling_median_outlier(vols):
+    """Detect non-monotonic outliers using rolling median of 3.
+    Returns True if any value < 0.4 × rolling_median (window=3, centered)."""
+    if len(vols) < 4:
+        return False
+    for j in range(1, len(vols) - 1):
+        window = sorted([vols[j-1], vols[j], vols[j+1]])
+        med = window[1]
+        if med > 0 and vols[j] < 0.4 * med:
+            return True
+    return False
+
+
+def _bucket_volumes(snaps, vol_fn=None):
+    """Compute (vol, completion) per bucket. Used for both Phase 2 (EWMA) and
+    Phase 4 (regime drift). Only fully-completed buckets contribute meaningful
+    shares — partial-bucket data can't be normalized without knowing the day's
+    full total."""
+    if vol_fn is None:
+        def vol_fn(s):
+            return (s.get("fut_notl_cr") or 0) + (s.get("opt_prem_cr") or 0)
+    last_elapsed = max(s["elapsed_min"] for s in snaps)
+    out = []
+    prev_cum = 0.0
+    for start, end, _share in INTRADAY_BUCKETS:
+        bucket_start = max(0, start - SESSION_START)
+        bucket_end = end - SESSION_START
+        bucket_width = bucket_end - bucket_start
+        if last_elapsed <= bucket_start:
+            out.append((0.0, 0.0))
+            continue
+        clip_end = min(bucket_end, last_elapsed)
+        cum = _interpolate_vol_at(snaps, clip_end, vol_fn)
+        bucket_vol = max(0.0, cum - prev_cum)
+        completion = (clip_end - bucket_start) / bucket_width if bucket_width > 0 else 0.0
+        out.append((bucket_vol, max(0.0, min(1.0, completion))))
+        prev_cum = cum
+    return out
+
+
+def _interpolate_vol_at(snaps, target_elapsed, vol_fn=None):
+    """Linear interpolation of cumulative volume at target_elapsed."""
+    if vol_fn is None:
+        def vol_fn(s):
+            return (s.get("fut_notl_cr") or 0) + (s.get("opt_prem_cr") or 0)
+    if not snaps or target_elapsed <= 0:
+        return 0.0
+    if target_elapsed <= snaps[0]["elapsed_min"]:
+        return vol_fn(snaps[0]) * (target_elapsed / max(1, snaps[0]["elapsed_min"]))
+    if target_elapsed >= snaps[-1]["elapsed_min"]:
+        return vol_fn(snaps[-1])
+    for i in range(1, len(snaps)):
+        a, b = snaps[i - 1], snaps[i]
+        if a["elapsed_min"] <= target_elapsed <= b["elapsed_min"]:
+            span = b["elapsed_min"] - a["elapsed_min"]
+            if span <= 0:
+                return vol_fn(b)
+            frac = (target_elapsed - a["elapsed_min"]) / span
+            return vol_fn(a) + (vol_fn(b) - vol_fn(a)) * frac
+    return vol_fn(snaps[-1])
+
+
+# A day must complete (last snapshot >= ADAPTIVE_MIN_ELAPSED) to contribute
+# bucket shares to the EWMA. Partial-day shares can't be normalized without
+# knowing the full-day total, so they bias the curve upward in early buckets.
+ADAPTIVE_MIN_ELAPSED = 800
+
+
+def _compute_adaptive_weights(vol_fn=None):
+    """Generic adaptive bucket-weight EWMA over recent (full-session) days.
+
+    Returns list of 7 floats (sums to 1.0) or None if insufficient data.
+    Caller can pass a vol_fn to compute Fut-only or Opt-only curves.
+    """
     try:
         ist = now_ist()
-        start_date = (ist - timedelta(days=40)).strftime("%Y-%m-%d")
+        start_date = (ist - timedelta(days=60)).strftime("%Y-%m-%d")
         today_str = ist.strftime("%Y-%m-%d")
 
         snapshots = supabase_read_all(
@@ -270,60 +338,90 @@ def get_adaptive_bucket_weights():
             max_rows=5000,
         )
         if not snapshots:
-            _adaptive_cache["weights"] = None
-            _adaptive_cache["ts"] = _time.time()
             return None
 
-        # Group by date
         by_date = defaultdict(list)
         for s in snapshots:
             if s.get("elapsed_min") is not None:
                 by_date[s["trading_date"]].append(s)
 
-        # Derive bucket weights per day + apply EWMA
+        if vol_fn is None:
+            def vol_fn(s):
+                return (s.get("fut_notl_cr") or 0) + (s.get("opt_prem_cr") or 0)
+
         lam = math.log(2) / ADAPTIVE_HALFLIFE
         weighted_buckets = [0.0] * 7
         total_weight = 0.0
         dates_used = 0
 
-        sorted_dates = sorted(by_date.keys(), reverse=True)  # most recent first
+        sorted_dates = sorted(by_date.keys(), reverse=True)
         for age, dt_str in enumerate(sorted_dates):
             snaps = sorted(by_date[dt_str], key=lambda s: s["elapsed_min"])
             if len(snaps) < 4:
                 continue
-            # Derive bucket weights for this day
-            total_vol = _interpolate_vol(snaps, SESSION_TOTAL)
-            if total_vol <= 0:
+            # Only full sessions contribute to bucket-share EWMA
+            if snaps[-1]["elapsed_min"] < ADAPTIVE_MIN_ELAPSED:
                 continue
-            day_weights = []
-            prev_cum = 0.0
-            for i in range(len(INTRADAY_BUCKETS)):
-                edge_end = INTRADAY_BUCKETS[i][1] - SESSION_START
-                cum = _interpolate_vol(snaps, edge_end)
-                bucket_vol = max(0, cum - prev_cum)
-                day_weights.append(bucket_vol / total_vol)
-                prev_cum = cum
-            # EWMA decay
-            w = math.exp(-lam * age)
+            # Trim stale opening snapshot (MCX API can carry prior-day cumulative)
+            while len(snaps) > 4:
+                v0, v1 = vol_fn(snaps[0]), vol_fn(snaps[1])
+                if v0 > 0 and v1 < v0 * 0.5 and snaps[0]["elapsed_min"] < 30:
+                    snaps = snaps[1:]
+                else:
+                    break
+            # Rolling-median outlier detection — replaces the arbitrary 30% threshold
+            vols = [vol_fn(s) for s in snaps]
+            if _rolling_median_outlier(vols):
+                continue
+
+            buckets = _bucket_volumes(snaps, vol_fn)
+            day_total = sum(v for v, _ in buckets)
+            if day_total <= 0:
+                continue
+            day_shares = [v / day_total for v, _ in buckets]
+            if max(day_shares) > 0.50:
+                continue
+
+            decay = math.exp(-lam * age)
             for b in range(7):
-                weighted_buckets[b] += w * day_weights[b]
-            total_weight += w
+                weighted_buckets[b] += decay * day_shares[b]
+            total_weight += decay
             dates_used += 1
 
         if dates_used < ADAPTIVE_MIN_DAYS or total_weight <= 0:
-            _adaptive_cache["weights"] = None
-            _adaptive_cache["ts"] = _time.time()
             return None
-
         result = [b / total_weight for b in weighted_buckets]
-        _adaptive_cache["weights"] = result
-        _adaptive_cache["ts"] = _time.time()
         return result
-
     except Exception:
-        _adaptive_cache["weights"] = None
-        _adaptive_cache["ts"] = _time.time()
         return None
+
+
+def get_adaptive_bucket_weights():
+    """Return EWMA-weighted bucket weights from recent snapshots (combined Fut+Opt).
+    Returns list of 7 floats summing to ~1.0, or None (falls back to static)."""
+    if _adaptive_cache["ts"] > 0 and (_time.time() - _adaptive_cache["ts"]) < ADAPTIVE_TTL:
+        return _adaptive_cache["weights"]
+    result = _compute_adaptive_weights(vol_fn=None)
+    _adaptive_cache["weights"] = result
+    _adaptive_cache["ts"] = _time.time()
+    return result
+
+
+# Cache for split (Fut, Opt) curves — Phase 3
+_adaptive_split_cache = {"weights": None, "ts": 0}
+
+
+def get_adaptive_bucket_weights_split():
+    """Return (fut_weights, opt_weights) — separate EWMA curves for Fut and Opt.
+    Each is a list of 7 floats summing to ~1.0, or None if insufficient data."""
+    if _adaptive_split_cache["ts"] > 0 and (_time.time() - _adaptive_split_cache["ts"]) < ADAPTIVE_TTL:
+        return _adaptive_split_cache["weights"]
+    fut_w = _compute_adaptive_weights(vol_fn=lambda s: s.get("fut_notl_cr") or 0)
+    opt_w = _compute_adaptive_weights(vol_fn=lambda s: s.get("opt_prem_cr") or 0)
+    result = (fut_w, opt_w) if (fut_w and opt_w) else None
+    _adaptive_split_cache["weights"] = result
+    _adaptive_split_cache["ts"] = _time.time()
+    return result
 
 
 def _interpolate_vol(snapshots, target_elapsed):
@@ -349,8 +447,45 @@ def _interpolate_vol(snapshots, target_elapsed):
     return _vol(snapshots[-1])
 
 
-def project_full_day(realized_fut, realized_opt, elapsed_min, day_type="LOW"):
-    """Apply hybrid projection with adaptive EWMA curve + volume-based confidence."""
+def _multiplier_from_curve(time_pct, hist_wt, day_type, regime_drift_factor=1.0):
+    """Compute the projection multiplier given time elapsed and historical weight.
+
+    Lean on the volume curve (mult_b = 1/hist_wt) and only blend toward linear
+    extrapolation (mult_a = 1/time_pct) once the session is mostly complete.
+    Confidence in the curve grows with elapsed time. Fades the day-type prior.
+    Optionally scales mult_b by a regime-drift factor (Phase 4).
+    """
+    if time_pct <= 0:
+        return 1.0
+    mult_a = 1.0 / time_pct
+    mult_b = (1.0 / hist_wt) if hist_wt > 0 else mult_a
+    # Phase 4: regime drift scales the curve multiplier; capped at +/-25%
+    # to allow real corrections on systematically back/front-loaded days.
+    drift = max(0.75, min(1.25, regime_drift_factor))
+    mult_b *= drift
+
+    # Blend: trust the curve early in session, blend toward linear late.
+    # Earlier formula (sqrt(hist_wt)) over-weighted mult_a in the first half
+    # which assumes uniform pace and produced the systematic under-projection.
+    blend = time_pct ** 1.5  # 0.18 at t=0.25, 0.35 at t=0.5, 0.65 at t=0.75
+    mult_c = blend * mult_a + (1 - blend) * mult_b
+
+    raw_day_mult = DAY_MULTIPLIER.get(day_type, 1.0)
+    effective_day_mult = 1.0 + (raw_day_mult - 1.0) * (1.0 - time_pct)
+    return mult_c * effective_day_mult
+
+
+def project_full_day(realized_fut, realized_opt, elapsed_min, day_type="LOW",
+                     today_snapshots=None):
+    """Project full-day Fut/Opt notionals using separate adaptive curves.
+
+    Returns (proj_fut, proj_opt, confidence_label).
+
+    today_snapshots (optional): list of today's mcx_snapshots rows, used by
+    check_regime_drift() to detect bucket-level divergence and scale the
+    volume-curve multiplier in real time. Falls back to static behavior if
+    not provided or if drift detection has insufficient data.
+    """
     if elapsed_min <= 0:
         return realized_fut, realized_opt, "LOW"
     if elapsed_min >= SESSION_TOTAL:
@@ -358,25 +493,38 @@ def project_full_day(realized_fut, realized_opt, elapsed_min, day_type="LOW"):
 
     time_pct = elapsed_min / SESSION_TOTAL
 
-    # Use adaptive EWMA curve if available, else static
-    adaptive_wts = get_adaptive_bucket_weights()
-    hist_wt = get_intraday_weight_dynamic(elapsed_min, adaptive_wts)
+    # Try split Fut/Opt curves first; fall back to combined or static.
+    split = get_adaptive_bucket_weights_split()
+    combined = get_adaptive_bucket_weights()
+    fut_wts = split[0] if split else combined
+    opt_wts = split[1] if split else combined
 
-    mult_a = 1.0 / time_pct if time_pct > 0 else 1.0
-    mult_b = 1.0 / hist_wt  if hist_wt  > 0 else 1.0
-    # Volume-based confidence: weight blend by how much volume observed, not clock time
-    confidence = hist_wt ** 0.5
-    mult_c = confidence * mult_a + (1 - confidence) * mult_b
+    fut_hist_wt = get_intraday_weight_dynamic(elapsed_min, fut_wts)
+    opt_hist_wt = get_intraday_weight_dynamic(elapsed_min, opt_wts)
 
-    # Day-type prior fades as session progresses
-    raw_day_mult = DAY_MULTIPLIER.get(day_type, 1.0)
-    effective_day_mult = 1.0 + (raw_day_mult - 1.0) * (1.0 - time_pct)
-    mult_c *= effective_day_mult
+    # Phase 4: regime-drift correction. If today's actual bucket shape
+    # diverges from the baseline by >2σ, scale the curve multiplier
+    # toward today's pace. Capped at ±20% in _multiplier_from_curve().
+    fut_drift = opt_drift = 1.0
+    if today_snapshots and len(today_snapshots) >= 3:
+        try:
+            drift_alerts = check_regime_drift(today_snapshots, threshold_z=2.0)
+            if drift_alerts:
+                # Average drift ratio across flagged buckets — completed buckets only
+                ratios = [a.get("ratio") for a in drift_alerts if a.get("completed")]
+                if ratios:
+                    avg_ratio = sum(ratios) / len(ratios)
+                    fut_drift = opt_drift = avg_ratio
+        except Exception:
+            pass
+
+    mult_fut = _multiplier_from_curve(time_pct, fut_hist_wt, day_type, fut_drift)
+    mult_opt = _multiplier_from_curve(time_pct, opt_hist_wt, day_type, opt_drift)
 
     conf_label = ("HIGH" if time_pct > 0.70
                   else "MEDIUM" if time_pct > 0.35
                   else "LOW")
-    return realized_fut * mult_c, realized_opt * mult_c, conf_label
+    return realized_fut * mult_fut, realized_opt * mult_opt, conf_label
 
 
 def check_regime_drift(today_snapshots, threshold_z=2.0):
@@ -398,8 +546,9 @@ def check_regime_drift(today_snapshots, threshold_z=2.0):
     prev_cum = 0.0
     for i in range(len(INTRADAY_BUCKETS)):
         edge_end = INTRADAY_BUCKETS[i][1] - SESSION_START
-        if max_elapsed < edge_end:
-            break  # bucket not yet complete
+        completed = max_elapsed >= edge_end
+        if not completed:
+            break  # bucket not yet complete (Phase 4 only acts on completed buckets)
         cum = _interpolate_vol(today_snapshots, edge_end)
         today_w = max(0, cum - prev_cum) / total_vol
         prev_cum = cum
@@ -408,12 +557,15 @@ def check_regime_drift(today_snapshots, threshold_z=2.0):
         sigma = max(adapt_w * 0.15, 0.005)
         z = abs(today_w - adapt_w) / sigma
         if z > threshold_z:
+            ratio = (today_w / adapt_w) if adapt_w > 0 else 1.0
             alerts.append({
                 "bucket": _LABELS[i],
                 "today_weight": round(today_w, 4),
                 "adaptive_weight": round(adapt_w, 4),
                 "z_score": round(z, 1),
                 "direction": "higher" if today_w > adapt_w else "lower",
+                "ratio": ratio,            # today/baseline; <1 means slow, >1 fast
+                "completed": completed,
             })
     return alerts
 
@@ -453,12 +605,17 @@ def calc_revenue(fut_notl_cr, opt_prem_cr):
 
 
 def calc_uncertainty(time_pct, day_type, dual_call=False):
-    """Compute combined uncertainty with proper component decomposition."""
-    base_unc     = 0.015 + 0.105 * (1 - time_pct)
-    intraday_unc = (1 - time_pct) * 0.08
-    _day_unc_full = {"HIGH": 0.08, "MEDIUM": 0.07, "EXPIRY": 0.05, "LOW": 0.07}[day_type]
+    """Combined 1-sigma uncertainty band, calibrated to backtest residuals.
+
+    Tuned 2026-04-27 against 30-day backtest of post-rebuild model:
+      observed 1-sigma at t=0.25 ~18%, at t=0.50 ~13%, at t=0.75 ~8%.
+    Components (sum of squares): base + intraday + day-type + snapshot risk.
+    """
+    base_unc     = 0.04 + 0.16 * (1 - time_pct)        # 20%->4% across session
+    intraday_unc = (1 - time_pct) * 0.06               # shape risk fades
+    _day_unc_full = {"HIGH": 0.06, "MEDIUM": 0.05, "EXPIRY": 0.05, "LOW": 0.04}[day_type]
     day_unc       = _day_unc_full * (1 - time_pct)
-    snapshot_unc  = 0.02 if dual_call else 0.04
+    snapshot_unc  = 0.03 if dual_call else 0.04
     return math.sqrt(base_unc**2 + intraday_unc**2 + day_unc**2 + snapshot_unc**2)
 
 

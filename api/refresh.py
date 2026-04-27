@@ -351,7 +351,16 @@ class handler(BaseHTTPRequestHandler):
                 result["day_multiplier"] = result.get("day_multiplier") or DAY_MULTIPLIER.get(day_type, 1.0)
 
                 if result.get("proj_fut_cr") is None or result.get("proj_opt_cr") is None:
-                    pf, po, conf = project_full_day(fut_n, opt_p, elapsed, day_type)
+                    # Phase 4: pass today's prior snapshots for regime-drift detection
+                    try:
+                        today_snaps = supabase_read(
+                            "mcx_snapshots",
+                            f"?trading_date=eq.{today}&select=elapsed_min,fut_notl_cr,opt_prem_cr&order=elapsed_min.asc"
+                        )
+                    except Exception:
+                        today_snaps = None
+                    pf, po, conf = project_full_day(fut_n, opt_p, elapsed, day_type,
+                                                    today_snapshots=today_snaps)
                     result["proj_fut_cr"] = round(pf, 2)
                     result["proj_opt_cr"] = round(po, 2)
                     _, _, _, total_rev = calc_revenue(pf, po)
