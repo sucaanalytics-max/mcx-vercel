@@ -1189,6 +1189,152 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 .exd-kpi-subs { font-size: 0.65rem; font-family: var(--mono); line-height: 1.6; margin-top: 0.25rem; }
 .exd-kpi-sublabel { color: var(--text-secondary); }
 
+/* ── 4-UP GRID (PDF-style timeline mini-tables) ────────────────────────── */
+.exd-4up-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+@media (max-width: 900px) { .exd-4up-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 600px) { .exd-4up-grid { grid-template-columns: 1fr; } }
+.exd-mini {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  display: flex;
+  flex-direction: column;
+}
+.exd-mini-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 6px 10px;
+  border-bottom: 2px solid var(--border-heavy);
+  background: var(--surface2);
+}
+.exd-mini-title {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text);
+}
+.exd-mini-head-chips {
+  display: flex;
+  gap: 6px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+.exd-mini-head-chips span { min-width: 44px; text-align: right; }
+.exd-mini-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.exd-mini-row:last-child { border-bottom: none; }
+.exd-mini-row-label {
+  flex: 1;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.exd-mini-row-val {
+  min-width: 56px;
+  text-align: right;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.exd-mini-row-chg {
+  min-width: 44px;
+  text-align: right;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.exd-mini-row--current { background: color-mix(in srgb, var(--accent2) 6%, transparent); }
+.exd-mini-row--current .exd-mini-row-val { color: var(--accent2); }
+.exd-mini-row--avg .exd-mini-row-label { font-style: italic; }
+
+/* ── PAT PREDICTOR (Interactive Forecast) ──────────────────────────────── */
+.pat-card { padding: 16px 20px; margin-bottom: 24px; }
+.pat-block { margin-bottom: 18px; }
+.pat-block:last-child { margin-bottom: 0; }
+.pat-block-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+.pat-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 12px;
+  table-layout: fixed;
+}
+.pat-table th, .pat-table td {
+  padding: 6px 10px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  border-bottom: 1px solid var(--border);
+}
+.pat-table th {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+  border-bottom: 2px solid var(--border-heavy);
+  background: var(--surface2);
+}
+.pat-table th:first-child, .pat-table td:first-child {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text);
+  width: 38%;
+}
+.pat-table tr:hover td { background: var(--surface2); }
+.pat-table tr.pat-row--total td {
+  font-weight: 800;
+  border-top: 1px solid var(--border-heavy);
+  background: color-mix(in srgb, var(--accent2) 5%, transparent);
+}
+.pat-table tr.pat-row--target td {
+  font-weight: 800;
+  border-top: 2px solid var(--border-heavy);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  color: var(--accent);
+}
+.pat-input {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  text-align: right;
+}
+.pat-input:focus { outline: none; border-color: var(--accent); }
+.pat-derived {
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
 /* ═══ MOMENTUM TAB STYLES ════════════════════════════════════════════════ */
 .mom-hero-grid {
   display: grid;
@@ -1591,6 +1737,140 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 <!-- ═══ TAB: INTERACTIVE FORECAST ═══════════════════════════════════════════ -->
 <div id="tabForecast" style="display:none">
 <div class="wrap">
+
+<!-- ── PAT PREDICTOR (multi-year trend + FY27 scenario) ─────────────────── -->
+<div class="card pat-card">
+  <div class="card-title" style="margin-bottom:14px">PAT Predictor</div>
+
+  <div class="pat-block">
+    <div class="pat-block-title">Based on latest trend</div>
+    <table class="pat-table" id="patTrendTable">
+      <thead>
+        <tr><th></th><th>FY26</th><th>FY27</th><th>FY28</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Revenue per day (₹ Cr)</td>
+          <td><input type="number" class="pat-input" data-pt-input="adr" data-pt-yr="26" value="6.5" step="0.1"></td>
+          <td><input type="number" class="pat-input" data-pt-input="adr" data-pt-yr="27" value="11.2" step="0.1"></td>
+          <td><input type="number" class="pat-input" data-pt-input="adr" data-pt-yr="28" value="13.5" step="0.1"></td>
+        </tr>
+        <tr><td>No. of days</td>
+          <td><input type="number" class="pat-input" data-pt-input="days" data-pt-yr="26" value="253" step="1"></td>
+          <td><input type="number" class="pat-input" data-pt-input="days" data-pt-yr="27" value="254" step="1"></td>
+          <td><input type="number" class="pat-input" data-pt-input="days" data-pt-yr="28" value="254" step="1"></td>
+        </tr>
+        <tr><td>Operating Revenue (₹ Cr)</td>
+          <td class="pat-derived" data-pt-out="opRev" data-pt-yr="26">—</td>
+          <td class="pat-derived" data-pt-out="opRev" data-pt-yr="27">—</td>
+          <td class="pat-derived" data-pt-out="opRev" data-pt-yr="28">—</td>
+        </tr>
+        <tr><td>Other Revenue (₹ Cr)</td>
+          <td><input type="number" class="pat-input" data-pt-input="other" data-pt-yr="26" value="280" step="1"></td>
+          <td><input type="number" class="pat-input" data-pt-input="other" data-pt-yr="27" value="336" step="1"></td>
+          <td><input type="number" class="pat-input" data-pt-input="other" data-pt-yr="28" value="403" step="1"></td>
+        </tr>
+        <tr class="pat-row--total"><td>Total Revenue (₹ Cr)</td>
+          <td data-pt-out="totRev" data-pt-yr="26">—</td>
+          <td data-pt-out="totRev" data-pt-yr="27">—</td>
+          <td data-pt-out="totRev" data-pt-yr="28">—</td>
+        </tr>
+        <tr><td>PAT Margin (%)</td>
+          <td><input type="number" class="pat-input" data-pt-input="margin" data-pt-yr="26" value="53" step="0.1"></td>
+          <td><input type="number" class="pat-input" data-pt-input="margin" data-pt-yr="27" value="60" step="0.1"></td>
+          <td><input type="number" class="pat-input" data-pt-input="margin" data-pt-yr="28" value="60" step="0.1"></td>
+        </tr>
+        <tr><td>PAT (₹ Cr)</td>
+          <td class="pat-derived" data-pt-out="pat" data-pt-yr="26">—</td>
+          <td class="pat-derived" data-pt-out="pat" data-pt-yr="27">—</td>
+          <td class="pat-derived" data-pt-out="pat" data-pt-yr="28">—</td>
+        </tr>
+        <tr><td>EPS (₹)</td>
+          <td class="pat-derived" data-pt-out="eps" data-pt-yr="26">—</td>
+          <td class="pat-derived" data-pt-out="eps" data-pt-yr="27">—</td>
+          <td class="pat-derived" data-pt-out="eps" data-pt-yr="28">—</td>
+        </tr>
+        <tr><td>P/E</td>
+          <td><input type="number" class="pat-input" data-pt-input="pe" data-pt-yr="26" value="55" step="0.5"></td>
+          <td><input type="number" class="pat-input" data-pt-input="pe" data-pt-yr="27" value="42" step="0.5"></td>
+          <td><input type="number" class="pat-input" data-pt-input="pe" data-pt-yr="28" value="55" step="0.5"></td>
+        </tr>
+        <tr class="pat-row--target"><td>Price Target (₹)</td>
+          <td data-pt-out="px" data-pt-yr="26">—</td>
+          <td data-pt-out="px" data-pt-yr="27">—</td>
+          <td data-pt-out="px" data-pt-yr="28">—</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="pat-block">
+    <div class="pat-block-title">Scenario Analysis — FY27 (Bear / Base / Bull)</div>
+    <table class="pat-table" id="patScenTable">
+      <thead>
+        <tr><th></th><th>Bear</th><th>Base</th><th>Bull</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Growth (%)</td>
+          <td><input type="number" class="pat-input" data-ps-input="growth" data-ps-sc="bear" value="0" step="1"></td>
+          <td><input type="number" class="pat-input" data-ps-input="growth" data-ps-sc="base" value="0" step="1"></td>
+          <td><input type="number" class="pat-input" data-ps-input="growth" data-ps-sc="bull" value="0" step="1"></td>
+        </tr>
+        <tr><td>ADR (₹ Cr)</td>
+          <td><input type="number" class="pat-input" data-ps-input="adr" data-ps-sc="bear" value="11.2" step="0.1"></td>
+          <td><input type="number" class="pat-input" data-ps-input="adr" data-ps-sc="base" value="11.2" step="0.1"></td>
+          <td><input type="number" class="pat-input" data-ps-input="adr" data-ps-sc="bull" value="11.2" step="0.1"></td>
+        </tr>
+        <tr><td>Other Income (₹ Cr)</td>
+          <td><input type="number" class="pat-input" data-ps-input="other" data-ps-sc="bear" value="336" step="1"></td>
+          <td><input type="number" class="pat-input" data-ps-input="other" data-ps-sc="base" value="336" step="1"></td>
+          <td><input type="number" class="pat-input" data-ps-input="other" data-ps-sc="bull" value="336" step="1"></td>
+        </tr>
+        <tr><td>Total Income (₹ Cr)</td>
+          <td class="pat-derived" data-ps-out="totInc" data-ps-sc="bear">—</td>
+          <td class="pat-derived" data-ps-out="totInc" data-ps-sc="base">—</td>
+          <td class="pat-derived" data-ps-out="totInc" data-ps-sc="bull">—</td>
+        </tr>
+        <tr><td>PAT Margin (%)</td>
+          <td><input type="number" class="pat-input" data-ps-input="margin" data-ps-sc="bear" value="60" step="0.1"></td>
+          <td><input type="number" class="pat-input" data-ps-input="margin" data-ps-sc="base" value="60" step="0.1"></td>
+          <td><input type="number" class="pat-input" data-ps-input="margin" data-ps-sc="bull" value="60" step="0.1"></td>
+        </tr>
+        <tr><td>EPS (₹)</td>
+          <td class="pat-derived" data-ps-out="eps" data-ps-sc="bear">—</td>
+          <td class="pat-derived" data-ps-out="eps" data-ps-sc="base">—</td>
+          <td class="pat-derived" data-ps-out="eps" data-ps-sc="bull">—</td>
+        </tr>
+        <tr><td>P/E</td>
+          <td><input type="number" class="pat-input" data-ps-input="pe" data-ps-sc="bear" value="36" step="0.5"></td>
+          <td><input type="number" class="pat-input" data-ps-input="pe" data-ps-sc="base" value="42" step="0.5"></td>
+          <td><input type="number" class="pat-input" data-ps-input="pe" data-ps-sc="bull" value="48" step="0.5"></td>
+        </tr>
+        <tr><td>Price Target FY27 (₹)</td>
+          <td class="pat-derived" data-ps-out="px" data-ps-sc="bear">—</td>
+          <td class="pat-derived" data-ps-out="px" data-ps-sc="base">—</td>
+          <td class="pat-derived" data-ps-out="px" data-ps-sc="bull">—</td>
+        </tr>
+        <tr><td>Upside vs CMP (%)</td>
+          <td class="pat-derived" data-ps-out="upside" data-ps-sc="bear">—</td>
+          <td class="pat-derived" data-ps-out="upside" data-ps-sc="base">—</td>
+          <td class="pat-derived" data-ps-out="upside" data-ps-sc="bull">—</td>
+        </tr>
+        <tr><td>Discount (%)
+          <input type="number" class="pat-input" id="patScenDiscount" value="18" step="0.5" style="width:60px;margin-left:8px"></td>
+          <td class="pat-derived">—</td><td class="pat-derived">—</td><td class="pat-derived">—</td>
+        </tr>
+        <tr class="pat-row--target"><td>Target Price (₹)</td>
+          <td data-ps-out="tgtPx" data-ps-sc="bear">—</td>
+          <td data-ps-out="tgtPx" data-ps-sc="base">—</td>
+          <td data-ps-out="tgtPx" data-ps-sc="bull">—</td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:8px">
+      Shares outstanding pulled from Advanced Assumptions below (default 25.5 Cr). Upside computed against live CMP.
+    </div>
+  </div>
+</div>
 
 <!-- ── CURRENT vs MODEL HERO ─────────────────────────────────────────────── -->
 <div class="fc-hero-row">
@@ -2509,19 +2789,19 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   </div>
   <div class="card">
     <div class="card-title">Financial Year Summary</div>
-    <div style="overflow-x:auto"><table class="exd-table" id="exdFyTable"></table></div>
+    <div class="exd-4up-grid" id="exdFyGrid"></div>
   </div>
   <div class="card">
     <div class="card-title">Quarterly Breakdown</div>
-    <div style="overflow-x:auto"><table class="exd-table" id="exdQtrTable"></table></div>
+    <div class="exd-4up-grid" id="exdQtrGrid"></div>
   </div>
   <div class="card">
     <div class="card-title">Monthly Breakdown</div>
-    <div style="overflow-x:auto"><table class="exd-table" id="exdMonthTable"></table></div>
+    <div class="exd-4up-grid" id="exdMonthGrid"></div>
   </div>
   <div class="card">
     <div class="card-title">Weekly Breakdown</div>
-    <div style="overflow-x:auto"><table class="exd-table" id="exdWeekTable"></table></div>
+    <div class="exd-4up-grid" id="exdWeekGrid"></div>
   </div>
   <div class="card">
     <div class="card-title">Day-of-Week Analysis</div>
@@ -3507,6 +3787,68 @@ function calcModel(dailyRev, pe, inp) {
 
 function fmtInr(n) { return Math.round(n).toLocaleString('en-IN'); }
 
+// ── PAT PREDICTOR ──────────────────────────────────────────────────────
+function recomputePatPredictor() {
+  const sharesEl = document.getElementById('fcAdvShares');
+  const cmpEl = document.getElementById('fcAdvCMP');
+  const shares = parseFloat(sharesEl && sharesEl.value) || 25.5;
+  const cmp = parseFloat(cmpEl && cmpEl.value) || 2396;
+  const fmtCr = n => Number.isFinite(n) ? Math.round(n).toLocaleString('en-IN') : '—';
+  const fmtPctSign = n => {
+    if (!Number.isFinite(n)) return '—';
+    const sign = n > 0 ? '+' : '';
+    return sign + n.toFixed(1) + '%';
+  };
+  const setText = (sel, val) => {
+    const el = document.querySelector(sel);
+    if (el) el.textContent = val;
+  };
+  const setUpside = (sel, val, n) => {
+    const el = document.querySelector(sel);
+    if (!el) return;
+    el.textContent = val;
+    el.classList.remove('chg-pos','chg-neg','chg-neutral');
+    el.classList.add(n > 0 ? 'chg-pos' : n < 0 ? 'chg-neg' : 'chg-neutral');
+  };
+
+  // Trend table (FY26/27/28)
+  let fy27Days = 254;
+  ['26','27','28'].forEach(yr => {
+    const get = (k) => parseFloat((document.querySelector('[data-pt-input="'+k+'"][data-pt-yr="'+yr+'"]') || {}).value) || 0;
+    const adr = get('adr'), days = get('days'), other = get('other'), margin = get('margin'), pe = get('pe');
+    const opRev = adr * days;
+    const totRev = opRev + other;
+    const pat = totRev * margin / 100;
+    const eps = shares > 0 ? pat / shares : 0;
+    const px = eps * pe;
+    setText('[data-pt-out="opRev"][data-pt-yr="'+yr+'"]', fmtCr(opRev));
+    setText('[data-pt-out="totRev"][data-pt-yr="'+yr+'"]', fmtCr(totRev));
+    setText('[data-pt-out="pat"][data-pt-yr="'+yr+'"]', fmtCr(pat));
+    setText('[data-pt-out="eps"][data-pt-yr="'+yr+'"]', fmtCr(eps));
+    setText('[data-pt-out="px"][data-pt-yr="'+yr+'"]', '₹' + fmtCr(px));
+    if (yr === '27') fy27Days = days || 254;
+  });
+
+  // Scenario table (FY27 Bear/Base/Bull)
+  const discount = parseFloat((document.getElementById('patScenDiscount') || {}).value) || 0;
+  ['bear','base','bull'].forEach(sc => {
+    const get = (k) => parseFloat((document.querySelector('[data-ps-input="'+k+'"][data-ps-sc="'+sc+'"]') || {}).value) || 0;
+    const growth = get('growth'), adr = get('adr'), other = get('other'), margin = get('margin'), pe = get('pe');
+    const adrEff = adr * (1 + growth / 100);
+    const totInc = adrEff * fy27Days + other;
+    const pat = totInc * margin / 100;
+    const eps = shares > 0 ? pat / shares : 0;
+    const px = eps * pe;
+    const upside = cmp > 0 ? (px - cmp) / cmp * 100 : 0;
+    const tgtPx = (1 + discount / 100) > 0 ? px / (1 + discount / 100) : px;
+    setText('[data-ps-out="totInc"][data-ps-sc="'+sc+'"]', fmtCr(totInc));
+    setText('[data-ps-out="eps"][data-ps-sc="'+sc+'"]', fmtCr(eps));
+    setText('[data-ps-out="px"][data-ps-sc="'+sc+'"]', '₹' + fmtCr(px));
+    setUpside('[data-ps-out="upside"][data-ps-sc="'+sc+'"]', fmtPctSign(upside), upside);
+    setText('[data-ps-out="tgtPx"][data-ps-sc="'+sc+'"]', '₹' + fmtCr(tgtPx));
+  });
+}
+
 function recalcForecast() {
   const inp = getFcInputs();
   const base = calcModel(inp.dailyRev, inp.pe, inp);
@@ -3554,6 +3896,9 @@ function recalcForecast() {
 
   // Implied metrics — reverse-engineer from CMP
   calcImpliedMetrics(inp, base);
+
+  // PAT Predictor (picks up live CMP + shares from Advanced Assumptions)
+  recomputePatPredictor();
 }
 
 function renderScenario(name, m, dailyRev, pe, cmp) {
@@ -3640,6 +3985,11 @@ syncSlider('fcPeSlider', 'fcPeInput');
  'scBearRevPct','scBearPePct','scBullRevPct','scBullPePct'].forEach(id => {
   document.getElementById(id).addEventListener('input', recalcForecast);
 });
+
+// PAT Predictor inputs trigger live recompute
+document.querySelectorAll('[data-pt-input], [data-ps-input], #patScenDiscount')
+  .forEach(el => el.addEventListener('input', recomputePatPredictor));
+recomputePatPredictor();
 
 // Seed forecast default daily rev from API when available
 function seedForecastFromAPI(totalRev) {
@@ -5418,30 +5768,26 @@ function renderExchange(data) {
         'Latest trading day: ' + ld.date + '</div>';
   }
 
-  renderExdTable('exdFyTable', data.fy_summary || [], [
-    {key:'fy',label:'',align:'left'},{key:'avg_fut',label:'FUTURE'},{key:'yoy_fut',label:'YoY',isChg:true},
-    {key:'avg_opt',label:'OPTION'},{key:'yoy_opt',label:'YoY',isChg:true},
-    {key:'avg_total',label:'TOTAL'},{key:'yoy_total',label:'YoY',isChg:true},
-    {key:'of_ratio',label:'O/F'},{key:'yoy_of',label:'YoY',isChg:true},{key:'trading_days',label:'Days'}
-  ]);
-  renderExdTable('exdQtrTable', data.quarterly || [], [
-    {key:'quarter',label:'',align:'left'},{key:'avg_fut',label:'FUTURE'},{key:'qoq_fut',label:'QoQ',isChg:true},{key:'yoy_fut',label:'YoY',isChg:true},
-    {key:'avg_opt',label:'OPTION'},{key:'qoq_opt',label:'QoQ',isChg:true},{key:'yoy_opt',label:'YoY',isChg:true},
-    {key:'avg_total',label:'TOTAL'},{key:'qoq_total',label:'QoQ',isChg:true},{key:'yoy_total',label:'YoY',isChg:true},
-    {key:'of_ratio',label:'O/F'},{key:'qoq_of',label:'QoQ',isChg:true},{key:'yoy_of',label:'YoY',isChg:true}
-  ]);
-  renderExdTable('exdMonthTable', data.monthly || [], [
-    {key:'label',label:'',align:'left'},{key:'avg_fut',label:'FUTURE'},{key:'mom_fut',label:'MoM',isChg:true},{key:'mo6m_fut',label:'Mo6M',isChg:true},
-    {key:'avg_opt',label:'OPTION'},{key:'mom_opt',label:'MoM',isChg:true},{key:'mo6m_opt',label:'Mo6M',isChg:true},
-    {key:'avg_total',label:'TOTAL'},{key:'mom_total',label:'MoM',isChg:true},{key:'mo6m_total',label:'Mo6M',isChg:true},
-    {key:'of_ratio',label:'O/F'},{key:'mom_of',label:'MoM',isChg:true},{key:'mo6m_of',label:'Mo6M',isChg:true}
-  ]);
-  renderExdTable('exdWeekTable', data.weekly || [], [
-    {key:'label',label:'',align:'left'},{key:'avg_fut',label:'FUTURE'},{key:'wow_fut',label:'WoW',isChg:true},{key:'wo10w_fut',label:'Wo10W',isChg:true},
-    {key:'avg_opt',label:'OPTION'},{key:'wow_opt',label:'WoW',isChg:true},{key:'wo10w_opt',label:'Wo10W',isChg:true},
-    {key:'avg_total',label:'TOTAL'},{key:'wow_total',label:'WoW',isChg:true},{key:'wo10w_total',label:'Wo10W',isChg:true},
-    {key:'of_ratio',label:'O/F'},{key:'wow_of',label:'WoW',isChg:true},{key:'wo10w_of',label:'Wo10W',isChg:true}
-  ]);
+  renderExd4Up('exdFyGrid', data.fy_summary || [], {
+    periodKey: 'fy',
+    chips: [{prefix:'yoy', label:'YoY'}],
+    maxRows: 3
+  });
+  renderExd4Up('exdQtrGrid', data.quarterly || [], {
+    periodKey: 'quarter',
+    chips: [{prefix:'qoq', label:'QoQ'}, {prefix:'yoy', label:'YoY'}],
+    maxRows: 3
+  });
+  renderExd4Up('exdMonthGrid', data.monthly || [], {
+    periodKey: 'label',
+    chips: [{prefix:'mom', label:'MoM'}, {prefix:'mo6m', label:'Mo6M'}],
+    maxRows: 4
+  });
+  renderExd4Up('exdWeekGrid', data.weekly || [], {
+    periodKey: 'label',
+    chips: [{prefix:'wow', label:'WoW'}, {prefix:'wo10w', label:'Wo10W'}],
+    maxRows: 3
+  });
 
   // Day-of-Week
   const dowData = data.day_of_week || [];
@@ -5496,6 +5842,62 @@ function renderExchange(data) {
 function _exdPct(cur, prev) {
   if (!prev || prev === 0) return null;
   return Math.round((cur - prev) / Math.abs(prev) * 100);
+}
+
+function _exdChgInline(v) {
+  if (v == null) return '<span class="exd-mini-row-chg chg-neutral">—</span>';
+  const cls = v > 0 ? 'chg-pos' : v < 0 ? 'chg-neg' : 'chg-neutral';
+  const sign = v > 0 ? '+' : '';
+  return '<span class="exd-mini-row-chg ' + cls + '">' + sign + Math.round(v) + '%</span>';
+}
+
+function renderExd4Up(containerId, rows, opts) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  if (!rows || !rows.length) { container.innerHTML = ''; return; }
+
+  const metrics = [
+    {stem:'fut', label:'Commodity FUTURE', valKey:'avg_fut'},
+    {stem:'opt', label:'Commodity OPTION', valKey:'avg_opt'},
+    {stem:'total', label:'TOTAL', valKey:'avg_total'},
+    {stem:'of', label:'O/F RATIO', valKey:'of_ratio'}
+  ];
+  const chips = opts.chips || [];
+  const periodKey = opts.periodKey;
+  const maxRows = opts.maxRows || 3;
+
+  let html = '';
+  for (const m of metrics) {
+    html += '<div class="exd-mini">';
+    html += '<div class="exd-mini-head">';
+    html += '<span class="exd-mini-title">' + m.label + '</span>';
+    if (chips.length) {
+      html += '<span class="exd-mini-head-chips">';
+      for (const c of chips) html += '<span>' + c.label + '</span>';
+      html += '</span>';
+    }
+    html += '</div>';
+
+    const limit = Math.min(rows.length, maxRows);
+    for (let i = 0; i < limit; i++) {
+      const row = rows[i];
+      const rowCls = (i === 0 ? ' exd-mini-row--current' : '') + (row.is_average ? ' exd-mini-row--avg' : '');
+      html += '<div class="exd-mini-row' + rowCls + '">';
+      html += '<span class="exd-mini-row-label">' + (row[periodKey] != null ? row[periodKey] : '') + '</span>';
+      html += '<span class="exd-mini-row-val">' + exdFmt(row[m.valKey]) + '</span>';
+      if (i === 0) {
+        for (const c of chips) {
+          const chgKey = c.prefix + '_' + m.stem;
+          html += _exdChgInline(row[chgKey]);
+        }
+      } else {
+        for (const _ of chips) html += '<span class="exd-mini-row-chg"></span>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+  container.innerHTML = html;
 }
 
 function renderExdTable(tableId, rows, cols) {
