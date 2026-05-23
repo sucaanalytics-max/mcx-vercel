@@ -6509,6 +6509,11 @@ function momMeanStd(arr) {
 // Chart.js plugin: draws Mean \u00b1 1\u03c3 / \u00b12\u03c3 horizontal lines on `yAxisId`,
 // reading live state from momShowBands. Lines falling outside the visible
 // Y range are skipped (no auto-axis-extension).
+//
+// High-contrast styling: slate-800 (light) / slate-100 (dark), with a
+// visual hierarchy \u2014 \u03bc is thickest+brightest, \u00b11\u03c3 medium, \u00b12\u03c3 thinnest.
+// Each line carries a labeled pill ("\u03bc 0.923", "+1\u03c3 0.978" \u2026) so the
+// bands convey the actual stat values, not just symbols.
 function makeBandsPlugin(stats, yAxisId, isDark) {
   return {
     id: 'controlBands',
@@ -6517,31 +6522,58 @@ function makeBandsPlugin(stats, yAxisId, isDark) {
       const ax = chart.scales[yAxisId];
       if (!ax) return;
       const { ctx: c, chartArea: { left, right, top, bottom } } = chart;
-      const baseRGB = isDark ? '224,221,216' : '107,101,96';
+
+      const lineRGB     = isDark ? '241,245,249' : '31,41,55';
+      const labelBg     = isDark ? 'rgba(15,23,42,0.92)'    : 'rgba(255,255,255,0.95)';
+      const labelBorder = isDark ? 'rgba(241,245,249,0.4)'  : 'rgba(31,41,55,0.4)';
+
+      const fmt = function(v) { return Math.abs(v) >= 100 ? v.toFixed(1) : v.toFixed(3); };
+
       const levels = [
-        { v: stats.mean + 2 * stats.sd, label: '+2\u03c3', dash: [2, 4], alpha: 0.40 },
-        { v: stats.mean + stats.sd,     label: '+1\u03c3', dash: [6, 4], alpha: 0.55 },
-        { v: stats.mean,                label: '\u03bc',   dash: [],     alpha: 0.70 },
-        { v: stats.mean - stats.sd,     label: '\u22121\u03c3', dash: [6, 4], alpha: 0.55 },
-        { v: stats.mean - 2 * stats.sd, label: '\u22122\u03c3', dash: [2, 4], alpha: 0.40 },
+        { v: stats.mean + 2 * stats.sd, label: '+2\u03c3', dash: [2, 3], lw: 1.5, alpha: 0.70 },
+        { v: stats.mean + stats.sd,     label: '+1\u03c3', dash: [6, 4], lw: 2.0, alpha: 0.88 },
+        { v: stats.mean,                label: '\u03bc',   dash: [],     lw: 2.5, alpha: 1.00 },
+        { v: stats.mean - stats.sd,     label: '\u22121\u03c3', dash: [6, 4], lw: 2.0, alpha: 0.88 },
+        { v: stats.mean - 2 * stats.sd, label: '\u22122\u03c3', dash: [2, 3], lw: 1.5, alpha: 0.70 },
       ];
+
       c.save();
-      c.font = "9px 'JetBrains Mono', monospace";
+      c.font = "bold 10px 'JetBrains Mono', monospace";
       c.textBaseline = 'middle';
-      c.textAlign = 'right';
+      c.textAlign = 'left';
+
       levels.forEach(function(l) {
         const y = ax.getPixelForValue(l.v);
         if (y < top || y > bottom) return;
-        c.strokeStyle = 'rgba(' + baseRGB + ',' + l.alpha + ')';
+
+        // Horizontal line spanning the chart area.
+        c.strokeStyle = 'rgba(' + lineRGB + ',' + l.alpha + ')';
         c.setLineDash(l.dash);
-        c.lineWidth = 1;
+        c.lineWidth = l.lw;
         c.beginPath();
         c.moveTo(left, y);
         c.lineTo(right, y);
         c.stroke();
         c.setLineDash([]);
-        c.fillStyle = 'rgba(' + baseRGB + ',' + Math.min(1, l.alpha + 0.25) + ')';
-        c.fillText(l.label, right - 4, y - 7);
+
+        // Labeled pill at the right edge \u2014 pill background hides the line
+        // behind the text so it reads cleanly at any contrast.
+        const text = l.label + ' ' + fmt(l.v);
+        const m = c.measureText(text);
+        const padX = 6;
+        const w = m.width + padX * 2;
+        const h = 16;
+        const x = right - w - 4;
+        const yTop = y - h / 2;
+
+        c.fillStyle = labelBg;
+        c.fillRect(x, yTop, w, h);
+        c.strokeStyle = labelBorder;
+        c.lineWidth = 0.75;
+        c.strokeRect(x + 0.5, yTop + 0.5, w - 1, h - 1);
+
+        c.fillStyle = 'rgba(' + lineRGB + ',1)';
+        c.fillText(text, x + padX, y);
       });
       c.restore();
     }
