@@ -6426,6 +6426,7 @@ function setMomRange(r) {
   const b = document.getElementById('momPriceRangeLabel');
   if (a) a.textContent = label;
   if (b) b.textContent = label;
+  if (typeof momHideTooltip === 'function') momHideTooltip();
   loadMomentum();
 }
 
@@ -6508,10 +6509,19 @@ function momMeanStd(arr) {
   return { mean: mean, sd: Math.sqrt(variance), n: n };
 }
 
+// Theme-aware semantic palette for control bands \u2014 \u03bc (green), \u00b11\u03c3 (amber),
+// \u00b12\u03c3 (red). Exposed as a function so the tooltip + stats strip can use
+// the same colors as the chart.
+function momBandColors(isDark) {
+  return isDark
+    ? { mean: '#22C55E', s1: '#FBBF24', s2: '#EF4444' }
+    : { mean: '#16A34A', s1: '#D97706', s2: '#DC2626' };
+}
+
 // Chart.js plugin: draws Mean \u00b1 1\u03c3 / \u00b12\u03c3 horizontal lines on `yAxisId`,
 // reading live state from momShowBands. Lines falling outside the visible
-// Y range are skipped (no auto-axis-extension). No inline labels \u2014 band
-// values live in the stats strip above the chart and in the tooltip.
+// Y range are skipped (no auto-axis-extension). Thick, bold, distinct
+// colors per band \u2014 no inline labels (values live in stats strip + tooltip).
 function makeBandsPlugin(stats, yAxisId, isDark) {
   return {
     id: 'controlBands',
@@ -6520,22 +6530,22 @@ function makeBandsPlugin(stats, yAxisId, isDark) {
       const ax = chart.scales[yAxisId];
       if (!ax) return;
       const { ctx: c, chartArea: { left, right, top, bottom } } = chart;
-
-      const lineRGB = isDark ? '241,245,249' : '31,41,55';
+      const col = momBandColors(isDark);
 
       const levels = [
-        { v: stats.mean + 2 * stats.sd, dash: [2, 3], lw: 1.5, alpha: 0.70 },
-        { v: stats.mean + stats.sd,     dash: [6, 4], lw: 2.0, alpha: 0.88 },
-        { v: stats.mean,                dash: [],     lw: 2.5, alpha: 1.00 },
-        { v: stats.mean - stats.sd,     dash: [6, 4], lw: 2.0, alpha: 0.88 },
-        { v: stats.mean - 2 * stats.sd, dash: [2, 3], lw: 1.5, alpha: 0.70 },
+        { v: stats.mean + 2 * stats.sd, color: col.s2,   dash: [3, 4],  lw: 2.5 },
+        { v: stats.mean + stats.sd,     color: col.s1,   dash: [12, 5], lw: 3.0 },
+        { v: stats.mean,                color: col.mean, dash: [],      lw: 4.0 },
+        { v: stats.mean - stats.sd,     color: col.s1,   dash: [12, 5], lw: 3.0 },
+        { v: stats.mean - 2 * stats.sd, color: col.s2,   dash: [3, 4],  lw: 2.5 },
       ];
 
       c.save();
+      c.lineCap = 'round';
       levels.forEach(function(l) {
         const y = ax.getPixelForValue(l.v);
         if (y < top || y > bottom) return;
-        c.strokeStyle = 'rgba(' + lineRGB + ',' + l.alpha + ')';
+        c.strokeStyle = l.color;
         c.setLineDash(l.dash);
         c.lineWidth = l.lw;
         c.beginPath();
@@ -6557,35 +6567,201 @@ function momFmtBandVal(v, isPrice) {
     : v.toFixed(3);
 }
 
-// Renders the stats strip below a chart title.
+// Small DOM helpers — used by stats strip + tooltip to avoid innerHTML.
+function _momEl(tag, style, text) {
+  const e = document.createElement(tag);
+  if (style) e.style.cssText = style;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function _momAppend(parent, children) {
+  children.forEach(function(c) { if (c) parent.appendChild(c); });
+  return parent;
+}
+
+// Renders the stats strip below a chart title — colored σ symbols match
+// their band line colors for visual continuity with the chart.
 function momRenderStatsLine(elId, stats, isPrice) {
   const el = document.getElementById(elId);
   if (!el) return;
-  if (!stats) {
-    el.textContent = '';
-    el.style.display = 'none';
-    return;
-  }
+  el.replaceChildren();
+  if (!stats) { el.style.display = 'none'; return; }
+
+  const isDark = document.documentElement.classList.contains('dark');
+  const col = momBandColors(isDark);
   const f = function(v) { return momFmtBandVal(v, isPrice); };
-  const sep = '\u00a0\u00a0\u00b7\u00a0\u00a0';
-  el.textContent =
-    'n=' + stats.n + sep +
-    '\u03bc ' + f(stats.mean) + sep +
-    '\u03c3 ' + f(stats.sd) + sep +
-    '\u00b11\u03c3 [' + f(stats.mean - stats.sd) + ', ' + f(stats.mean + stats.sd) + ']' + sep +
-    '\u00b12\u03c3 [' + f(stats.mean - 2 * stats.sd) + ', ' + f(stats.mean + 2 * stats.sd) + ']';
+  const dot = function() { return _momEl('span', 'opacity:0.4;margin:0 8px', '·'); };
+  const sym = function(color, text) { return _momEl('span', 'color:' + color + ';font-weight:700', text); };
+
+  _momAppend(el, [
+    _momEl('span', null, 'n=' + stats.n),
+    dot(),
+    sym(col.mean, 'μ'), _momEl('span', null, ' ' + f(stats.mean)),
+    dot(),
+    _momEl('span', 'opacity:0.7', 'σ'), _momEl('span', null, ' ' + f(stats.sd)),
+    dot(),
+    sym(col.s1, '±1σ'), _momEl('span', null, ' [' + f(stats.mean - stats.sd) + ', ' + f(stats.mean + stats.sd) + ']'),
+    dot(),
+    sym(col.s2, '±2σ'), _momEl('span', null, ' [' + f(stats.mean - 2 * stats.sd) + ', ' + f(stats.mean + 2 * stats.sd) + ']'),
+  ]);
   el.style.display = momShowBands ? '' : 'none';
 }
 
-// Tooltip rows appended when bands are visible.
-function momBandsTooltipRows(stats, isPrice) {
-  if (!momShowBands || !stats) return [];
-  const f = function(v) { return momFmtBandVal(v, isPrice); };
-  return [
-    '\u03bc ' + f(stats.mean) + '  \u00b7  \u03c3 ' + f(stats.sd),
-    '\u00b11\u03c3 [' + f(stats.mean - stats.sd) + ', ' + f(stats.mean + stats.sd) + ']',
-    '\u00b12\u03c3 [' + f(stats.mean - 2 * stats.sd) + ', ' + f(stats.mean + 2 * stats.sd) + ']',
-  ];
+// ── Custom HTML tooltip ─────────────────────────────────────────────────
+// Card-style DOM tooltip with sections, color swatches, and theme-aware
+// styling. Built with createElement + textContent — no innerHTML.
+
+function ensureMomTooltipEl() {
+  let el = document.getElementById('momChartTooltip');
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = 'momChartTooltip';
+  el.style.cssText = [
+    'position:absolute',
+    'pointer-events:none',
+    'z-index:9999',
+    'background:var(--bg-card,#fff)',
+    'border:1px solid var(--border,#E0DDD8)',
+    'border-radius:8px',
+    'box-shadow:0 8px 24px rgba(0,0,0,0.18)',
+    'padding:0',
+    "font-family:'JetBrains Mono',monospace",
+    'font-size:11px',
+    'color:var(--text-primary,#1A1A1A)',
+    'opacity:0',
+    'transition:opacity 0.12s',
+    'min-width:240px',
+    'max-width:340px',
+    'overflow:hidden'
+  ].join(';');
+  document.body.appendChild(el);
+  return el;
+}
+
+function momHideTooltip() {
+  const el = document.getElementById('momChartTooltip');
+  if (el) el.style.opacity = '0';
+}
+
+function momFmtDataValue(label, v, isPrice) {
+  if (v == null) return '--';
+  if (label && label.indexOf('Rev') !== -1) return '₹' + v.toFixed(2) + ' Cr';
+  if (label === 'MCX Price') return '₹' + v.toLocaleString('en-IN', { maximumFractionDigits: 1 });
+  if (label && label.indexOf('Ratio') !== -1) return v.toFixed(3);
+  return v.toFixed(2);
+}
+
+const REGIME_COLORS = { HOT: '#D4380D', COLD: '#0958D9', NEUTRAL: '#6B6560' };
+const SIGNAL_COLORS = { STRONG_BUY: '#1B7D3A', BUY: '#0958D9', SELL: '#CF1322', WATCH: '#FA8C16', HOLD: '#6B6560' };
+const LABEL_STYLE = 'color:var(--text-secondary);font-size:10px';
+
+function makeMomTooltipHandler(opts) {
+  // opts: { hist, stats, isPrice, includeSignalContext }
+  return function(ctx) {
+    const { chart, tooltip } = ctx;
+    const el = ensureMomTooltipEl();
+
+    if (tooltip.opacity === 0) { el.style.opacity = '0'; return; }
+    const dp0 = tooltip.dataPoints && tooltip.dataPoints[0];
+    if (!dp0) { el.style.opacity = '0'; return; }
+    const idx = dp0.dataIndex;
+    const row = opts.hist[idx];
+    if (!row) { el.style.opacity = '0'; return; }
+
+    const isDark = document.documentElement.classList.contains('dark');
+    const col = momBandColors(isDark);
+
+    el.replaceChildren();
+
+    // Header — date
+    el.appendChild(_momEl(
+      'div',
+      'padding:8px 12px;font-weight:700;font-size:12px;letter-spacing:0.2px;border-bottom:1px solid var(--border)',
+      row.date
+    ));
+
+    // Series rows
+    const body = _momEl('div', 'padding:6px 12px');
+    tooltip.dataPoints.forEach(function(dp) {
+      const ds = chart.data.datasets[dp.datasetIndex];
+      if (dp.raw == null) return;
+      const swatch = (typeof ds.borderColor === 'string' && ds.borderColor !== 'transparent') ? ds.borderColor : (ds.backgroundColor || '#999');
+      const val = momFmtDataValue(ds.label, dp.raw, opts.isPrice);
+      _momAppend(body, [_momAppend(_momEl('div', 'display:flex;align-items:center;gap:8px;padding:3px 0'), [
+        _momEl('span', 'display:inline-block;width:10px;height:10px;background:' + swatch + ';border-radius:50%;flex-shrink:0'),
+        _momEl('span', 'flex:1;' + LABEL_STYLE, ds.label),
+        _momEl('span', 'font-weight:700;font-variant-numeric:tabular-nums', val),
+      ])]);
+    });
+    el.appendChild(body);
+
+    // Context rows (Price chart only)
+    if (opts.includeSignalContext) {
+      const regime = row.regime || '--';
+      const adr = (row.adr_signal || '--').replace('_', ' ');
+      const sig = row.composite_signal || '--';
+      const regC = REGIME_COLORS[regime] || '#6B6560';
+      const sigC = SIGNAL_COLORS[sig] || '#6B6560';
+      _momAppend(el, [_momAppend(
+        _momEl('div', 'padding:6px 12px;border-top:1px solid var(--border);display:grid;grid-template-columns:56px 1fr;gap:3px 12px'),
+        [
+          _momEl('span', LABEL_STYLE, 'Regime'),
+          _momEl('span', 'font-weight:700;color:' + regC, regime),
+          _momEl('span', LABEL_STYLE, 'ADR'),
+          _momEl('span', 'font-weight:700', adr),
+          _momEl('span', LABEL_STYLE, 'Signal'),
+          _momEl('span', 'font-weight:700;color:' + sigC, sig.replace('_', ' ')),
+        ]
+      )]);
+    }
+
+    // Bands section
+    if (momShowBands && opts.stats) {
+      const s = opts.stats;
+      const f = function(v) { return momFmtBandVal(v, opts.isPrice); };
+      const section = _momEl('div', 'padding:6px 12px;border-top:1px solid var(--border);background:color-mix(in srgb, var(--text-primary) 3%, transparent)');
+      section.appendChild(_momEl(
+        'div',
+        'font-size:9px;color:var(--text-secondary);letter-spacing:1.5px;font-weight:700;margin-bottom:4px',
+        'CONTROL BANDS  ·  n=' + s.n
+      ));
+      const makeRow = function(swatchEl, sym, symColor, valueText, extraText) {
+        const r = _momEl('div', 'display:flex;align-items:center;gap:10px;padding:2px 0');
+        const swrap = _momEl('span', 'display:inline-flex;width:18px;height:10px;align-items:center;justify-content:center');
+        swrap.appendChild(swatchEl);
+        r.appendChild(swrap);
+        r.appendChild(_momEl('span', 'color:' + symColor + ';font-weight:700;min-width:30px', sym));
+        const valEl = _momEl('span', 'font-weight:700;font-variant-numeric:tabular-nums', valueText);
+        if (extraText) {
+          valEl.appendChild(_momEl('span', LABEL_STYLE + ';margin-left:8px;font-weight:400', extraText));
+        }
+        r.appendChild(valEl);
+        return r;
+      };
+      const solidSw = _momEl('span', 'display:inline-block;width:18px;height:3px;background:' + col.mean + ';border-radius:1px');
+      const dashSw  = _momEl('span', 'display:inline-block;width:18px;height:0;border-top:3px dashed ' + col.s1);
+      const dotSw   = _momEl('span', 'display:inline-block;width:18px;height:0;border-top:3px dotted ' + col.s2);
+      section.appendChild(makeRow(solidSw, 'μ',   col.mean, f(s.mean), 'σ ' + f(s.sd)));
+      section.appendChild(makeRow(dashSw,  '±1σ', col.s1,   '[' + f(s.mean - s.sd) + ', ' + f(s.mean + s.sd) + ']'));
+      section.appendChild(makeRow(dotSw,   '±2σ', col.s2,   '[' + f(s.mean - 2 * s.sd) + ', ' + f(s.mean + 2 * s.sd) + ']'));
+      el.appendChild(section);
+    }
+
+    // Position — flip horizontally near right edge, clamp vertically.
+    const cRect = chart.canvas.getBoundingClientRect();
+    const tw = el.offsetWidth;
+    const th = el.offsetHeight;
+    const off = 14;
+    let x = cRect.left + window.scrollX + tooltip.caretX + off;
+    const y0 = cRect.top + window.scrollY + tooltip.caretY - th / 2;
+    if (x + tw > window.innerWidth + window.scrollX - 10) {
+      x = cRect.left + window.scrollX + tooltip.caretX - tw - off;
+    }
+    const y = Math.max(window.scrollY + 10, Math.min(y0, window.scrollY + window.innerHeight - th - 10));
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.style.opacity = '1';
+  };
 }
 
 function setMomShowBands(on) {
@@ -6594,8 +6770,9 @@ function setMomShowBands(on) {
   if (chip) chip.className = momShowBands ? 'margin-chip active' : 'margin-chip';
   const rs = document.getElementById('momRegimeStats');
   const ps = document.getElementById('momPriceStats');
-  if (rs && rs.textContent) rs.style.display = momShowBands ? '' : 'none';
-  if (ps && ps.textContent) ps.style.display = momShowBands ? '' : 'none';
+  if (rs && rs.childNodes.length) rs.style.display = momShowBands ? '' : 'none';
+  if (ps && ps.childNodes.length) ps.style.display = momShowBands ? '' : 'none';
+  momHideTooltip();
   if (momRegimeChartInst) momRegimeChartInst.update('none');
   if (momPriceChartInst) momPriceChartInst.update('none');
 }
@@ -6633,9 +6810,8 @@ function renderMomRegimeChart(hist) {
       plugins: {
         legend: { display: true, labels: { color: txtColor, font: { size: 10, family: "'JetBrains Mono', monospace" }, usePointStyle: true, pointStyle: 'line' } },
         tooltip: {
-          callbacks: {
-            afterBody: function() { return momBandsTooltipRows(ratioStats, false); }
-          }
+          enabled: false,
+          external: makeMomTooltipHandler({ hist: hist, stats: ratioStats, isPrice: false, includeSignalContext: false })
         }
       },
       scales: {
@@ -6716,17 +6892,8 @@ function renderMomPriceChart(hist) {
       plugins: {
         legend: { display: true, labels: { color: txtColor, font: { size: 10, family: "'JetBrains Mono', monospace" }, usePointStyle: true } },
         tooltip: {
-          callbacks: {
-            afterBody: function(items) {
-              const idx = items[0].dataIndex;
-              const base = [
-                'Regime: ' + (hist[idx].regime || '--'),
-                'ADR: ' + (hist[idx].adr_signal || '--'),
-                'Signal: ' + (hist[idx].composite_signal || '--'),
-              ];
-              return base.concat(momBandsTooltipRows(priceStats, true));
-            }
-          }
+          enabled: false,
+          external: makeMomTooltipHandler({ hist: hist, stats: priceStats, isPrice: true, includeSignalContext: true })
         }
       },
       scales: {
