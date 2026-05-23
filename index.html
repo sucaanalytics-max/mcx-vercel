@@ -6824,18 +6824,11 @@ function renderMomRegimeChart(hist) {
     plugins: [{
       id: 'regimeBands',
       beforeDraw(chart) {
-        const { ctx: c, chartArea: { top, bottom, left, right }, scales: { y1 } } = chart;
+        const { ctx: c, chartArea: { left, right }, scales: { y1 } } = chart;
         if (!y1) return;
         const hotY = y1.getPixelForValue(1.05);
         const coldY = y1.getPixelForValue(0.95);
-        const w = right - left;
-        // HOT band (above 1.05)
-        c.fillStyle = 'rgba(212,56,13,0.05)';
-        c.fillRect(left, top, w, hotY - top);
-        // COLD band (below 0.95)
-        c.fillStyle = 'rgba(9,88,217,0.05)';
-        c.fillRect(left, coldY, w, bottom - coldY);
-        // Threshold lines
+        // Dashed threshold lines only — no background fills.
         c.setLineDash([4, 4]);
         c.lineWidth = 1;
         c.strokeStyle = 'rgba(212,56,13,0.4)';
