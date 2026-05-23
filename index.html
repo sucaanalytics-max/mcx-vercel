@@ -6584,15 +6584,15 @@ function makeBandsPlugin(stats, yAxisId, isDark) {
       if (!ax) return;
       const { ctx: c, chartArea: { left, right, top, bottom } } = chart;
 
-      // Lines drawn on top of the data, ordered so the mean wins the
-      // visual hierarchy. ±2σ thinnest dotted, ±1σ medium dashed,
-      // μ thickest solid.
+      // Lines drawn on top of the data, muted so the data line and
+      // zone fills lead the visual hierarchy. μ retains the most
+      // presence; ±2σ is most muted.
       const lines = [
-        { v: stats.mean + 2 * stats.sd, color: col.s2,   dash: [3, 4],  lw: 1.75 },
-        { v: stats.mean - 2 * stats.sd, color: col.s2,   dash: [3, 4],  lw: 1.75 },
-        { v: stats.mean + stats.sd,     color: col.s1,   dash: [10, 4], lw: 2.0  },
-        { v: stats.mean - stats.sd,     color: col.s1,   dash: [10, 4], lw: 2.0  },
-        { v: stats.mean,                color: col.mean, dash: [],      lw: 3.5  },
+        { v: stats.mean + 2 * stats.sd, color: col.s2,   dash: [3, 4],  lw: 1.5, alpha: 0.45 },
+        { v: stats.mean - 2 * stats.sd, color: col.s2,   dash: [3, 4],  lw: 1.5, alpha: 0.45 },
+        { v: stats.mean + stats.sd,     color: col.s1,   dash: [10, 4], lw: 1.75, alpha: 0.55 },
+        { v: stats.mean - stats.sd,     color: col.s1,   dash: [10, 4], lw: 1.75, alpha: 0.55 },
+        { v: stats.mean,                color: col.mean, dash: [],      lw: 2.5, alpha: 0.75 },
       ];
 
       c.save();
@@ -6600,6 +6600,7 @@ function makeBandsPlugin(stats, yAxisId, isDark) {
       lines.forEach(function(l) {
         const y = ax.getPixelForValue(l.v);
         if (y < top || y > bottom) return;
+        c.globalAlpha = l.alpha;
         c.strokeStyle = l.color;
         c.setLineDash(l.dash);
         c.lineWidth = l.lw;
@@ -6608,6 +6609,7 @@ function makeBandsPlugin(stats, yAxisId, isDark) {
         c.lineTo(right, y);
         c.stroke();
       });
+      c.globalAlpha = 1;
       c.setLineDash([]);
       c.restore();
     }
