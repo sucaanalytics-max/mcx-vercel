@@ -6583,18 +6583,32 @@ function makeBandsPlugin(stats, yAxisId, isDark) {
       const ax = chart.scales[yAxisId];
       if (!ax) return;
       const { ctx: c, chartArea: { left, right, top, bottom } } = chart;
-      const yMean = ax.getPixelForValue(stats.mean);
-      if (yMean < top || yMean > bottom) return;
+
+      // Lines drawn on top of the data, ordered so the mean wins the
+      // visual hierarchy. ±2σ thinnest dotted, ±1σ medium dashed,
+      // μ thickest solid.
+      const lines = [
+        { v: stats.mean + 2 * stats.sd, color: col.s2,   dash: [3, 4],  lw: 1.75 },
+        { v: stats.mean - 2 * stats.sd, color: col.s2,   dash: [3, 4],  lw: 1.75 },
+        { v: stats.mean + stats.sd,     color: col.s1,   dash: [10, 4], lw: 2.0  },
+        { v: stats.mean - stats.sd,     color: col.s1,   dash: [10, 4], lw: 2.0  },
+        { v: stats.mean,                color: col.mean, dash: [],      lw: 3.5  },
+      ];
 
       c.save();
       c.lineCap = 'round';
-      c.strokeStyle = col.mean;
-      c.lineWidth = 3.5;
+      lines.forEach(function(l) {
+        const y = ax.getPixelForValue(l.v);
+        if (y < top || y > bottom) return;
+        c.strokeStyle = l.color;
+        c.setLineDash(l.dash);
+        c.lineWidth = l.lw;
+        c.beginPath();
+        c.moveTo(left, y);
+        c.lineTo(right, y);
+        c.stroke();
+      });
       c.setLineDash([]);
-      c.beginPath();
-      c.moveTo(left, yMean);
-      c.lineTo(right, yMean);
-      c.stroke();
       c.restore();
     }
   };
@@ -6641,9 +6655,9 @@ function momRenderStatsLine(elId, stats, isPrice) {
     dot(),
     _momEl('span', 'opacity:0.7', 'σ'), _momEl('span', null, ' ' + f(stats.sd)),
     dot(),
-    sym(col.mean, '±1σ'), _momEl('span', null, ' [' + f(stats.mean - stats.sd) + ', ' + f(stats.mean + stats.sd) + ']'),
+    sym(col.s1, '±1σ'), _momEl('span', null, ' [' + f(stats.mean - stats.sd) + ', ' + f(stats.mean + stats.sd) + ']'),
     dot(),
-    sym(col.s1, '±2σ'), _momEl('span', null, ' [' + f(stats.mean - 2 * stats.sd) + ', ' + f(stats.mean + 2 * stats.sd) + ']'),
+    sym(col.s2, '±2σ'), _momEl('span', null, ' [' + f(stats.mean - 2 * stats.sd) + ', ' + f(stats.mean + 2 * stats.sd) + ']'),
   ]);
   el.style.display = momShowBands ? '' : 'none';
 }
@@ -6779,15 +6793,13 @@ function makeMomTooltipHandler(opts) {
         r.appendChild(valEl);
         return r;
       };
-      // Swatches mirror the chart rendering: solid line for μ, filled
-      // colored squares for the ±1σ and ±2σ zone tints (with a 1px
-      // border so they're visible at low fill alpha).
+      // Swatches mirror the chart's line styling.
       const solidSw = _momEl('span', 'display:inline-block;width:18px;height:3px;background:' + col.mean + ';border-radius:1px');
-      const greenSq = _momEl('span', 'display:inline-block;width:14px;height:10px;background:' + col.mean + ';opacity:0.18;border:1px solid ' + col.mean + ';border-radius:2px;box-sizing:border-box');
-      const amberSq = _momEl('span', 'display:inline-block;width:14px;height:10px;background:' + col.s1   + ';opacity:0.22;border:1px solid ' + col.s1   + ';border-radius:2px;box-sizing:border-box');
+      const dashSw  = _momEl('span', 'display:inline-block;width:18px;height:0;border-top:2px dashed ' + col.s1);
+      const dotSw   = _momEl('span', 'display:inline-block;width:18px;height:0;border-top:2px dotted ' + col.s2);
       section.appendChild(makeRow(solidSw, 'μ',   col.mean, f(s.mean), 'σ ' + f(s.sd)));
-      section.appendChild(makeRow(greenSq, '±1σ', col.mean, '[' + f(s.mean - s.sd) + ', ' + f(s.mean + s.sd) + ']'));
-      section.appendChild(makeRow(amberSq, '±2σ', col.s1,   '[' + f(s.mean - 2 * s.sd) + ', ' + f(s.mean + 2 * s.sd) + ']'));
+      section.appendChild(makeRow(dashSw,  '±1σ', col.s1,   '[' + f(s.mean - s.sd) + ', ' + f(s.mean + s.sd) + ']'));
+      section.appendChild(makeRow(dotSw,   '±2σ', col.s2,   '[' + f(s.mean - 2 * s.sd) + ', ' + f(s.mean + 2 * s.sd) + ']'));
       el.appendChild(section);
     }
 
