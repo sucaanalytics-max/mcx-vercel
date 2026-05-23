@@ -2943,13 +2943,16 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   <div class="mom-chart-wrap">
     <div class="mom-chart-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
       <span>Revenue Regime: MA10 vs MA45 &amp; 10D/45D Ratio <span id="momRangeLabel">(60 days)</span></span>
-      <span id="momRangeChips" style="font-family:var(--mono)">
-        <span class="margin-chip" data-range="30D" onclick="setMomRange('30D')">30D</span>
-        <span class="margin-chip active" data-range="60D" onclick="setMomRange('60D')">60D</span>
-        <span class="margin-chip" data-range="Q"   onclick="setMomRange('Q')">Quarter</span>
-        <span class="margin-chip" data-range="1Y"  onclick="setMomRange('1Y')">1Y</span>
-        <span class="margin-chip" data-range="2Y"  onclick="setMomRange('2Y')">2Y</span>
-        <span class="margin-chip" data-range="Max" onclick="setMomRange('Max')">Max</span>
+      <span style="display:flex;align-items:center;gap:12px;font-family:var(--mono);flex-wrap:wrap">
+        <span id="momRangeChips">
+          <span class="margin-chip" data-range="30D" onclick="setMomRange('30D')">30D</span>
+          <span class="margin-chip active" data-range="60D" onclick="setMomRange('60D')">60D</span>
+          <span class="margin-chip" data-range="Q"   onclick="setMomRange('Q')">Quarter</span>
+          <span class="margin-chip" data-range="1Y"  onclick="setMomRange('1Y')">1Y</span>
+          <span class="margin-chip" data-range="2Y"  onclick="setMomRange('2Y')">2Y</span>
+          <span class="margin-chip" data-range="Max" onclick="setMomRange('Max')">Max</span>
+        </span>
+        <span id="momBandsToggle" class="margin-chip" onclick="setMomShowBands(!momShowBands)" title="Toggle &plusmn;1&sigma; / &plusmn;2&sigma; control lines">Bands</span>
       </span>
     </div>
     <div style="position:relative;height:300px">
@@ -6386,6 +6389,7 @@ let momRegimeChartInst = null;
 let momPriceChartInst = null;
 let momDataCacheByRange = {};
 let momCurrentRange = '60D';
+let momShowBands = false;
 
 const MOM_RANGE_LABELS = {
   '30D': '(30 days)',
@@ -6492,6 +6496,66 @@ function momFmtDateLabel(d) {
   return longRange ? d : d.slice(5);
 }
 
+// Sample mean + standard deviation (n-1) over the visible window.
+function momMeanStd(arr) {
+  const vals = arr.filter(v => v != null && !Number.isNaN(v));
+  const n = vals.length;
+  if (n < 2) return null;
+  const mean = vals.reduce((s, v) => s + v, 0) / n;
+  const variance = vals.reduce((s, v) => s + (v - mean) * (v - mean), 0) / (n - 1);
+  return { mean: mean, sd: Math.sqrt(variance), n: n };
+}
+
+// Chart.js plugin: draws Mean \u00b1 1\u03c3 / \u00b12\u03c3 horizontal lines on `yAxisId`,
+// reading live state from momShowBands. Lines falling outside the visible
+// Y range are skipped (no auto-axis-extension).
+function makeBandsPlugin(stats, yAxisId, isDark) {
+  return {
+    id: 'controlBands',
+    afterDatasetsDraw(chart) {
+      if (!momShowBands || !stats) return;
+      const ax = chart.scales[yAxisId];
+      if (!ax) return;
+      const { ctx: c, chartArea: { left, right, top, bottom } } = chart;
+      const baseRGB = isDark ? '224,221,216' : '107,101,96';
+      const levels = [
+        { v: stats.mean + 2 * stats.sd, label: '+2\u03c3', dash: [2, 4], alpha: 0.40 },
+        { v: stats.mean + stats.sd,     label: '+1\u03c3', dash: [6, 4], alpha: 0.55 },
+        { v: stats.mean,                label: '\u03bc',   dash: [],     alpha: 0.70 },
+        { v: stats.mean - stats.sd,     label: '\u22121\u03c3', dash: [6, 4], alpha: 0.55 },
+        { v: stats.mean - 2 * stats.sd, label: '\u22122\u03c3', dash: [2, 4], alpha: 0.40 },
+      ];
+      c.save();
+      c.font = "9px 'JetBrains Mono', monospace";
+      c.textBaseline = 'middle';
+      c.textAlign = 'right';
+      levels.forEach(function(l) {
+        const y = ax.getPixelForValue(l.v);
+        if (y < top || y > bottom) return;
+        c.strokeStyle = 'rgba(' + baseRGB + ',' + l.alpha + ')';
+        c.setLineDash(l.dash);
+        c.lineWidth = 1;
+        c.beginPath();
+        c.moveTo(left, y);
+        c.lineTo(right, y);
+        c.stroke();
+        c.setLineDash([]);
+        c.fillStyle = 'rgba(' + baseRGB + ',' + Math.min(1, l.alpha + 0.25) + ')';
+        c.fillText(l.label, right - 4, y - 7);
+      });
+      c.restore();
+    }
+  };
+}
+
+function setMomShowBands(on) {
+  momShowBands = !!on;
+  const chip = document.getElementById('momBandsToggle');
+  if (chip) chip.className = momShowBands ? 'margin-chip active' : 'margin-chip';
+  if (momRegimeChartInst) momRegimeChartInst.update('none');
+  if (momPriceChartInst) momPriceChartInst.update('none');
+}
+
 function renderMomRegimeChart(hist) {
   const ctx = document.getElementById('momRegimeChart');
   if (momRegimeChartInst) { momRegimeChartInst.destroy(); momRegimeChartInst = null; }
@@ -6504,6 +6568,10 @@ function renderMomRegimeChart(hist) {
   const isDark = document.documentElement.classList.contains('dark');
   const gridColor = isDark ? '#333' : '#E0DDD8';
   const txtColor = isDark ? '#aaa' : '#6B6560';
+
+  // Control bands on the 10D/45D Ratio (right axis) — sample stats over the
+  // currently displayed window.
+  const ratioStats = momMeanStd(ratio);
 
   momRegimeChartInst = new Chart(ctx, {
     type: 'line',
@@ -6550,7 +6618,9 @@ function renderMomRegimeChart(hist) {
         c.beginPath(); c.moveTo(left, coldY); c.lineTo(right, coldY); c.stroke();
         c.setLineDash([]);
       }
-    }]
+    },
+    makeBandsPlugin(ratioStats, 'y1', isDark)
+    ]
   });
 }
 
@@ -6576,6 +6646,9 @@ function renderMomPriceChart(hist) {
   const isDark = document.documentElement.classList.contains('dark');
   const gridColor = isDark ? '#333' : '#E0DDD8';
   const txtColor = isDark ? '#aaa' : '#6B6560';
+
+  // Control bands on MCX Price (default left axis 'y').
+  const priceStats = momMeanStd(prices);
 
   momPriceChartInst = new Chart(ctx, {
     type: 'line',
@@ -6617,7 +6690,9 @@ function renderMomPriceChart(hist) {
           c.fillRect(xPos, top, w, bottom - top);
         }
       }
-    }]
+    },
+    makeBandsPlugin(priceStats, 'y', isDark)
+    ]
   });
 }
 
