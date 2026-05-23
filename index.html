@@ -2941,7 +2941,17 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 
   <!-- Revenue Regime Chart -->
   <div class="mom-chart-wrap">
-    <div class="mom-chart-title">Revenue Regime: MA10 vs MA45 & 10D/45D Ratio (60 days)</div>
+    <div class="mom-chart-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <span>Revenue Regime: MA10 vs MA45 &amp; 10D/45D Ratio <span id="momRangeLabel">(60 days)</span></span>
+      <span id="momRangeChips" style="font-family:var(--mono)">
+        <span class="margin-chip" data-range="30D" onclick="setMomRange('30D')">30D</span>
+        <span class="margin-chip active" data-range="60D" onclick="setMomRange('60D')">60D</span>
+        <span class="margin-chip" data-range="Q"   onclick="setMomRange('Q')">Quarter</span>
+        <span class="margin-chip" data-range="1Y"  onclick="setMomRange('1Y')">1Y</span>
+        <span class="margin-chip" data-range="2Y"  onclick="setMomRange('2Y')">2Y</span>
+        <span class="margin-chip" data-range="Max" onclick="setMomRange('Max')">Max</span>
+      </span>
+    </div>
     <div style="position:relative;height:300px">
       <canvas id="momRegimeChart"></canvas>
     </div>
@@ -2949,7 +2959,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 
   <!-- Price + Signal Chart -->
   <div class="mom-chart-wrap">
-    <div class="mom-chart-title">Price & Composite Signal (60 days)</div>
+    <div class="mom-chart-title">Price &amp; Composite Signal <span id="momPriceRangeLabel">(60 days)</span></div>
     <div style="position:relative;height:300px">
       <canvas id="momPriceChart"></canvas>
     </div>
@@ -3531,7 +3541,8 @@ function updateSnapshotFromAPI(d) {
   deltaEl.className = 'hero-delta ' + (vsMa >= 0 ? 'up' : 'down');
 
   document.getElementById('heroDate').textContent = d.timestamp ? d.timestamp.split('T')[0] : '—';
-  document.getElementById('heroSession').textContent = isLive ? `${d.elapsed_pct}% elapsed` : 'Session closed';
+  const sessLabel = d.session_type === 'evening_only' ? 'Evening' : d.session_type === 'morning_only' ? 'Morning' : '';
+  document.getElementById('heroSession').textContent = isLive ? `${d.elapsed_pct}% elapsed${sessLabel ? ' (' + sessLabel + ')' : ''}` : 'Session closed';
   document.getElementById('heroRange').textContent = (d.rev_low != null) ? `₹${fmtDec(d.rev_low,1)}–${fmtDec(d.rev_high,1)} Cr` : '';
   document.getElementById('heroConfidence').textContent = `${d.confidence || '—'} · ±${d.uncertainty_pct || 0}%`;
   document.getElementById('heroProgressFill').style.width = (d.elapsed_pct || 0) + '%';
@@ -6373,18 +6384,43 @@ function updateMarginChart(syms) {
 
 let momRegimeChartInst = null;
 let momPriceChartInst = null;
-let momDataCache = null;
+let momDataCacheByRange = {};
+let momCurrentRange = '60D';
+
+const MOM_RANGE_LABELS = {
+  '30D': '(30 days)',
+  '60D': '(60 days)',
+  'Q':   '(quarter)',
+  '1Y':  '(1 year)',
+  '2Y':  '(2 years)',
+  'Max': '(max history)'
+};
 
 function loadMomentum() {
-  if (momDataCache) { renderMomentum(momDataCache); return; }
-  fetch('/api/models?view=momentum')
-    .then(r => r.json())
+  const r = momCurrentRange;
+  if (momDataCacheByRange[r]) { renderMomentum(momDataCacheByRange[r]); return; }
+  fetch('/api/models?view=momentum&range=' + encodeURIComponent(r))
+    .then(resp => resp.json())
     .then(d => {
       if (!d.success) { document.getElementById('momAsOf').textContent = 'Error: ' + (d.error || 'No data'); return; }
-      momDataCache = d;
+      momDataCacheByRange[r] = d;
       renderMomentum(d);
     })
     .catch(e => { document.getElementById('momAsOf').textContent = 'Fetch error: ' + e.message; });
+}
+
+function setMomRange(r) {
+  if (!(r in MOM_RANGE_LABELS)) return;
+  momCurrentRange = r;
+  document.querySelectorAll('#momRangeChips .margin-chip').forEach(function(el) {
+    el.className = el.getAttribute('data-range') === r ? 'margin-chip active' : 'margin-chip';
+  });
+  const label = MOM_RANGE_LABELS[r];
+  const a = document.getElementById('momRangeLabel');
+  const b = document.getElementById('momPriceRangeLabel');
+  if (a) a.textContent = label;
+  if (b) b.textContent = label;
+  loadMomentum();
 }
 
 function renderMomentum(d) {
@@ -6449,11 +6485,18 @@ function fmtCr(v) {
   return v != null ? '\u20B9' + v.toFixed(2) + ' Cr' : '--';
 }
 
+// Long ranges span multiple years \u2014 keep the year in the X-axis label so
+// "03-15" isn't ambiguous between 2024 and 2026.
+function momFmtDateLabel(d) {
+  const longRange = (momCurrentRange === '1Y' || momCurrentRange === '2Y' || momCurrentRange === 'Max');
+  return longRange ? d : d.slice(5);
+}
+
 function renderMomRegimeChart(hist) {
   const ctx = document.getElementById('momRegimeChart');
   if (momRegimeChartInst) { momRegimeChartInst.destroy(); momRegimeChartInst = null; }
 
-  const labels = hist.map(r => r.date.slice(5));
+  const labels = hist.map(r => momFmtDateLabel(r.date));
   const ma10 = hist.map(r => r.ma10_rev_cr);
   const ma45 = hist.map(r => r.ma45_rev_cr);
   const ratio = hist.map(r => r.ratio_10d_45d);
@@ -6515,7 +6558,7 @@ function renderMomPriceChart(hist) {
   const ctx = document.getElementById('momPriceChart');
   if (momPriceChartInst) { momPriceChartInst.destroy(); momPriceChartInst = null; }
 
-  const labels = hist.map(r => r.date.slice(5));
+  const labels = hist.map(r => momFmtDateLabel(r.date));
   const prices = hist.map(r => r.close_price);
   const signals = hist.map(r => r.composite_signal);
 

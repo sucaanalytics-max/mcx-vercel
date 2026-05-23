@@ -239,27 +239,56 @@ MOMENTUM_META = {
 }
 
 
+# Range key → trading-day window. Used both to size the Supabase fetch and to
+# slice the tail of the sorted result for chart history.
+RANGE_DAYS = {
+    "30D": 30,
+    "60D": 60,
+    "Q":   63,
+    "1Y":  252,
+    "2Y":  504,
+    "Max": None,  # all rows
+}
+DEFAULT_RANGE = "60D"
+
+
 def _fetch_momentum_signals(limit=120):
-    """Fetch pre-computed momentum signals from Supabase."""
+    """Fetch pre-computed momentum signals from Supabase.
+
+    ``limit`` may be None to fetch all rows.
+    """
     if not SUPABASE_ANON_KEY:
         return []
     try:
-        rows = supabase_read(
-            "mcx_momentum_signals",
-            f"?select=trading_date,fno_rev_cr,close_price,"
-            f"ma10_rev_cr,ma45_rev_cr,ratio_10d_45d,regime,"
-            f"daily_range,adr_5d,adr_20d,adr_ratio,price_mom_5d,"
-            f"adr_signal,composite_signal"
-            f"&order=trading_date.desc&limit={limit}"
+        select = (
+            "?select=trading_date,fno_rev_cr,close_price,"
+            "ma10_rev_cr,ma45_rev_cr,ratio_10d_45d,regime,"
+            "daily_range,adr_5d,adr_20d,adr_ratio,price_mom_5d,"
+            "adr_signal,composite_signal"
+            "&order=trading_date.desc"
         )
+        if limit is not None:
+            select += f"&limit={limit}"
+        rows = supabase_read("mcx_momentum_signals", select)
         return sorted(rows, key=lambda r: r["trading_date"])
     except Exception:
         return []
 
 
-def generate_momentum_response():
+def generate_momentum_response(range_key=DEFAULT_RANGE):
+    if range_key not in RANGE_DAYS:
+        range_key = DEFAULT_RANGE
+    window = RANGE_DAYS[range_key]
+
     ist_now = now_ist()
-    rows = _fetch_momentum_signals(limit=120)
+    # Need at least 120 rows so regime_stats / streaks reflect a meaningful
+    # window even on short ranges; otherwise size to the requested window
+    # with a small buffer.
+    if window is None:
+        fetch_limit = None
+    else:
+        fetch_limit = max(120, window + 10)
+    rows = _fetch_momentum_signals(limit=fetch_limit)
 
     if not rows:
         return {"success": False, "error": "No momentum signals available. Run cron_momentum first."}
@@ -281,8 +310,8 @@ def generate_momentum_response():
         "composite_signal": latest.get("composite_signal"),
     }
 
-    # Build history (last 60 entries for charting)
-    display_rows = rows[-60:]
+    # Build history for charting — sized by the requested range.
+    display_rows = rows if window is None else rows[-window:]
     history = []
     for r in display_rows:
         history.append({
@@ -334,6 +363,7 @@ def generate_momentum_response():
             "total_rows": len(rows),
             "history_returned": len(history),
             "latest_date": latest["trading_date"],
+            "range": range_key,
         },
     }
 
@@ -375,7 +405,8 @@ class handler(BaseHTTPRequestHandler):
 
         try:
             if view == "momentum":
-                result = generate_momentum_response()
+                range_key = qs.get("range", [DEFAULT_RANGE])[0]
+                result = generate_momentum_response(range_key=range_key)
             else:
                 result = generate_models_response()
             self.send_json(result)
