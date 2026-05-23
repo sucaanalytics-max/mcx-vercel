@@ -6816,7 +6816,7 @@ function renderMomRegimeChart(hist) {
       },
       scales: {
         x: { ticks: { color: txtColor, font: {size: 9}, maxRotation: 45, maxTicksLimit: 12 }, grid: { display: false } },
-        y: { position: 'left', title: { display: true, text: 'F&O Revenue (Cr)', color: txtColor, font: {size: 10} }, ticks: { color: txtColor }, grid: { color: gridColor } },
+        y: { position: 'left', title: { display: true, text: 'F&O Revenue (Cr)', color: txtColor, font: {size: 10} }, ticks: { color: txtColor }, grid: { display: false } },
         y1: { position: 'right', title: { display: true, text: '10D/45D Ratio', color: txtColor, font: {size: 10} }, ticks: { color: txtColor }, grid: { display: false },
               suggestedMin: 0.7, suggestedMax: 1.4 },
       }
@@ -6891,7 +6891,7 @@ function renderMomPriceChart(hist) {
       },
       scales: {
         x: { ticks: { color: txtColor, font: {size: 9}, maxRotation: 45, maxTicksLimit: 12 }, grid: { display: false } },
-        y: { title: { display: true, text: 'Price (\u20B9)', color: txtColor, font: {size: 10} }, ticks: { color: txtColor }, grid: { color: gridColor } }
+        y: { title: { display: true, text: 'Price (\u20B9)', color: txtColor, font: {size: 10} }, ticks: { color: txtColor }, grid: { display: false } }
       }
     },
     plugins: [{
