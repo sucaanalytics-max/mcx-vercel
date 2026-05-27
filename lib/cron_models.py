@@ -12,12 +12,12 @@ from urllib.parse import urlparse, parse_qs
 
 try:
     from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY,
+        SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
         now_ist, make_cors_headers,
     )
 except ImportError:
     from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY,
+        SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
         now_ist, make_cors_headers,
     )
 
@@ -45,11 +45,15 @@ def sb_get(table, params=""):
         return json.loads(resp.read().decode())
 
 
-def sb_upsert(table, rows):
+def sb_upsert(table, rows, on_conflict=None):
     url = f"{SUPABASE_URL}/rest/v1/{table}"
+    if on_conflict:
+        # Merge on the natural key so re-runs UPDATE existing rows instead of
+        # colliding with the unique constraint (the surrogate id PK can't merge).
+        url += f"?on_conflict={on_conflict}"
     headers = {
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        "apikey": SUPABASE_WRITE_KEY,
+        "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates",
     }
@@ -277,7 +281,7 @@ def compute_signals(mode="recent"):
         results = results[-30:] if results else []
 
     log.append(f"Upserting {len(results)} rows ({mode})")
-    errors = sb_upsert("mcx_model_signals", results)
+    errors = sb_upsert("mcx_model_signals", results, on_conflict="trading_date")
     if errors:
         log.extend([f"Error: {e}" for e in errors])
 

@@ -20,6 +20,12 @@ AV_KEY = os.environ.get("ALPHA_VANTAGE_KEY", "")
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supabase.co")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2cXdwZWJ2ZXFldHd3emttdHV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDkwMzMsImV4cCI6MjA4Njk4NTAzM30.U_Ug61Fp1NSCesXBkYU7GJGTbuATFtXsz6GTi5948Rw")
+# Service-role key for server-side WRITES (crons/relay). Bypasses RLS, so tables
+# can keep anon read-only policies. Falls back to the anon key when unset, which
+# only works on tables whose RLS permits anon INSERT/UPDATE (see
+# scripts/sql/enable_signal_table_writes.sql). Reads always use the anon key.
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+SUPABASE_WRITE_KEY = SUPABASE_SERVICE_KEY or SUPABASE_ANON_KEY
 
 # ─── CORS (F-13: restricted to deployment domains) ───────────────────────────
 ALLOWED_ORIGINS = os.environ.get(
@@ -698,12 +704,12 @@ def supabase_read_all(table, params="", page_size=1000, max_rows=10000, timeout=
 
 
 def supabase_upsert(table, data, timeout=10):
-    """Upsert data into Supabase table."""
+    """Upsert data into Supabase table (uses the service-role write key when set)."""
     import urllib.request, urllib.error, json
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     headers = {
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        "apikey": SUPABASE_WRITE_KEY,
+        "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates,return=representation",
     }

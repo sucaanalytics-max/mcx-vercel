@@ -5424,7 +5424,21 @@ function zColor(z) {
 }
 
 function renderCommodity(data) {
-  document.getElementById('commAsOf').textContent = 'As of ' + data.as_of;
+  // Show the DATA date (not just the live clock) and warn if it is stale, so a
+  // frozen signals pipeline can't masquerade as fresh under a current timestamp.
+  const dq = data.data_quality || {};
+  const dataDate = (data.today && data.today.date) || dq.latest_date || null;
+  const commAsOf = document.getElementById('commAsOf');
+  if (dataDate) {
+    let staleTag = '';
+    const ageDays = Math.floor((Date.now() - new Date(dataDate + 'T00:00:00').getTime()) / 86400000);
+    if (ageDays > 4) staleTag = `  ⚠ ${ageDays} days stale`;
+    commAsOf.textContent = `Signals as of ${dataDate}${staleTag}  ·  refreshed ${data.as_of}`;
+    commAsOf.style.color = staleTag ? '#e67e22' : '';
+  } else {
+    commAsOf.textContent = 'As of ' + data.as_of;
+    commAsOf.style.color = '';
+  }
 
   // ── Today's Lineup ──
   const today = data.today || {};

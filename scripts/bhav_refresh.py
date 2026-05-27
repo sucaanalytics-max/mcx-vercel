@@ -27,12 +27,18 @@ from lib.mcx_config import get_day_type
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supabase.co")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2cXdwZWJ2ZXFldHd3emttdHV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDkwMzMsImV4cCI6MjA4Njk4NTAzM30.U_Ug61Fp1NSCesXBkYU7GJGTbuATFtXsz6GTi5948Rw")
+# Service-role key for writes (bypasses RLS); falls back to anon when unset.
+SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+SUPABASE_WRITE_KEY = SUPABASE_SERVICE_KEY or SUPABASE_ANON_KEY
 FUTURES_RATE = 210.0
 OPTIONS_RATE = 4180.0
 NONTX_DAILY = 0.00
 MCX_TIMEOUT = 30
 MCX_MAX_RETRIES = 2
-CHROME_IMPERSONATE = "chrome142"
+# Preferred curl_cffi impersonation target, with fallbacks for older curl_cffi
+# builds that don't recognise the newest token (e.g. local 0.13.0 lacks chrome142).
+CHROME_IMPERSONATE = os.environ.get("MCX_IMPERSONATE", "chrome142")
+CHROME_IMPERSONATE_FALLBACKS = ["chrome136", "chrome131", "chrome"]
 
 # MCX holidays (full-day closures only — no trading at all)
 MCX_HOLIDAYS = {
@@ -72,8 +78,19 @@ _hist_session = None
 def _get_hist_session(force_new=False):
     global _hist_session
     if _hist_session is None or force_new:
-        _hist_session = cfreq.Session(impersonate=CHROME_IMPERSONATE)
-        _hist_session.get("https://www.mcxindia.com/market-data/historical-data", timeout=MCX_TIMEOUT)
+        last_err = None
+        for target in [CHROME_IMPERSONATE, *CHROME_IMPERSONATE_FALLBACKS]:
+            try:
+                sess = cfreq.Session(impersonate=target)
+                sess.get("https://www.mcxindia.com/market-data/historical-data", timeout=MCX_TIMEOUT)
+                _hist_session = sess
+                return _hist_session
+            except Exception as e:
+                last_err = e
+                if "impersonat" in str(e).lower() or "not supported" in str(e).lower():
+                    continue  # token unknown to this curl_cffi build — try the next
+                raise
+        raise last_err  # all impersonation targets failed
     return _hist_session
 
 def _fetch_mcx_raw(date_iso):
@@ -163,8 +180,8 @@ def _upsert_commodity_batch(rows):
     url = f"{SUPABASE_URL}/rest/v1/mcx_commodity_daily"
     body = json.dumps(rows).encode()
     req = urllib.request.Request(url, data=body, method="POST", headers={
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        "apikey": SUPABASE_WRITE_KEY,
+        "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates",
     })
@@ -252,13 +269,55 @@ def get_existing_dates():
     return {r["trading_date"]: r.get("source", "") for r in rows}
 
 
+def get_commodity_dates(since_iso):
+    """Distinct trading_dates already present in mcx_commodity_daily on/after
+    since_iso. Paginated (Supabase caps at 1000 rows/request)."""
+    dates, offset = set(), 0
+    while True:
+        url = (f"{SUPABASE_URL}/rest/v1/mcx_commodity_daily"
+               f"?select=trading_date&trading_date=gte.{since_iso}"
+               f"&order=trading_date.asc&limit=1000&offset={offset}")
+        req = urllib.request.Request(url, headers={
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        })
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            page = json.loads(resp.read().decode())
+        dates.update(r["trading_date"] for r in page)
+        if len(page) < 1000:
+            break
+        offset += 1000
+    return dates
+
+
+def ensure_commodity_breakdown(date_iso, present=None):
+    """Guarantee mcx_commodity_daily has the per-commodity breakdown for date_iso.
+
+    The live relay writes only the exchange aggregate (mcx_daily_revenue), never
+    the per-commodity rows — so without this, every relay-EOD day is missing from
+    mcx_commodity_daily and the commodity dashboard / signals silently lose data.
+    Idempotent (merge-duplicates). Returns the number of rows upserted."""
+    if present is not None and date_iso in present:
+        return 0
+    raw_rows, err = _fetch_mcx_raw(date_iso)
+    if raw_rows is None:
+        if err and err != "no data":
+            print(f"  ⓘ {date_iso}: commodity breakdown unavailable: {err}")
+        return 0
+    commodity_rows = _aggregate_commodity_rows(date_iso, raw_rows)
+    if commodity_rows and _upsert_commodity_batch(commodity_rows):
+        print(f"  ✓ {date_iso}: {len(commodity_rows)} commodity rows → mcx_commodity_daily")
+        return len(commodity_rows)
+    return 0
+
+
 def upsert_rows(rows):
     """Upsert revenue rows to Supabase."""
     url = f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue?on_conflict=trading_date"
     body = json.dumps(rows).encode()
     req = urllib.request.Request(url, data=body, method="POST", headers={
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        "apikey": SUPABASE_WRITE_KEY,
+        "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates,return=representation",
     })
@@ -266,18 +325,25 @@ def upsert_rows(rows):
         return json.loads(resp.read().decode())
 
 
-def fetch_and_compute(date_iso):
+def fetch_and_compute(date_iso, commodity_present=None):
     """Fetch daily revenue for one date using the priority chain:
-    1. relay EOD (already in Supabase) — skip if found
-    2. MCX Historical Detailed Report — exact premium, no proxy"""
+    1. relay EOD (already in Supabase) — skip revenue if found
+    2. MCX Historical Detailed Report — exact premium, no proxy
 
-    # Priority 1: Check if relay already captured authoritative EOD data
+    Regardless of the revenue source, ensures the per-commodity breakdown exists
+    in mcx_commodity_daily (the relay never writes it)."""
+
+    # Priority 1: Check if relay already captured authoritative EOD revenue
     relay = check_relay_eod(date_iso)
     if relay:
-        print(f"  ✓ {date_iso}: relay EOD found ({relay['total_rev_cr']} Cr) — skipping")
-        return None  # Already in Supabase with correct data
+        # Relay wrote the exchange aggregate but NOT the per-commodity rows —
+        # backfill those so mcx_commodity_daily stays whole (root-cause fix).
+        ensure_commodity_breakdown(date_iso, commodity_present)
+        print(f"  ✓ {date_iso}: relay EOD found ({relay['total_rev_cr']} Cr) — revenue skipped")
+        return None  # Revenue already in Supabase with authoritative data
 
-    # Priority 2: MCX Historical Detailed Report (exact PremiumTurnover)
+    # Priority 2: MCX Historical Detailed Report (exact PremiumTurnover).
+    # fetch_mcx_historical() also upserts the commodity breakdown internally.
     hist = fetch_mcx_historical(date_iso)
     if hist:
         if hist["total_rev_cr"] < 1.0 or hist["total_rev_cr"] > 50.0:
@@ -298,30 +364,42 @@ def fetch_and_compute(date_iso):
 
 
 def refresh(lookback_days=5, force_dates=None):
-    """Main refresh: find missing dates and fill them."""
+    """Main refresh: find missing dates and fill them.
+
+    A date is a target if it's missing from mcx_daily_revenue (needs revenue) OR
+    from mcx_commodity_daily (needs the per-commodity breakdown). The latter is
+    what relay-EOD days lack."""
     existing = get_existing_dates()
-    print(f"Supabase has {len(existing)} dates (latest: {max(existing) if existing else 'none'})")
+    print(f"mcx_daily_revenue has {len(existing)} dates (latest: {max(existing) if existing else 'none'})")
 
     if force_dates:
         targets = force_dates
+        since_iso = min(force_dates)
     else:
+        today = now_ist().date()
+        since_iso = (today - timedelta(days=lookback_days + 5)).strftime("%Y-%m-%d")
+
+    commodity_present = get_commodity_dates(since_iso)
+    print(f"mcx_commodity_daily covers {len(commodity_present)} dates since {since_iso}")
+
+    if not force_dates:
         today = now_ist().date()
         targets = []
         for i in range(lookback_days):
             d = today - timedelta(days=i)
             iso = d.strftime("%Y-%m-%d")
-            if is_trading_day(d) and iso not in existing:
+            if is_trading_day(d) and (iso not in existing or iso not in commodity_present):
                 targets.append(iso)
 
     if not targets:
         print("All dates up to date — nothing to refresh.")
         return
 
-    print(f"Dates to fetch: {targets}")
+    print(f"Dates to fetch: {sorted(targets)}")
     rows = []
     for date_iso in sorted(targets):
         print(f"Fetching {date_iso}...")
-        row = fetch_and_compute(date_iso)
+        row = fetch_and_compute(date_iso, commodity_present)
         if row:
             rows.append(row)
             print(f"  ✓ {date_iso}: {row['total_rev_cr']} Cr "

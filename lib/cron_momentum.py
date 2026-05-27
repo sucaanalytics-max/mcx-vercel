@@ -17,12 +17,12 @@ from urllib.parse import urlparse, parse_qs
 
 try:
     from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY,
+        SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
         now_ist, make_cors_headers,
     )
 except ImportError:
     from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY,
+        SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
         now_ist, make_cors_headers,
     )
 
@@ -67,8 +67,8 @@ def sb_get(table, params=""):
 def sb_upsert(table, rows):
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     headers = {
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        "apikey": SUPABASE_WRITE_KEY,
+        "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates",
     }

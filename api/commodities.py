@@ -210,12 +210,12 @@ def _f(v):
         return None
 
 
-def _fetch_all(table, select, limit=5000):
+def _fetch_all(table, select, limit=20000, where=""):
     all_rows, offset = [], 0
     while True:
         rows = supabase_read(
             table,
-            f"?select={select}&order=trading_date.asc&limit=1000&offset={offset}"
+            f"?select={select}{where}&order=trading_date.asc&limit=1000&offset={offset}"
         )
         all_rows.extend(rows)
         if len(rows) < 1000 or len(all_rows) >= limit:
@@ -227,13 +227,17 @@ def _fetch_all(table, select, limit=5000):
 def generate_commodity_analytics():
     ist_now = now_ist()
 
+    # Only the recent window is needed (today's lineup, 60-day rotation/momentum,
+    # prev-day movers). Filtering by date avoids the old bug where an ascending
+    # row-cap returned the OLDEST rows and reported a years-stale "today".
+    cutoff = (ist_now - timedelta(days=150)).strftime("%Y-%m-%d")
     signals = _fetch_all(
         "mcx_commodity_signals",
         "trading_date,commodity,commodity_head,"
         "total_turnover_cr,total_oi_value_cr,total_volume_lots,"
         "turnover_zscore,oi_zscore,volume_zscore,"
         "composite_z,commodity_signal,weight_of_turnover",
-        limit=5000
+        where=f"&trading_date=gte.{cutoff}",
     )
 
     if not signals:
