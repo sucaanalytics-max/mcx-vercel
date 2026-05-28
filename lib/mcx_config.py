@@ -27,6 +27,49 @@ SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY",
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 SUPABASE_WRITE_KEY = SUPABASE_SERVICE_KEY or SUPABASE_ANON_KEY
 
+# ─── Commodity normalization ─────────────────────────────────────────────────
+# Groups MCX mini/micro/petal variants under their parent commodity so all
+# downstream stats (revenue dashboard, signals z-scores, OI) reflect the
+# *complex* rather than fragmenting silver/gold across multiple symbols.
+COMMODITY_MAP = {
+    "CRUDEOILM": "CRUDEOIL", "NATGASMINI": "NATURALGAS",
+    "GOLDM": "GOLD", "GOLDGUINEA": "GOLD", "GOLDPETAL": "GOLD", "GOLDTEN": "GOLD",
+    "SILVERM": "SILVER", "SILVERMIC": "SILVER",
+    "LEADMINI": "LEAD", "ZINCMINI": "ZINC", "ALUMINI": "ALUMINIUM",
+    "ELECDMBL": "NATURALGAS",  # Electric daily bilateral — group under energy
+}
+
+
+def consolidate_commodity(sym: str) -> str:
+    """Return the parent commodity for a mini/micro/petal variant (else sym)."""
+    return COMMODITY_MAP.get(sym, sym)
+
+
+# MCX commodity_head taxonomy (used as fallback when upstream data lacks it,
+# e.g. live-OI rows from Dhan that don't carry the segment field).
+COMMODITY_HEAD = {
+    # Bullion
+    "SILVER": "BULLION", "SILVERM": "BULLION", "SILVERMIC": "BULLION",
+    "GOLD": "BULLION", "GOLDM": "BULLION", "GOLDGUINEA": "BULLION",
+    "GOLDPETAL": "BULLION", "GOLDTEN": "BULLION",
+    # Energy
+    "CRUDEOIL": "ENERGY", "CRUDEOILM": "ENERGY",
+    "NATURALGAS": "ENERGY", "NATGASMINI": "ENERGY", "ELECDMBL": "ENERGY",
+    # Base metals
+    "COPPER": "BASE METALS",
+    "ZINC": "BASE METALS", "ZINCMINI": "BASE METALS",
+    "ALUMINIUM": "BASE METALS", "ALUMINI": "BASE METALS",
+    "LEAD": "BASE METALS", "LEADMINI": "BASE METALS",
+    "NICKEL": "BASE METALS",
+    # Agri
+    "COTTON": "AGRI COMMODITIES", "COTTONOIL": "AGRI COMMODITIES",
+    "KAPAS": "AGRI COMMODITIES", "MENTHAOIL": "AGRI COMMODITIES",
+    "CARDAMOM": "AGRI COMMODITIES",
+    # Index
+    "MCXBULLDEX": "INDEX", "MCXMETLDEX": "INDEX",
+}
+
+
 # ─── CORS (F-13: restricted to deployment domains) ───────────────────────────
 ALLOWED_ORIGINS = os.environ.get(
     "ALLOWED_ORIGINS",

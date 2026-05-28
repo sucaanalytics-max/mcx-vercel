@@ -12,14 +12,20 @@ from urllib.parse import urlparse, parse_qs
 
 try:
     from lib.mcx_config import (
-        AV_KEY, make_cors_headers, now_ist,
+        AV_KEY, make_cors_headers, now_ist, COMMODITY_MAP,
         SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_upsert,
     )
 except ImportError:
     from lib.mcx_config import (
-        AV_KEY, make_cors_headers, now_ist,
+        AV_KEY, make_cors_headers, now_ist, COMMODITY_MAP,
         SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_upsert,
     )
+
+# Legacy fragmented commodity symbols whose data is now consolidated into the
+# parent (per lib/mcx_config.COMMODITY_MAP). Old signal rows for these may
+# still exist in mcx_commodity_signals until the cleanup SQL has been run; we
+# defensively skip them at the API layer so the UI only ever sees parents.
+LEGACY_CHILD_SYMBOLS = frozenset(COMMODITY_MAP.keys())
 
 
 def _av_fetch(function: str, extra: str = "", timeout: int = 12) -> dict:
@@ -239,6 +245,14 @@ def generate_commodity_analytics():
         "composite_z,commodity_signal,weight_of_turnover",
         where=f"&trading_date=gte.{cutoff}",
     )
+
+    # Drop any legacy fragmented child rows (SILVERM, GOLDM, ...) that pre-date
+    # the consolidation fix — their data is now reflected in the parent row.
+    signals = [s for s in signals if s["commodity"] not in LEGACY_CHILD_SYMBOLS]
+    # Drop OI-only stub rows (from refresh_dhan_oi running ahead of bhav_refresh).
+    # Without turnover/volume the lineup is meaningless and "latest_date" gets
+    # polluted by partial in-progress sessions.
+    signals = [s for s in signals if _f(s.get("total_turnover_cr")) and _f(s.get("total_turnover_cr")) > 0]
 
     if not signals:
         return {"success": False, "error": "No commodity signals available. Run cron_commodity_signals first."}

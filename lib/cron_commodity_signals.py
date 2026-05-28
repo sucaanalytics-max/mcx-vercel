@@ -13,11 +13,13 @@ from urllib.parse import urlparse, parse_qs
 try:
     from lib.mcx_config import (
         SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
+        COMMODITY_MAP, COMMODITY_HEAD,
         now_ist, make_cors_headers,
     )
 except ImportError:
     from lib.mcx_config import (
         SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
+        COMMODITY_MAP, COMMODITY_HEAD,
         now_ist, make_cors_headers,
     )
 
@@ -110,16 +112,23 @@ def compute_commodity_signals(mode="recent"):
     )
     log.append(f"Raw commodity rows: {len(raw)}")
 
-    # ── Aggregate by (trading_date, commodity) ──
-    # Some commodities have separate Futures + Options rows per day
+    # ── Aggregate by (trading_date, *parent* commodity) ──
+    # COMMODITY_MAP folds mini/micro/petal variants under the parent symbol so
+    # silver = SILVER+SILVERM+SILVERMIC is scored as ONE complex instead of
+    # appearing as 3 separate STRONG_BUYs. Some commodities have FUTCOM+OPTFUT
+    # rows per day; those are also summed.
     agg = {}
     for r in raw:
-        key = (r["trading_date"], r["commodity"])
+        sym = COMMODITY_MAP.get(r["commodity"], r["commodity"])
+        key = (r["trading_date"], sym)
         if key not in agg:
+            # commodity_head may be NULL on OI-only stub rows; fall back to the
+            # static taxonomy so the downstream NOT-NULL constraint never trips.
+            head = r.get("commodity_head") or COMMODITY_HEAD.get(sym) or "OTHER"
             agg[key] = {
                 "trading_date": r["trading_date"],
-                "commodity": r["commodity"],
-                "commodity_head": r["commodity_head"],
+                "commodity": sym,
+                "commodity_head": head,
                 "total_contracts": 0,
                 "total_volume_lots": 0,
                 "total_turnover_cr": 0.0,
@@ -127,6 +136,11 @@ def compute_commodity_signals(mode="recent"):
                 "total_open_interest": 0,
                 "total_oi_value_cr": 0.0,
             }
+        elif not agg[key]["commodity_head"]:
+            # If we already created the row with a null head, update it now
+            agg[key]["commodity_head"] = (
+                r.get("commodity_head") or COMMODITY_HEAD.get(sym) or "OTHER"
+            )
         a = agg[key]
         a["total_contracts"] += int(r.get("contracts") or 0)
         a["total_volume_lots"] += int(r.get("volume_lots") or 0)

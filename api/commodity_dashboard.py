@@ -14,7 +14,7 @@ from collections import defaultdict
 from urllib.parse import urlparse, parse_qs
 
 from lib.mcx_config import (
-    SUPABASE_URL, SUPABASE_ANON_KEY,
+    SUPABASE_URL, SUPABASE_ANON_KEY, COMMODITY_MAP,
     supabase_read_all, now_ist, make_cors_headers,
 )
 from lib.margin_dashboard import generate_margin_dashboard
@@ -24,16 +24,6 @@ from lib.oi_participants_dashboard import generate_oi_participants_dashboard
 FUTURES_RATE = 210.0      # ₹ per crore notional (both sides)
 OPTIONS_RATE = 4180.0     # ₹ per crore premium (both sides)
 TOP_N = 5                 # Number of top commodities to show individually
-
-# ── Commodity symbol normalization ────────────────────────────────────────
-# Group mini/micro variants under their parent commodity
-COMMODITY_MAP = {
-    "CRUDEOILM": "CRUDEOIL", "NATGASMINI": "NATURALGAS",
-    "GOLDM": "GOLD", "GOLDGUINEA": "GOLD", "GOLDPETAL": "GOLD", "GOLDTEN": "GOLD",
-    "SILVERM": "SILVER", "SILVERMIC": "SILVER",
-    "LEADMINI": "LEAD", "ZINCMINI": "ZINC", "ALUMINI": "ALUMINIUM",
-    "ELECDMBL": "NATURALGAS",  # Electric daily bilateral — group under energy
-}
 
 
 # ─── Date helpers (same as exchange_dashboard) ────────────────────────────
