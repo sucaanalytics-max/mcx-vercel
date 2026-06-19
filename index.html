@@ -5071,7 +5071,12 @@ async function loadBacktest() {
   btLoading = true;
   try {
     const resp = await fetch(`/api/backtest?period=${btPeriod}`);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    // /api/backtest may be absent (disabled) — the SPA catch-all then returns
+    // HTML 200. Guard on content-type so we don't parse HTML as JSON.
+    const ctype = resp.headers.get('content-type') || '';
+    if (!resp.ok || !ctype.includes('application/json')) {
+      throw new Error(`backtest endpoint unavailable (HTTP ${resp.status})`);
+    }
     const data = await resp.json();
     if (!data.success) throw new Error(data.error || 'No backtest data');
     data._ts = Date.now();

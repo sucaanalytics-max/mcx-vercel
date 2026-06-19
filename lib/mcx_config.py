@@ -94,12 +94,17 @@ INTRADAY_BUCKETS = [
     (1320, 1410, 0.15),   # 22:00–23:30  Late session
 ]
 
-# ─── MCX HOLIDAYS 2026 — Official calendar (verified Feb 25, 2026) ───────────
+# ─── MCX HOLIDAYS — Official calendar (2026 verified Feb 25, 2026) ────────────
 # Source: mcxindia.com / 5paisa.com / ICICI Direct
 # FULL-DAY = both sessions closed (zero revenue)
 # MORNING-ONLY = morning closed, evening session OPEN (~67% revenue)
 # EVENING-ONLY = morning open, evening closed (~33% revenue)
-MCX_HOLIDAYS_2026 = {
+# Dates are fully-qualified (YYYY-MM-DD), so each set spans MULTIPLE years.
+# ⚠ When MCX publishes a new year's calendar, ADD its dates here AND to
+#   _MACRO_EVENTS_BY_YEAR below. _warn_if_calendar_stale() prints a startup
+#   warning if the current year has no holiday data, so a year rollover never
+#   silently turns a holiday into a normal trading day.
+MCX_HOLIDAYS = {
     # ── 2025 tail (within 45-day lookback) ──
     "2025-12-25",  # Christmas (full day)
     # ── 2026 FULL-DAY closures ──
@@ -107,9 +112,10 @@ MCX_HOLIDAYS_2026 = {
     "2026-04-03",  # Good Friday
     "2026-10-02",  # Gandhi Jayanti
     "2026-12-25",  # Christmas
+    # ── 2027 FULL-DAY closures: ADD when MCX publishes the 2027 calendar ──
 }
 # Morning-only closures (evening session trades — partial revenue day)
-MCX_MORNING_CLOSE_2026 = {
+MCX_MORNING_CLOSE = {
     "2026-03-03",  # Holi (2nd day)
     "2026-03-26",  # Shri Ram Navmi
     "2026-03-31",  # Mahavir Jayanti
@@ -121,11 +127,17 @@ MCX_MORNING_CLOSE_2026 = {
     "2026-10-20",  # Dassera
     "2026-11-10",  # Diwali-Balipratipada
     "2026-11-24",  # Guru Nanak Jayanti
+    # ── 2027: ADD when published ──
 }
 # Evening-only closure
-MCX_EVENING_CLOSE_2026 = {
+MCX_EVENING_CLOSE = {
     "2026-01-01",  # New Year Day
+    # ── 2027: ADD when published ──
 }
+# Backward-compat aliases — several modules import the *_2026 names.
+MCX_HOLIDAYS_2026 = MCX_HOLIDAYS
+MCX_MORNING_CLOSE_2026 = MCX_MORNING_CLOSE
+MCX_EVENING_CLOSE_2026 = MCX_EVENING_CLOSE
 
 # ─── DAY-TYPE CLASSIFICATION (F-21: algorithmic + manual overrides) ──────────
 # Volume multipliers — calibrated by scripts/calibrate_day_types.py against 400
@@ -167,9 +179,36 @@ def _get_trading_day_before(d: datetime, n: int = 1) -> datetime:
         cur -= timedelta(days=1)
     return cur
 
-def _build_event_calendar(year: int = 2026) -> tuple:
+# Macro / scheduled-event dates that can't be derived algorithmically (central-bank
+# decisions, data releases, NatGas expiry). Listed per year — add a new year's entry
+# when its schedule is published. Years absent here get no macro HIGH/MEDIUM tags
+# (those days fall back to LOW), but algorithmic CrudeOil expiry still applies.
+_MACRO_EVENTS_BY_YEAR = {
+    2026: {
+        # NatGas expiry (~20th-26th, approximate: 4th Friday or nearby)
+        "natgas": ["2026-01-23", "2026-02-20", "2026-03-20", "2026-04-24",
+                   "2026-05-22", "2026-06-26", "2026-07-24", "2026-08-21",
+                   "2026-09-25", "2026-10-23", "2026-11-20", "2026-12-24"],
+        "fomc":   ["2026-01-29", "2026-03-18", "2026-05-06", "2026-06-17",
+                   "2026-07-29", "2026-09-16", "2026-10-28", "2026-12-09"],
+        "rbi":    ["2026-02-06", "2026-04-09", "2026-06-05", "2026-08-07",
+                   "2026-10-09", "2026-12-04"],
+        "budget": ["2026-02-02"],
+        "gdp":    ["2026-02-27", "2026-05-29", "2026-08-31", "2026-11-30"],
+        "cpi":    ["2026-01-13", "2026-02-12", "2026-03-12", "2026-04-13",
+                   "2026-05-12", "2026-06-12", "2026-07-14", "2026-08-12",
+                   "2026-09-14", "2026-10-12", "2026-11-12", "2026-12-14"],
+        "nfp":    ["2026-01-09", "2026-03-06", "2026-04-02", "2026-04-30",
+                   "2026-07-10", "2026-09-04", "2026-10-01", "2026-11-06"],
+        # ── 2027: add a `2027: {...}` block when the schedule is published ──
+    },
+}
+
+def _build_event_calendar(year: int) -> tuple:
     """
     Algorithmically generate HIGH/MEDIUM/EXPIRY events for a given year.
+    CrudeOil expiry is computed for any year; macro events come from
+    _MACRO_EVENTS_BY_YEAR (empty for years not yet catalogued).
     Returns (high_set, medium_set, expiry_set) of date strings.
     """
     high = set()
@@ -177,67 +216,63 @@ def _build_event_calendar(year: int = 2026) -> tuple:
     expiry = set()
 
     for month in range(1, 13):
-        # CrudeOil expiry cycle
+        # CrudeOil expiry cycle (algorithmic — valid for any year)
         exp_date = _get_mcx_crude_expiry(year, month)
         expiry.add(exp_date.strftime("%Y-%m-%d"))
-        t1 = _get_trading_day_before(exp_date, 1)
-        t2 = _get_trading_day_before(exp_date, 2)
-        medium.add(t1.strftime("%Y-%m-%d"))
-        high.add(t2.strftime("%Y-%m-%d"))
+        medium.add(_get_trading_day_before(exp_date, 1).strftime("%Y-%m-%d"))
+        high.add(_get_trading_day_before(exp_date, 2).strftime("%Y-%m-%d"))
 
-    # NatGas expiry (~20th-26th, approximate: 4th Friday or nearby)
-    natgas_expiries = [
-        "2026-01-23", "2026-02-20", "2026-03-20", "2026-04-24",
-        "2026-05-22", "2026-06-26", "2026-07-24", "2026-08-21",
-        "2026-09-25", "2026-10-23", "2026-11-20", "2026-12-24",
-    ]
-    for d in natgas_expiries:
+    macro = _MACRO_EVENTS_BY_YEAR.get(year, {})
+    for d in macro.get("natgas", []):
         medium.add(d)
-
-    # FOMC decisions (known 2026 schedule)
-    fomc = ["2026-01-29", "2026-03-18", "2026-05-06", "2026-06-17",
-            "2026-07-29", "2026-09-16", "2026-10-28", "2026-12-09"]
-    for d in fomc:
+    for d in macro.get("fomc", []):
         high.add(d)
-
-    # RBI MPC (bimonthly, shifted from weekends)
-    rbi = ["2026-02-06", "2026-04-09", "2026-06-05", "2026-08-07",
-           "2026-10-09", "2026-12-04"]
-    for d in rbi:
+    for d in macro.get("rbi", []):
         high.add(d)
-
-    # Union Budget
-    high.add("2026-02-02")
-
-    # India GDP flash
-    gdp = ["2026-02-27", "2026-05-29", "2026-08-31", "2026-11-30"]
-    for d in gdp:
+    for d in macro.get("budget", []):
         high.add(d)
-
-    # India CPI
-    cpi = ["2026-01-13", "2026-02-12", "2026-03-12", "2026-04-13",
-           "2026-05-12", "2026-06-12", "2026-07-14", "2026-08-12",
-           "2026-09-14", "2026-10-12", "2026-11-12", "2026-12-14"]
-    for d in cpi:
+    for d in macro.get("gdp", []):
+        high.add(d)
+    for d in macro.get("cpi", []):
+        if d not in high:
+            medium.add(d)
+    for d in macro.get("nfp", []):
         if d not in high:
             medium.add(d)
 
-    # US NFP
-    nfp = ["2026-01-09", "2026-03-06", "2026-04-02", "2026-04-30",
-           "2026-07-10", "2026-09-04", "2026-10-01", "2026-11-06"]
-    for d in nfp:
-        if d not in high:
-            medium.add(d)
-
-    # Remove any MEDIUM that's also in HIGH (HIGH wins)
+    # HIGH wins over MEDIUM; EXPIRY only if not already HIGH/MEDIUM.
     medium -= high
-    # Remove any EXPIRY that's also in HIGH or MEDIUM
     expiry -= high
     expiry -= medium
-
     return high, medium, expiry
 
-_HIGH_EVENTS, _MEDIUM_EVENTS, _EXPIRY_EVENTS = _build_event_calendar(2026)
+
+def _current_ist_year() -> int:
+    from datetime import timezone
+    return (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=5, minutes=30)).year
+
+
+def _warn_if_calendar_stale() -> None:
+    """Warn (at import) if the running year has no holiday data, so a year
+    rollover doesn't silently turn holidays into normal trading days."""
+    yr = _current_ist_year()
+    if not any(h.startswith(f"{yr}-") for h in MCX_HOLIDAYS):
+        import sys as _sys
+        print(f"⚠ MCX calendar: no holiday data for {yr} in mcx_config.py — holidays "
+              f"will be treated as trading days until added. Add {yr} to MCX_HOLIDAYS / "
+              f"MCX_MORNING_CLOSE / MCX_EVENING_CLOSE and _MACRO_EVENTS_BY_YEAR[{yr}].",
+              file=_sys.stderr)
+
+
+# Build event sets for 2026 (always) plus the current and next year, so the
+# classifier keeps working across a year rollover. 2026 values are unchanged.
+_HIGH_EVENTS, _MEDIUM_EVENTS, _EXPIRY_EVENTS = set(), set(), set()
+for _yr in sorted({2026, _current_ist_year(), _current_ist_year() + 1}):
+    _h, _m, _e = _build_event_calendar(_yr)
+    _HIGH_EVENTS |= _h
+    _MEDIUM_EVENTS |= _m
+    _EXPIRY_EVENTS |= _e
+_warn_if_calendar_stale()
 
 
 def get_day_type(dt: datetime) -> str:

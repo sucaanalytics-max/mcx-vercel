@@ -14,7 +14,7 @@ try:
         SESSION_START, SESSION_END, SESSION_TOTAL, INTRADAY_BUCKETS,
         DAY_MULTIPLIER, DAY_DESCRIPTION,
         get_day_type, get_intraday_weight, project_full_day,
-        calc_revenue, calc_uncertainty, now_ist, is_market_open,
+        calc_revenue, calc_uncertainty, now_ist, is_market_open, is_trading_day,
         make_cors_headers, SUPABASE_URL, SUPABASE_ANON_KEY,
         supabase_read, supabase_upsert,
     )
@@ -24,7 +24,7 @@ except (ImportError, Exception):
         SESSION_START, SESSION_END, SESSION_TOTAL, INTRADAY_BUCKETS,
         DAY_MULTIPLIER, DAY_DESCRIPTION,
         get_day_type, get_intraday_weight, project_full_day,
-        calc_revenue, calc_uncertainty, now_ist, is_market_open,
+        calc_revenue, calc_uncertainty, now_ist, is_market_open, is_trading_day,
         make_cors_headers, SUPABASE_URL, SUPABASE_ANON_KEY,
         supabase_read, supabase_upsert,
     )
@@ -74,15 +74,21 @@ def _auto_fetch_cookies(timeout: int = 12):
 
 
 def _fetch_mcx(cookie: str, timeout: int = 18):
-    """Single call to MCX GetMarketWatch. Returns raw dict or raises."""
+    """Single call to MCX GetMarketWatch. Returns raw dict or raises.
+
+    2026-06: MCX migrated to Sitefinity. The old ASP.NET WebMethod
+    (POST backpage.aspx/GetMarketWatch, returning {"d":...}) now 404s. The
+    live endpoint is a page-scoped GET returning {"data":{"Data":[...]}}.
+    Mirrors scripts/mcx_relay.py (the real writer). Note: this server's cloud
+    IP is typically blocked by MCX, so the POST handler treats failure as a
+    graceful fall-through to the cached GET — the relay is the source of truth.
+    """
     req = urllib.request.Request(
-        "https://www.mcxindia.com/backpage.aspx/GetMarketWatch",
-        data=b"",
-        method="POST",
+        "https://www.mcxindia.com/market-data/market-watch/GetMarketWatch?culture=en-US",
+        method="GET",
         headers={
             "accept": "application/json, text/javascript, */*; q=0.01",
             "content-type": "application/json",
-            "origin": "https://www.mcxindia.com",
             "referer": "https://www.mcxindia.com/market-data/market-watch",
             "x-requested-with": "XMLHttpRequest",
             "cookie": cookie,
@@ -100,7 +106,8 @@ def _fetch_mcx(cookie: str, timeout: int = 18):
 
 def _extract_notionals(raw_json: dict):
     """Return (fut_notl, opt_notl, opt_prem, futures_list, options_list)."""
-    contracts = raw_json.get("d", {}).get("Data", [])
+    # New Sitefinity shape: {"data":{"Data":[...]}}; fall back to legacy {"d":...}.
+    contracts = (raw_json.get("data") or raw_json.get("d") or {}).get("Data", [])
     futures = [c for c in contracts if c.get("InstrumentName") == "FUTCOM" and c.get("Volume", 0) > 0]
     options = [c for c in contracts if c.get("InstrumentName") == "OPTFUT" and c.get("Volume", 0) > 0]
     fut_notl = sum(c.get("NotionalValue", 0) for c in futures) / 100
@@ -143,10 +150,11 @@ def process_market_data(raw_json, capture_time_ist, raw_json2=None):
     sym_fut = defaultdict(float)
     sym_opt = defaultdict(float)
     sym_optN = defaultdict(float)
+    # MCX now returns Symbol=null; the commodity name is in ProductCode.
     for c in futures:
-        sym_fut[c["Symbol"]] += c.get("NotionalValue", 0) / 100
+        sym_fut[c.get("ProductCode") or c.get("Symbol")] += c.get("NotionalValue", 0) / 100
     for c in options:
-        base = c["Symbol"].replace("OPT", "")
+        base = c.get("ProductCode") or (c.get("Symbol") or "").replace("OPT", "")
         sym_opt[base] += c.get("PremiumValue", 0) / 100
         sym_optN[base] += c.get("NotionalValue", 0) / 100
 
@@ -321,12 +329,34 @@ class handler(BaseHTTPRequestHandler):
 
         try:
             today = now_ist().strftime("%Y-%m-%d")
+            # Fetch the top 2 latest rows (by elapsed_min) so we can fall back
+            # past a known "stale opening cumulative" artifact (see clamp below).
             rows = supabase_read(
                 "mcx_snapshots",
-                f"?trading_date=eq.{today}&order=elapsed_min.desc&limit=1"
+                f"?trading_date=eq.{today}&order=elapsed_min.desc&limit=2"
             )
             if rows:
                 row = rows[0]
+                # ── Opening-artifact clamp ──────────────────────────────────
+                # Early in the session MCX occasionally reports a stale, oversized
+                # cumulative value (carry-over from the prior session). Symptom:
+                # a very low elapsed_min paired with an implausibly high total_rev_cr
+                # (full days are ~8-14 Cr). If the latest row looks like this, fall
+                # back to the next-highest-elapsed_min row for the day if one exists;
+                # otherwise serve it but flag it so the frontend won't trust the projection.
+                opening_artifact = False
+                try:
+                    _elapsed = row.get("elapsed_min") or 0
+                    _total = row.get("total_rev_cr") or 0
+                    if _elapsed <= 20 and _total > 30:
+                        if len(rows) > 1:
+                            # Use the previous good snapshot for the day.
+                            row = rows[1]
+                        else:
+                            # Only one snapshot exists — serve it but mark untrusted.
+                            opening_artifact = True
+                except Exception:
+                    pass  # Never let the clamp crash the serve path.
                 result = {
                     "success": True,
                     "source": "supabase_cache",
@@ -375,6 +405,12 @@ class handler(BaseHTTPRequestHandler):
                 result["rev_low"] = round(proj_total * (1 - unc), 2)
                 result["rev_high"] = round(proj_total * (1 + unc), 2)
                 result["trading_days"] = TRADING_DAYS
+
+                # Surface the opening-artifact flag so the frontend doesn't
+                # trust the projection derived from a stale opening cumulative.
+                if opening_artifact:
+                    result["opening_artifact"] = True
+                    result["confidence"] = "untrusted"
 
                 self.send_json(result)
             else:

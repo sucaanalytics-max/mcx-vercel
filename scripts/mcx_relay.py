@@ -25,6 +25,21 @@ if sys.platform == "win32":
 from curl_cffi import requests as cfreq
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
+import concurrent.futures as _cf
+
+# Hard wall-clock guard for curl_cffi calls — libcurl's own timeout has been
+# observed to hang for hours when DNS or a half-open socket stalls. Abandoned
+# threads leak (libcurl can't be cancelled cleanly), so callers must drop the
+# stale session and rebuild before retrying.
+_NET_POOL = _cf.ThreadPoolExecutor(max_workers=4, thread_name_prefix="mcx-net")
+
+
+def _hard_call(fn, *args, hard_timeout=25, **kwargs):
+    fut = _NET_POOL.submit(fn, *args, **kwargs)
+    try:
+        return fut.result(timeout=hard_timeout)
+    except _cf.TimeoutError:
+        raise TimeoutError(f"network call exceeded {hard_timeout}s wall-clock")
 
 # Add parent to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -77,7 +92,9 @@ def _get_mw_session(force_new=False):
     global _mw_session
     if _mw_session is None or force_new:
         _mw_session = cfreq.Session(impersonate="chrome142")
-        _mw_session.get("https://www.mcxindia.com/market-data/market-watch", timeout=30)
+        _hard_call(_mw_session.get,
+                   "https://www.mcxindia.com/market-data/market-watch",
+                   timeout=20, hard_timeout=25)
     return _mw_session
 
 
@@ -86,48 +103,63 @@ def _get_hist_session(force_new=False):
     global _hist_session
     if _hist_session is None or force_new:
         _hist_session = cfreq.Session(impersonate="chrome142")
-        _hist_session.get("https://www.mcxindia.com/market-data/historical-data", timeout=30)
+        _hard_call(_hist_session.get,
+                   "https://www.mcxindia.com/market-data/historical-data",
+                   timeout=20, hard_timeout=25)
     return _hist_session
+
+
+def _reset_net_state():
+    """Recover from leaked/hung network threads. A `_hard_call` timeout abandons
+    its worker thread (libcurl can't be cancelled), permanently consuming a slot
+    in the 4-worker pool; enough leaks and every later call blocks. This rebuilds
+    the pool (stuck threads die on their own) and forces fresh curl sessions."""
+    global _NET_POOL
+    old = _NET_POOL
+    _NET_POOL = _cf.ThreadPoolExecutor(max_workers=4, thread_name_prefix="mcx-net")
+    try:
+        old.shutdown(wait=False, cancel_futures=True)
+    except Exception:
+        pass
+    for _reset in (_get_mw_session, _get_hist_session):
+        try:
+            _reset(force_new=True)
+        except Exception:
+            pass
 
 
 def fetch_market_watch(session=None, timeout=18):
     """Call MCX GetMarketWatch API via curl_cffi. Auto-retries with fresh session on failure."""
     if session is None:
         session = _get_mw_session()
+    headers = {
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Content-Type": "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": "https://www.mcxindia.com/market-data/market-watch",
+    }
+    # 2026-06: MCX migrated to Sitefinity. The old ASP.NET WebMethod
+    # (POST backpage.aspx/GetMarketWatch, returning {"d":...}) now 404s.
+    # New endpoint is a page-scoped GET returning {"data":{"Data":[...]}}.
+    url = "https://www.mcxindia.com/market-data/market-watch/GetMarketWatch?culture=en-US"
+    hard = max(timeout + 5, 25)
     try:
-        resp = session.post(
-            "https://www.mcxindia.com/backpage.aspx/GetMarketWatch",
-            data="",
-            headers={
-                "Accept": "application/json, text/javascript, */*; q=0.01",
-                "Content-Type": "application/json",
-                "X-Requested-With": "XMLHttpRequest",
-                "Referer": "https://www.mcxindia.com/market-data/market-watch",
-            },
-            timeout=timeout,
-        )
+        resp = _hard_call(session.get, url, headers=headers,
+                          timeout=timeout, hard_timeout=hard)
         resp.raise_for_status()
         return resp.json()
     except Exception as e:
         print(f"  ⚠ MarketWatch call failed ({e}), retrying with fresh session...")
         session = _get_mw_session(force_new=True)
-        resp = session.post(
-            "https://www.mcxindia.com/backpage.aspx/GetMarketWatch",
-            data="",
-            headers={
-                "Accept": "application/json, text/javascript, */*; q=0.01",
-                "Content-Type": "application/json",
-                "X-Requested-With": "XMLHttpRequest",
-                "Referer": "https://www.mcxindia.com/market-data/market-watch",
-            },
-            timeout=timeout,
-        )
+        resp = _hard_call(session.get, url, headers=headers,
+                          timeout=timeout, hard_timeout=hard)
         resp.raise_for_status()
         return resp.json()
 
 
 def extract_notionals(raw_json):
-    contracts = raw_json.get("d", {}).get("Data", [])
+    # New Sitefinity shape: {"data":{"Data":[...]}}; fall back to legacy {"d":...}.
+    contracts = (raw_json.get("data") or raw_json.get("d") or {}).get("Data", [])
     futures = [c for c in contracts if c.get("InstrumentName") == "FUTCOM" and c.get("Volume", 0) > 0]
     options = [c for c in contracts if c.get("InstrumentName") == "OPTFUT" and c.get("Volume", 0) > 0]
     fut_notl = sum(c.get("NotionalValue", 0) for c in futures) / 100
@@ -204,10 +236,12 @@ def run_snapshot():
     sym_fut = defaultdict(float)
     sym_opt = defaultdict(float)
     sym_optN = defaultdict(float)
+    # MCX now returns Symbol=null; the commodity name is in ProductCode
+    # (already clean, e.g. "COPPER"), so no OPT-prefix stripping needed.
     for c in futures:
-        sym_fut[c["Symbol"]] += c.get("NotionalValue", 0) / 100
+        sym_fut[c.get("ProductCode") or c.get("Symbol")] += c.get("NotionalValue", 0) / 100
     for c in options:
-        base = c["Symbol"].replace("OPT", "")
+        base = c.get("ProductCode") or (c.get("Symbol") or "").replace("OPT", "")
         sym_opt[base] += c.get("PremiumValue", 0) / 100
         sym_optN[base] += c.get("NotionalValue", 0) / 100
 
@@ -250,7 +284,7 @@ def run_snapshot():
     }
 
     print(f"  Pushing to Supabase...")
-    result = supabase_upsert("mcx_snapshots", snapshot)
+    result = _hard_call(supabase_upsert, "mcx_snapshots", snapshot, hard_timeout=20)
     print(f"  ✓ {capture.strftime('%H:%M IST')} — Rev: ₹{total_rev:.2f} Cr "
           f"(Fut: {fut_notl:.0f} | Opt Prem: {opt_prem:.0f}) "
           f"[{conf}, ±{unc*100:.0f}%] "
@@ -287,24 +321,28 @@ def fetch_mcx_historical(date_iso):
     Uses curl_cffi with Chrome TLS impersonation to bypass Akamai bot detection."""
     date_compact = date_iso.replace("-", "")
 
-    payload = {
-        "GroupBy": "D", "Segment": "ALL", "CommodityHead": "ALL",
-        "Commodity": "ALL", "Startdate": date_compact,
+    params = {
+        "culture": "en-US", "GroupBy": "D", "Segment": "ALL",
+        "CommodityHead": "ALL", "Commodity": "ALL", "Startdate": date_compact,
         "EndDate": date_compact, "InstrumentName": "ALL",
     }
 
-    url = "https://www.mcxindia.com/backpage.aspx/GetHistoricalDataDetails"
+    # MCX migrated to Sitefinity (Jun 2026): historical report is now a root-scoped
+    # GET. The old backpage.aspx POST returns an HTML 404 (HTTP 200) for every date,
+    # which silently broke the relay catch-up self-heal for all missed days.
+    url = "https://www.mcxindia.com/GetHistoricalDataDetails"
 
     try:
         session = _get_hist_session()
-        resp = session.post(url, json=payload, headers={
+        resp = _hard_call(session.get, url, params=params, headers={
+            "Accept": "application/json, text/javascript, */*; q=0.01",
             "X-Requested-With": "XMLHttpRequest",
             "Referer": "https://www.mcxindia.com/market-data/historical-data",
-        }, timeout=30)
+        }, timeout=30, hard_timeout=35)
         resp.raise_for_status()
         data = resp.json()
 
-        rows = data.get("d", {}).get("Data")
+        rows = (data.get("Data") or {}).get("Data")
         if not rows or len(rows) < 5:
             return None
 
@@ -313,7 +351,7 @@ def fetch_mcx_historical(date_iso):
         n_fut = n_opt = 0
 
         for r in rows:
-            inst = r.get("InstrumentName", "")
+            inst = (r.get("Instrumentname") or r.get("InstrumentName") or "").strip().upper()
             total_val = float(r.get("TotalValue", 0) or 0)
             prem_str = str(r.get("PremiumTurnover", "-")).strip()
 
@@ -448,51 +486,92 @@ def send_heartbeat(status="running", last_rev=None, elapsed=None, error=None):
     if error:
         beat["last_error"] = str(error)[:200]
     try:
-        supabase_upsert("relay_heartbeat", beat)
+        _hard_call(supabase_upsert, "relay_heartbeat", beat, hard_timeout=15)
     except Exception as e:
         print(f"  ⚠ Heartbeat failed: {e}")
 
 
 def refresh_margins_local():
-    """Download and upsert margin data from Sharekhan (runs locally to bypass cloud IP blocks)."""
+    """Download and upsert margin data from Sharekhan (runs locally to bypass cloud IP blocks).
+    Sharekhan's XLS "Date" column is an effective-from date, not the publication date,
+    so we use the HTTP Last-Modified header (in IST) as the authoritative snapshot_date."""
     print(f"\n  ── Margin Refresh ──")
     try:
+        # Probe Last-Modified to pin snapshot_date to when Sharekhan published the file.
+        from email.utils import parsedate_to_datetime
+        _IST_OFFSET = timezone(timedelta(hours=5, minutes=30))
+        pub_date = None
+        try:
+            req = urllib.request.Request(
+                "https://www.sharekhan.com/MediaGalary/Commodity/McxSpan.xls",
+                method="HEAD",
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                lm = r.headers.get("Last-Modified")
+                if lm:
+                    pub_date = parsedate_to_datetime(lm).astimezone(_IST_OFFSET).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+        if pub_date is None:
+            pub_date = now_ist().strftime("%Y-%m-%d")
+
         data = _download_xls(log=[])
         rows = _parse_xls(data)
         if not rows:
             print("  ✗ No margin rows parsed")
             return
-        snapshot_date = rows[0]["snapshot_date"]
+        for r in rows:
+            r["snapshot_date"] = pub_date
+
         today_str = now_ist().strftime("%Y-%m-%d")
-        if snapshot_date != today_str:
-            print(f"  ⚠ Stale: XLS date {snapshot_date} ≠ today {today_str}")
+        if pub_date != today_str:
+            print(f"  ⚠ Stale: Sharekhan file published {pub_date} ≠ today {today_str}")
         errors = margin_upsert("mcx_margin_daily", rows)
         if errors:
             print(f"  ⚠ Upsert errors: {errors[:2]}")
         else:
-            print(f"  ✓ Margins upserted: {snapshot_date} ({len(rows)} rows)")
+            print(f"  ✓ Margins upserted: {pub_date} ({len(rows)} rows)")
     except Exception as e:
         print(f"  ✗ Margin refresh failed: {e}")
 
 
 def refresh_oi_participants_local():
-    """Download and upsert OI participant category data from MCX (runs locally to bypass Akamai)."""
+    """Download and upsert OI participant category data from MCX.
+    MCX serves a 404 HTML page with HTTP 200 when the day's report isn't published
+    yet, so we sniff the ZIP magic and walk back up to 5 trading days."""
     if not _HAS_OI:
         print("  OI participants module not available, skipping")
         return
     print(f"\n  -- OI Participants Refresh --")
     try:
-        dt = now_ist().date()
-        url = oi_build_url(dt)
         session = cfreq.Session(impersonate="chrome142")
-        session.get("https://www.mcxindia.com/market-operations/trading-survelliance", timeout=30)
-        resp = session.get(url, timeout=30)
-        if resp.status_code != 200:
-            print(f"  ✗ Download failed: HTTP {resp.status_code}")
+        _hard_call(session.get,
+                   "https://www.mcxindia.com/market-operations/trading-survelliance",
+                   timeout=20, hard_timeout=25)
+
+        dt = now_ist().date()
+        xlsx_bytes = None
+        resolved_dt = None
+        tried = []
+        for _ in range(7):
+            if is_trading_day(dt):
+                url = oi_build_url(dt)
+                tried.append(dt.isoformat())
+                resp = _hard_call(session.get, url, timeout=20, hard_timeout=25)
+                if resp.status_code == 200 and resp.content[:2] == b"PK":
+                    xlsx_bytes = resp.content
+                    resolved_dt = dt
+                    break
+            dt -= timedelta(days=1)
+
+        if xlsx_bytes is None:
+            print(f"  ⏸ No OI report available yet (tried {tried})")
             return
-        report_date, rows = oi_parse_participants(resp.content)
+
+        report_date, rows = oi_parse_participants(xlsx_bytes)
         if not rows:
-            print("  ✗ No OI participant rows parsed")
+            print(f"  ✗ No OI participant rows parsed for {resolved_dt}")
             return
         errors = oi_upsert("mcx_oi_participants", rows)
         if errors:
@@ -508,6 +587,9 @@ def run_loop():
     After session close, captures authoritative EOD record for mcx_daily_revenue."""
     print(f"MCX Relay — loop mode (every {LOOP_INTERVAL//60} min)")
     print(f"Trading hours: 09:00–23:30 IST")
+
+    fail_streak = 0
+    MAX_CONSEC_FAIL = 4  # back-to-back failures before we exit for launchd to relaunch
 
     while True:
         t = now_ist()
@@ -532,7 +614,21 @@ def run_loop():
         except Exception as e:
             print(f"  ✗ Error: {e}")
             send_heartbeat("error", error=e)
+            fail_streak += 1
+            print(f"  ⚠ Consecutive snapshot failures: {fail_streak}/{MAX_CONSEC_FAIL}")
+            # Watchdog: a hung-but-alive relay is the worst failure mode — launchd
+            # KeepAlive only relaunches on process exit, never on a stalled loop.
+            # After repeated failures, exit(1) so launchd respawns a clean process
+            # (fresh pool + sessions). This auto-recovers the 2026-06-19 stall.
+            if fail_streak >= MAX_CONSEC_FAIL:
+                print("  ✗ Too many consecutive failures — exit(1) for launchd to relaunch.")
+                send_heartbeat("error", error=f"watchdog exit: {fail_streak} consecutive failures")
+                sys.exit(1)
+            # Drop the (possibly wedged) pool/sessions before the next attempt.
+            _reset_net_state()
             result = False
+        else:
+            fail_streak = 0
 
         # Trigger EOD immediately when session closes (no timing race)
         if result == "closed":
@@ -553,8 +649,11 @@ def run_loop():
             refresh_oi_participants_local()
             break
 
-        print(f"  Next snapshot in {LOOP_INTERVAL//60} min...")
-        time.sleep(LOOP_INTERVAL)
+        # After a failure, retry in 2 min (not 15) so a transient stall recovers
+        # in minutes and the watchdog can trip quickly, instead of dead cycles.
+        sleep_s = 120 if fail_streak > 0 else LOOP_INTERVAL
+        print(f"  Next snapshot in {sleep_s//60} min...")
+        time.sleep(sleep_s)
 
     print("MCX Relay finished.")
 

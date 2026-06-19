@@ -97,23 +97,28 @@ def _fetch_mcx_raw(date_iso):
     """Fetch raw contract-level rows from MCX Historical API for one date.
     Returns (raw_rows, None) on success or (None, error_msg) on failure."""
     date_compact = date_iso.replace("-", "")
-    payload = {
-        "GroupBy": "D", "Segment": "ALL", "CommodityHead": "ALL",
-        "Commodity": "ALL", "Startdate": date_compact, "EndDate": date_compact,
+    params = {
+        "culture": "en-US", "GroupBy": "D", "Segment": "ALL",
+        "CommodityHead": "ALL", "Commodity": "ALL",
+        "Startdate": date_compact, "EndDate": date_compact,
         "InstrumentName": "ALL",
     }
-    url = "https://www.mcxindia.com/backpage.aspx/GetHistoricalDataDetails"
+    # MCX migrated to Sitefinity (Jun 2026): the historical report is now a
+    # root-scoped GET. The old backpage.aspx POST returns an HTML 404 (HTTP 200)
+    # for every date, which silently looked like "no data" for all backfills.
+    url = "https://www.mcxindia.com/GetHistoricalDataDetails"
 
     for attempt in range(MCX_MAX_RETRIES + 1):
       try:
         session = _get_hist_session(force_new=(attempt > 0))
-        resp = session.post(url, json=payload, headers={
+        resp = session.get(url, params=params, headers={
+            "Accept": "application/json, text/javascript, */*; q=0.01",
             "X-Requested-With": "XMLHttpRequest",
             "Referer": "https://www.mcxindia.com/market-data/historical-data",
         }, timeout=MCX_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
-        rows = data.get("d", {}).get("Data")
+        rows = (data.get("Data") or {}).get("Data")
         if not rows or len(rows) < 5:
             return None, "no data"
         return rows, None
@@ -131,7 +136,8 @@ def _aggregate_commodity_rows(date_iso, raw_rows):
     groups = {}
     for r in raw_rows:
         symbol = (r.get("Symbol") or r.get("Commodity") or "").strip()
-        inst = (r.get("InstrumentName") or "").strip()
+        # Sitefinity endpoint renamed the field to "Instrumentname" (lowercase n).
+        inst = (r.get("Instrumentname") or r.get("InstrumentName") or "").strip()
         chead = (r.get("CommodityHead") or r.get("Segment") or "").strip()
         if not symbol or not inst:
             continue
@@ -218,7 +224,7 @@ def fetch_mcx_historical(date_iso):
     n_opt = 0
 
     for r in raw_rows:
-        inst = r.get("InstrumentName", "")
+        inst = (r.get("Instrumentname") or r.get("InstrumentName") or "").strip().upper()
         total_val = float(r.get("TotalValue", 0) or 0)
         prem_str = str(r.get("PremiumTurnover", "-")).strip()
 

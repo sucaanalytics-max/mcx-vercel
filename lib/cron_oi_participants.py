@@ -257,8 +257,9 @@ class handler(BaseHTTPRequestHandler):
         qs = parse_qs(parsed.query)
         if qs.get("secret", [None])[0] == CRON_SECRET:
             return True
+        # Fail closed: a missing CRON_SECRET must NOT bypass auth.
         if not CRON_SECRET:
-            return True
+            return False
         return False
 
     def do_GET(self):

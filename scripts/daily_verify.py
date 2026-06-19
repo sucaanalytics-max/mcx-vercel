@@ -102,10 +102,21 @@ def backfill_from_historical(date_iso):
 def run_bhav_refresh(date_iso):
     """Run bhav_refresh for commodity-level data."""
     try:
-        import subprocess
+        import subprocess, shutil
         project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        # bhav_refresh imports curl_cffi, which is only present in the homebrew
+        # interpreter. Prefer it explicitly so this works under launchd plists
+        # that pin /usr/bin/python3 (Python 3.9, no third-party packages).
+        candidate_pys = [
+            "/opt/homebrew/bin/python3",
+            "/opt/homebrew/opt/python@3.14/bin/python3.14",
+            shutil.which("python3.14"),
+            shutil.which("python3"),
+            sys.executable,
+        ]
+        py = next((p for p in candidate_pys if p and os.path.exists(p)), sys.executable)
         result = subprocess.run(
-            [sys.executable, os.path.join(project_dir, "scripts", "bhav_refresh.py"), date_iso],
+            [py, os.path.join(project_dir, "scripts", "bhav_refresh.py"), date_iso],
             capture_output=True, text=True, timeout=60, cwd=project_dir,
         )
         if result.returncode == 0:
