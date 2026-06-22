@@ -1532,6 +1532,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   <div class="hero-sub">
     <span id="heroDate">—</span>
     <span id="heroSession">— elapsed</span>
+    <span id="heroRealized" style="font-weight:600;color:var(--text)"></span>
     <span id="heroRange">range —</span>
     <span id="heroConfidence">—</span>
   </div>
@@ -3548,6 +3549,11 @@ function updateSnapshotFromAPI(d) {
   document.getElementById('heroDate').textContent = d.timestamp ? d.timestamp.split('T')[0] : '—';
   const sessLabel = d.session_type === 'evening_only' ? 'Evening' : d.session_type === 'morning_only' ? 'Morning' : '';
   document.getElementById('heroSession').textContent = isLive ? `${d.elapsed_pct}% elapsed${sessLabel ? ' (' + sessLabel + ')' : ''}` : 'Session closed';
+  // Realized-so-far: revenue actually booked from current cumulative notionals
+  // (heroRevenue above is the full-day projection). Clarifies how much of the
+  // projected figure is real this early in the session; hidden once closed.
+  const realizedRev = 2 * (d.fut_notl_cr || 0) * 210 / 1e7 + 2 * (d.opt_prem_cr || 0) * 4180 / 1e7;
+  document.getElementById('heroRealized').textContent = isLive ? `₹${fmtDec(realizedRev, 1)} Cr booked` : '';
   document.getElementById('heroRange').textContent = (d.rev_low != null) ? `₹${fmtDec(d.rev_low,1)}–${fmtDec(d.rev_high,1)} Cr` : '';
   document.getElementById('heroConfidence').textContent = `${d.confidence || '—'} · ±${d.uncertainty_pct || 0}%`;
   document.getElementById('heroProgressFill').style.width = (d.elapsed_pct || 0) + '%';
