@@ -153,18 +153,30 @@ def verify_date(date_iso):
         elif rev["total_rev_cr"] > 30.0:
             result["issues"].append(f"Revenue unusually high: {rev['total_rev_cr']:.4f}")
 
-        # Cross-validate with Historical API
+        # Cross-validate with Historical API.
+        # The MCX historical detailed report lags ~1 trading day on the OPTIONS
+        # leg: for the most recent day (T-1) it often returns futures only
+        # (opt premium = 0), which is INCOMPLETE, not a real divergence. So only
+        # act on a COMPLETE report, and NEVER auto-overwrite from this check —
+        # a clean live relay EOD close is authoritative; auto-replacing it with a
+        # settlement report (esp. an unsettled one) risks clobbering good data.
         hist = fetch_mcx_historical(date_iso)
         if hist:
-            delta_pct = abs(hist["total_rev_cr"] - rev["total_rev_cr"]) / rev["total_rev_cr"] * 100
-            if delta_pct > 5.0:
-                result["issues"].append(
-                    f"Historical API divergence: {hist['total_rev_cr']:.4f} vs {rev['total_rev_cr']:.4f} ({delta_pct:.1f}%)"
+            hist_complete = (hist.get("opt_rev_cr") or 0) > 0 and 1.0 <= hist["total_rev_cr"] <= 50.0
+            if not hist_complete:
+                result["actions"].append(
+                    f"Historical not yet settled (got {hist['total_rev_cr']:.2f} Cr, "
+                    f"opt={hist.get('opt_rev_cr') or 0:.2f}) — cross-check skipped"
                 )
-                # Update with Historical API data if it's more reliable
-                if rev["source"] != "mcx_historical":
-                    backfill_from_historical(date_iso)
-                    result["actions"].append(f"Updated from Historical API: {hist['total_rev_cr']:.4f}")
+            else:
+                delta_pct = abs(hist["total_rev_cr"] - rev["total_rev_cr"]) / rev["total_rev_cr"] * 100
+                if delta_pct > 5.0:
+                    # Real divergence between a complete settlement report and the
+                    # stored value — flag for human review; do NOT auto-overwrite.
+                    result["issues"].append(
+                        f"Historical API divergence vs stored ({rev['source']}): "
+                        f"{hist['total_rev_cr']:.4f} vs {rev['total_rev_cr']:.4f} ({delta_pct:.1f}%) — review"
+                    )
     else:
         result["issues"].append("MISSING from mcx_daily_revenue")
         # Try to backfill
