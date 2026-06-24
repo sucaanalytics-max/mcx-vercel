@@ -57,6 +57,27 @@ def _download_xls(log=None):
     raise last_err
 
 
+def _to_iso(val):
+    """Normalize an XLS date cell (datetime OR string) to ISO YYYY-MM-DD.
+    Sharekhan's date/expiry cells sometimes arrive as DD-MM-YYYY strings, which
+    Postgres rejects with a 400 ('date/time field value out of range'). Returns
+    None for blank/NaN."""
+    if val is None:
+        return None
+    if hasattr(val, "strftime"):
+        return val.strftime("%Y-%m-%d")
+    s = str(val).strip()
+    if not s or s.lower() == "nan":
+        return None
+    from datetime import datetime as _dt
+    for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%Y-%m-%d", "%Y/%m/%d", "%d-%b-%Y", "%d-%b-%y"):
+        try:
+            return _dt.strptime(s, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return s[:10]  # last resort: already ISO-like
+
+
 def _parse_xls(data):
     """Parse XLS bytes into list of margin row dicts."""
     import pandas as pd
@@ -70,22 +91,12 @@ def _parse_xls(data):
 
     rows = []
     for _, r in df.iterrows():
-        # Extract date from first column
-        date_val = r.iloc[0]
-        if hasattr(date_val, 'strftime'):
-            snapshot_date = date_val.strftime("%Y-%m-%d")
-        else:
-            snapshot_date = str(date_val).strip()
+        # Extract date from first column (normalize DD-MM-YYYY → ISO).
+        snapshot_date = _to_iso(r.iloc[0])
 
         symbol = str(r.iloc[3]).strip()
         instrument = str(r.iloc[2]).strip()
-        expiry_raw = r.iloc[4]
-        if hasattr(expiry_raw, 'strftime'):
-            expiry = expiry_raw.strftime("%Y-%m-%d")
-        elif expiry_raw and str(expiry_raw).strip() not in ("", "nan"):
-            expiry = str(expiry_raw).strip()[:10]  # Take date part only
-        else:
-            expiry = None
+        expiry = _to_iso(r.iloc[4])
 
         def _num(val):
             try:
