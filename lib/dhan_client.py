@@ -21,17 +21,21 @@ import pandas as pd
 
 # ── env loading ──────────────────────────────────────────────────────────
 def _load_project_env():
-    """Load project-local .env into os.environ (does not touch user shell vars)."""
+    """Load project-local env files into os.environ WITHOUT overriding shell vars.
+    Reads .env.local (the project's gitignored secrets file — where
+    VERCEL_OIDC_TOKEN and the Dhan creds belong) then .env. Precedence:
+    shell > .env.local > .env (first writer wins via setdefault)."""
     root = Path(__file__).resolve().parents[1]
-    env = root / ".env"
-    if not env.exists():
-        return
-    for line in env.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
+    for name in (".env.local", ".env"):
+        env = root / name
+        if not env.exists():
             continue
-        k, v = line.split("=", 1)
-        os.environ.setdefault(k, v)
+        for line in env.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
 
 
 _load_project_env()
