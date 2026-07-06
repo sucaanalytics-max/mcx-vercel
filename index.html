@@ -1776,7 +1776,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
       <tbody>
         <tr class="pat-group pat-group--first"><td colspan="4">Revenue Build-Up</td></tr>
         <tr><td>Revenue per day (₹ Cr)</td>
-          <td><input type="number" class="pat-input" data-pt-input="adr" data-pt-yr="26" value="6.5" step="0.1"></td>
+          <td><input type="number" class="pat-input" data-pt-input="adr" data-pt-yr="26" value="9.1" step="0.1"></td>
           <td><input type="number" class="pat-input" data-pt-input="adr" data-pt-yr="27" value="11.2" step="0.1"></td>
           <td><input type="number" class="pat-input" data-pt-input="adr" data-pt-yr="28" value="13.5" step="0.1"></td>
         </tr>
@@ -1802,7 +1802,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
         </tr>
         <tr class="pat-group"><td colspan="4">Profitability</td></tr>
         <tr><td>PAT Margin (%)</td>
-          <td><input type="number" class="pat-input" data-pt-input="margin" data-pt-yr="26" value="53" step="0.1"></td>
+          <td><input type="number" class="pat-input" data-pt-input="margin" data-pt-yr="26" value="51.5" step="0.1"></td>
           <td><input type="number" class="pat-input" data-pt-input="margin" data-pt-yr="27" value="60" step="0.1"></td>
           <td><input type="number" class="pat-input" data-pt-input="margin" data-pt-yr="28" value="60" step="0.1"></td>
         </tr>
@@ -1907,7 +1907,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 <div class="fc-hero-row">
   <div class="fc-hero-card">
     <h3>Current Market</h3>
-    <div class="fc-hero-price" style="color:var(--text)" id="fcCmpPrice">₹2,396</div>
+    <div class="fc-hero-price" style="color:var(--text)" id="fcCmpPrice">₹2,722</div>
     <div class="fc-hero-sub" id="fcCmpMeta">
       EPS (TTM): ₹36.75 · PE: 65.2x · MCap: ₹61,090 Cr
     </div>
@@ -2085,11 +2085,11 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
       <div>
         <div class="fc-label">Current Share Price (₹)</div>
         <div class="fc-tooltip">For upside/downside calculation</div>
-        <input type="number" class="fc-num-input" id="fcAdvCMP" value="2396" step="1" style="width:100%;margin-top:6px">
+        <input type="number" class="fc-num-input" id="fcAdvCMP" value="2722" step="1" style="width:100%;margin-top:6px">
       </div>
     </div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:12px">
-      Sources: Screener.in, BSE filings, Q3 FY26 results. Shares: 25.5 Cr (post 1:5 split Jan 2026). FY25 opex: ₹447 Cr → FY26E est: ₹700 Cr (Q3 run rate). Tax: effective 20.3% (Q3 FY26 actual, down from statutory 20.30%).
+      Sources: Screener.in, BSE filings, FY26 full-year actuals (through Q4 FY26, reported May 2026). Shares: 25.5 Cr (post 1:5 split Jan 2026). FY26 actual opex: ₹660 Cr (Q1–Q4 FY26). FY26 revenue ₹2,302 Cr, PAT ₹1,331 Cr, EPS ₹52.3. Tax: effective ~20% (FY26 actual).
     </div>
   </div>
 </div>
@@ -3844,7 +3844,7 @@ function recomputePatPredictor() {
   const sharesEl = document.getElementById('fcAdvShares');
   const cmpEl = document.getElementById('fcAdvCMP');
   const shares = parseFloat(sharesEl && sharesEl.value) || 25.5;
-  const cmp = parseFloat(cmpEl && cmpEl.value) || 2396;
+  const cmp = parseFloat(cmpEl && cmpEl.value) || 2722;
   const fmtCr = n => Number.isFinite(n) ? Math.round(n).toLocaleString('en-IN') : '—';
   const fmtPctSign = n => {
     if (!Number.isFinite(n)) return '—';
@@ -5615,15 +5615,19 @@ function renderQuarterly(data) {
   // FY card
   const fyCard = document.getElementById('qtrFyCard');
   fyCard.style.display = 'block';
-  document.getElementById('qtrFyTitle').textContent = fy.fy + ' Full Year Projection';
+  document.getElementById('qtrFyTitle').textContent = fy.fy + (fy.is_complete ? ' Full Year (Actual)' : ' Full Year Projection');
   const qParts = fy.quarters_actual.map(q => `<span>${q.quarter}: ${fmt(q.pat_cr)} Cr</span>`).join(' + ');
+  const projQ = fy.projected_quarter || fy.q4_projected;
+  const projPart = projQ
+    ? ` + <strong>${projQ.quarter}: ${fmt(projQ.pat_cr)} Cr (P)</strong>`
+    : ` &middot; <strong>final</strong>`;
   document.getElementById('qtrFyContent').innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:0.8rem">
       <div><div style="font-size:0.75rem;color:var(--muted)">FY Revenue</div><div style="font-size:1.3rem;font-weight:700">${fmt(fy.fy_revenue_cr)} Cr</div></div>
       <div><div style="font-size:0.75rem;color:var(--muted)">FY PAT</div><div style="font-size:1.3rem;font-weight:700;color:var(--success)">${fmt(fy.fy_pat_cr)} Cr</div></div>
       <div><div style="font-size:0.75rem;color:var(--muted)">FY EPS</div><div style="font-size:1.3rem;font-weight:700">${fmt(fy.fy_eps)}</div></div>
     </div>
-    <div style="font-size:0.78rem;color:var(--muted)">${qParts} + <strong>${cq.quarter}: ${fmt(fy.q4_projected.pat_cr)} Cr (P)</strong></div>
+    <div style="font-size:0.78rem;color:var(--muted)">${qParts}${projPart}</div>
   `;
 
   // Trend chart

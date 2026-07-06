@@ -111,6 +111,10 @@
     {
       "path": "/api/cron?job=momentum&mode=recent",
       "schedule": "10 14 * * 1-5"
+    },
+    {
+      "path": "/api/cron?job=oi_participants&mode=recent",
+      "schedule": "0 16 * * 1-5"
     }
   ]
 }

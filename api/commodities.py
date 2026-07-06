@@ -71,86 +71,118 @@ def _try_supabase_cache():
     return None
 
 
+def _read_prices(commodity, limit=90):
+    """Read recent rows for a commodity from mcx_commodity_prices (desc by date)."""
+    try:
+        rows = supabase_read(
+            "mcx_commodity_prices",
+            f"?commodity=eq.{commodity}&order=price_date.desc&limit={limit}"
+        )
+        return rows or []
+    except Exception:
+        return []
+
+
+def _mcx_stock_from_db():
+    """Latest MCX Ltd share price from mcx_share_price (populated by price_refresh.py)."""
+    try:
+        rows = supabase_read(
+            "mcx_share_price",
+            "?select=trading_date,close&order=trading_date.desc&limit=2"
+        )
+        if rows:
+            latest = rows[0]
+            price = float(latest.get("close") or 0)
+            chg = "0%"
+            if len(rows) > 1 and rows[1].get("close"):
+                p0 = float(rows[1]["close"])
+                if p0:
+                    chg = f"{(price / p0 - 1) * 100:+.2f}%"
+            return {
+                "price": round(price, 2),
+                "change_pct": chg,
+                "date": latest.get("trading_date", ""),
+                "note": "MCX India Ltd share price (NSE:MCX).",
+            }
+    except Exception:
+        pass
+    return None
+
+
+def _vol_block(prices):
+    """(daily_pct, annualized_pct) from a desc-ordered price list; (None, None) if <5 pts."""
+    prices = [p for p in prices if p and p > 0]
+    if len(prices) < 5:
+        return None, None
+    rets = [(prices[i] / prices[i + 1] - 1) for i in range(len(prices) - 1)]
+    vol = (sum(r ** 2 for r in rets) / len(rets)) ** 0.5
+    return round(vol * 100, 2), round(vol * math.sqrt(250) * 100, 1)
+
+
 def get_commodity_prices():
     """
-    Fetch real commodity prices from Alpha Vantage:
-      - WTI Crude Oil (daily, $/bbl)
-      - Natural Gas Henry Hub (daily, $/MMBtu)
-      - USD/INR exchange rate (real-time)
-    Then convert to approximate MCX-equivalent INR prices.
+    Commodity prices from mcx_commodity_prices, populated by the local, keyless
+    scripts/commodity_price_refresh.py (yfinance: CL=F / NG=F / INR=X). No API
+    key required and no fetch from Vercel's rate-limited IPs. The response shape
+    is unchanged from the previous Alpha Vantage implementation, so the UI
+    contract (crude_oil / natural_gas / usd_inr / volatility_summary / mcx_stock)
+    is preserved.
     """
     results = {
-        "source": "Alpha Vantage (free tier)",
-        "api_note": "WTI=NYMEX, NatGas=HenryHub. MCX prices differ by ±2-5% due to INR premium + logistics.",
+        "source": "Yahoo Finance (yfinance) via local refresh",
+        "api_note": "WTI=NYMEX CL=F, NatGas=HenryHub NG=F, FX=INR=X. MCX prices differ by ±2-5% (INR premium + logistics).",
         "fetched_at": now_ist().strftime("%Y-%m-%d %H:%M IST"),
     }
 
-    if not AV_KEY:
+    fx_rows = _read_prices("USDINR", 90)
+    wti_rows = _read_prices("WTI", 90)
+    ng_rows = _read_prices("NATGAS", 90)
+
+    if not wti_rows and not ng_rows:
         results["success"] = False
-        results["error"] = "Alpha Vantage API key not configured"
+        results["error"] = ("Commodity price table is empty — run "
+                            "scripts/commodity_price_refresh.py "
+                            "(see scripts/sql/enable_commodity_prices_writes.sql if writes are denied).")
         return results
 
-    # ── 1. USD/INR ─────────────────────────────────────────────────────
-    fx_data = _av_fetch("CURRENCY_EXCHANGE_RATE",
-                        "&from_currency=USD&to_currency=INR")
-    fx_quote = fx_data.get("Realtime Currency Exchange Rate", {})
-    usd_inr = float(fx_quote.get("5. Exchange Rate", "0")) if fx_quote else 0
+    usd_inr = float(fx_rows[0]["value_usd"]) if fx_rows else 0
     results["usd_inr"] = round(usd_inr, 2)
-    results["usd_inr_source"] = "Alpha Vantage real-time"
+    results["usd_inr_source"] = "Yahoo Finance (INR=X)"
 
-    # ── 2. WTI Crude Oil (daily) ───────────────────────────────────────
-    wti_data = _av_fetch("WTI", "&interval=daily")
-    wti_prices = _parse_av_daily(wti_data)
-    if wti_prices:
-        latest = wti_prices[0]
-        results["crude_oil"] = {
-            "wti_usd": latest["value"],
-            "date": latest["date"],
-            "mcx_approx_inr": round(latest["value"] * usd_inr, 0) if usd_inr else None,
-            "note": "MCX CrudeOil (₹/bbl) ≈ WTI × USD/INR. Actual MCX price has INR premium of 2-5%.",
+    def _pack(rows, usd_key, decimals):
+        latest = rows[0]
+        recent = rows[:45]
+
+        def _inr(r):
+            if r.get("value_inr") is not None:
+                return round(float(r["value_inr"]), decimals)
+            return round(float(r["value_usd"]) * usd_inr, decimals) if usd_inr else None
+
+        block = {
+            usd_key: round(float(latest["value_usd"]), 3),
+            "date": latest["price_date"],
+            "mcx_approx_inr": _inr(latest),
         }
-        recent_45 = wti_prices[:45]
-        if len(recent_45) >= 5:
-            prices = [p["value"] for p in recent_45 if p["value"] > 0]
-            if len(prices) >= 5:
-                daily_returns = [(prices[i] / prices[i+1] - 1)
-                                 for i in range(len(prices)-1)]
-                vol = (sum(r**2 for r in daily_returns) / len(daily_returns)) ** 0.5
-                results["crude_oil"]["volatility_daily"] = round(vol * 100, 2)
-                results["crude_oil"]["volatility_annualized"] = round(vol * math.sqrt(250) * 100, 1)
-        results["crude_oil"]["history"] = [
-            {"date": p["date"], "usd": p["value"],
-             "inr": round(p["value"] * usd_inr, 0) if usd_inr else None}
-            for p in recent_45
+        vd, va = _vol_block([float(r["value_usd"]) for r in recent])
+        if vd is not None:
+            block["volatility_daily"] = vd
+            block["volatility_annualized"] = va
+        block["history"] = [
+            {"date": r["price_date"], "usd": round(float(r["value_usd"]), 3), "inr": _inr(r)}
+            for r in recent
         ]
+        return block
 
-    # ── 3. Natural Gas (daily) ─────────────────────────────────────────
-    ng_data = _av_fetch("NATURAL_GAS", "&interval=daily")
-    ng_prices = _parse_av_daily(ng_data)
-    if ng_prices:
-        latest = ng_prices[0]
-        results["natural_gas"] = {
-            "henry_hub_usd": latest["value"],
-            "date": latest["date"],
-            "mcx_approx_inr": round(latest["value"] * usd_inr, 1) if usd_inr else None,
-            "note": "MCX NatGas (₹/MMBtu) ≈ HenryHub × USD/INR. MCX typically trades at 5-15% premium.",
-        }
-        recent_45 = ng_prices[:45]
-        if len(recent_45) >= 5:
-            prices = [p["value"] for p in recent_45 if p["value"] > 0]
-            if len(prices) >= 5:
-                daily_returns = [(prices[i] / prices[i+1] - 1)
-                                 for i in range(len(prices)-1)]
-                vol = (sum(r**2 for r in daily_returns) / len(daily_returns)) ** 0.5
-                results["natural_gas"]["volatility_daily"] = round(vol * 100, 2)
-                results["natural_gas"]["volatility_annualized"] = round(vol * math.sqrt(250) * 100, 1)
-        results["natural_gas"]["history"] = [
-            {"date": p["date"], "usd": p["value"],
-             "inr": round(p["value"] * usd_inr, 1) if usd_inr else None}
-            for p in recent_45
-        ]
+    if wti_rows:
+        b = _pack(wti_rows, "wti_usd", 0)
+        b["note"] = "MCX CrudeOil (₹/bbl) ≈ WTI × USD/INR. Actual MCX price has INR premium of 2-5%."
+        results["crude_oil"] = b
+    if ng_rows:
+        b = _pack(ng_rows, "henry_hub_usd", 1)
+        b["note"] = "MCX NatGas (₹/MMBtu) ≈ HenryHub × USD/INR. MCX typically trades at 5-15% premium."
+        results["natural_gas"] = b
 
-    # ── 4. Volatility summary (F-06: descriptive only, no uncalibrated adjustment) ──
+    # Volatility summary (descriptive only)
     crude_vol = results.get("crude_oil", {}).get("volatility_daily", 0)
     ng_vol = results.get("natural_gas", {}).get("volatility_daily", 0)
     combined_vol = crude_vol * 0.6 + ng_vol * 0.4
@@ -166,37 +198,9 @@ def get_commodity_prices():
         "note": "Volatility is reported for context only. Revenue projection uses the intraday curve model, not volatility.",
     }
 
-    # ── 5. MCX Ltd stock price (BSE:532374) ────────────────────────────
-    mcx_stock = _av_fetch("GLOBAL_QUOTE", "&symbol=532374.BSE")
-    gq = mcx_stock.get("Global Quote", {})
-    if gq:
-        results["mcx_stock"] = {
-            "price": float(gq.get("05. price", 0)),
-            "change_pct": gq.get("10. change percent", "0%"),
-            "date": gq.get("07. latest trading day", ""),
-            "note": "MCX India Ltd stock price (BSE:532374).",
-        }
-
-    # ── Cache to Supabase ──────────────────────────────────────────────
-    if SUPABASE_ANON_KEY:
-        today_str = now_ist().strftime("%Y-%m-%d")
-        try:
-            if wti_prices:
-                supabase_upsert("mcx_commodity_prices", {
-                    "price_date": today_str,
-                    "commodity": "WTI",
-                    "value_usd": wti_prices[0]["value"],
-                    "value_inr": round(wti_prices[0]["value"] * usd_inr, 2) if usd_inr else None,
-                })
-            if ng_prices:
-                supabase_upsert("mcx_commodity_prices", {
-                    "price_date": today_str,
-                    "commodity": "NATGAS",
-                    "value_usd": ng_prices[0]["value"],
-                    "value_inr": round(ng_prices[0]["value"] * usd_inr, 2) if usd_inr else None,
-                })
-        except Exception:
-            pass
+    stock = _mcx_stock_from_db()
+    if stock:
+        results["mcx_stock"] = stock
 
     results["success"] = True
     return results

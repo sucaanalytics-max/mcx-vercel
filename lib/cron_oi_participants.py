@@ -31,10 +31,14 @@ CRON_SECRET = os.environ.get("CRON_SECRET", "")
 MAX_RETRIES = 2
 RETRY_DELAY = 3
 
+# NOTE (2026-07): MCX moved this report. Old path
+#   /docs/default-source/market-operations/trading-survelliance/reports/
+#     disclosure-of-open-interest-and-turnover-for-various-categories-of-market-participants/
+# now 404s. New path is flat, and the day component is ZERO-PADDED
+# (e.g. july-03-2026, not july-3-2026).
 BASE_URL = (
-    "https://www.mcxindia.com/docs/default-source/market-operations/"
-    "trading-survelliance/reports/disclosure-of-open-interest-and-"
-    "turnover-for-various-categories-of-market-participants"
+    "https://www.mcxindia.com/docs/default-source/"
+    "disclosure-of-open-interest-and-turnover"
 )
 
 # Column mapping from XLSX data rows (0-indexed)
@@ -45,9 +49,9 @@ BASE_URL = (
 
 
 def _build_url(dt):
-    """Construct download URL from date. Format: april-10-2026."""
-    month = dt.strftime("%B").lower()  # e.g. "april"
-    day = dt.day                        # e.g. 10 (no zero-pad)
+    """Construct download URL from date. Format: april-10-2026 (day zero-padded)."""
+    month = dt.strftime("%B").lower()   # e.g. "april"
+    day = dt.strftime("%d")             # e.g. "10" — ZERO-PADDED (MCX 2026-07 change)
     year = dt.year                      # e.g. 2026
     filename = f"open_interest_and_turnover_for_various_categories_{month}-{day}-{year}.xlsx"
     return f"{BASE_URL}/{filename}"

@@ -46,6 +46,11 @@ QUARTERLY_ACTUALS = [
     {"quarter": "Q3 FY26", "label": "Dec 2025", "fy": "FY26", "q_num": 3,
      "start": "2025-10-01", "end": "2025-12-31",
      "revenue_cr": 666, "expenses_cr": 172, "pat_cr": 401},
+    # Q4 FY26 reported May 2026 (Screener.in consolidated; triple-corroborated
+    # with Business Standard + MarketsMojo). Revenue +205% YoY, PAT +291% YoY.
+    {"quarter": "Q4 FY26", "label": "Mar 2026", "fy": "FY26", "q_num": 4,
+     "start": "2026-01-01", "end": "2026-03-31",
+     "revenue_cr": 889, "expenses_cr": 224, "pat_cr": 530},
 ]
 
 Q4_EXPENSE_ADJ_CR = 15
@@ -223,22 +228,43 @@ def generate_quarterly(today=None):
         "daily_series": daily_series,
     }
 
-    # FY26 projection
-    fy26_actuals = [a for a in QUARTERLY_ACTUALS if a["fy"] == "FY26"]
-    fy26_actual_pat = sum(a["pat_cr"] for a in fy26_actuals)
-    fy26_actual_rev = sum(a["revenue_cr"] for a in fy26_actuals)
-    fy26_total_pat = round(fy26_actual_pat + pat_proj, 1)
-    fy26_total_rev = round(fy26_actual_rev + total_rev, 1)
-    fy26_eps = round(fy26_total_pat / DILUTED_SHARES_CR, 2)
+    # ── Full-year projection (fiscal-year generic) ──────────────────────────
+    # Target the current FY once it has any reported quarter; until then show the
+    # most recent COMPLETE fiscal year as final actuals. Previously this hardcoded
+    # "FY26" and always added the current quarter's projection — which, once the
+    # calendar rolled into FY27, silently folded an FY27 quarter into the FY26
+    # total (and left FY26 missing its real Q4). This generic version fixes both.
+    last_actual_fy = QUARTERLY_ACTUALS[-1]["fy"]
+    target_fy = fy if any(a["fy"] == fy for a in QUARTERLY_ACTUALS) else last_actual_fy
+    fy_actuals = [a for a in QUARTERLY_ACTUALS if a["fy"] == target_fy]
+    fy_actual_rev = sum(a["revenue_cr"] for a in fy_actuals)
+    fy_actual_pat = sum(a["pat_cr"] for a in fy_actuals)
+
+    # Only fold the current-quarter projection into the FY total when that quarter
+    # belongs to target_fy and has not yet been reported as an actual.
+    reported_labels = {a["quarter"] for a in fy_actuals}
+    project_current = (fy == target_fy) and (q_label not in reported_labels)
+    if project_current:
+        fy_total_rev = round(fy_actual_rev + total_rev, 1)
+        fy_total_pat = round(fy_actual_pat + pat_proj, 1)
+        projected_q = {"quarter": q_label, "pat_cr": pat_proj, "revenue_cr": total_rev}
+    else:
+        fy_total_rev = round(float(fy_actual_rev), 1)
+        fy_total_pat = round(float(fy_actual_pat), 1)
+        projected_q = None
+    fy_eps = round(fy_total_pat / DILUTED_SHARES_CR, 2)
+    fy_is_complete = (len(fy_actuals) == 4) and not project_current
 
     fy_projection = {
-        "fy": "FY26",
+        "fy": target_fy,
+        "is_complete": fy_is_complete,
         "quarters_actual": [{"quarter": a["quarter"], "pat_cr": a["pat_cr"],
-                             "revenue_cr": a["revenue_cr"]} for a in fy26_actuals],
-        "q4_projected": {"pat_cr": pat_proj, "revenue_cr": total_rev},
-        "fy_revenue_cr": fy26_total_rev,
-        "fy_pat_cr": fy26_total_pat,
-        "fy_eps": fy26_eps,
+                             "revenue_cr": a["revenue_cr"]} for a in fy_actuals],
+        "projected_quarter": projected_q,   # None when the FY is complete
+        "q4_projected": projected_q,         # back-compat alias (may be None)
+        "fy_revenue_cr": fy_total_rev,
+        "fy_pat_cr": fy_total_pat,
+        "fy_eps": fy_eps,
         "diluted_shares_cr": DILUTED_SHARES_CR,
     }
 

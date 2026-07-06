@@ -83,22 +83,33 @@ def get_existing_dates():
 
 
 def discover_url(session, target_date):
-    """Use Sitefinity document API to find the XLSX download URL for a date."""
+    """Find the XLSX download URL for a date.
+
+    Primary: MCX serves these as static, date-parameterized files at a flat
+    path (2026-07 change; day is zero-padded). Reuse the same _build_url the
+    live cron uses so both paths stay in sync. Fallback: the legacy Sitefinity
+    document API (kept in case MCX reverts)."""
+    from lib.cron_oi_participants import _build_url
+    direct = _build_url(target_date)
+    try:
+        r = session.get(direct, timeout=20)
+        if r.status_code == 200 and r.content[:4] == b"PK\x03\x04":
+            return direct
+    except Exception:
+        pass
+
+    # Fallback: legacy Sitefinity document API
     from_date = (target_date - timedelta(days=1)).strftime("%Y-%m-%d")
     to_date = target_date.strftime("%Y-%m-%d")
     api_url = SITEFINITY_API.format(from_date=from_date, to_date=to_date)
-
-    resp = session.get(api_url, timeout=15)
-    if resp.status_code != 200:
+    try:
+        resp = session.get(api_url, timeout=15)
+        if resp.status_code != 200:
+            return None
+        items = resp.json().get("value", [])
+        return items[0].get("Url") if items else None
+    except Exception:
         return None
-
-    data = resp.json()
-    items = data.get("value", [])
-    if not items:
-        return None
-
-    # Return the first matching document URL
-    return items[0].get("Url")
 
 
 def load_progress():
