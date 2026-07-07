@@ -1,0 +1,31 @@
+{
+  "_README": "TEMPLATE — not auto-loaded. Review these permissions, then activate for the unattended freshness job by copying to .claude/settings.local.json (personal, gitignored) or .claude/settings.json (shared). They scope the headless `claude -p /freshness-check` run to exactly the freshness scripts + read-only helpers; no arbitrary code execution, no deploy, no push.",
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Task",
+      "Read(//Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel/**)",
+      "Bash(/opt/homebrew/bin/python3 scripts/freshness_scan.py:*)",
+      "Bash(/opt/homebrew/bin/python3 scripts/run_cron.py:*)",
+      "Bash(/opt/homebrew/bin/python3 scripts/daily_verify.py:*)",
+      "Bash(/opt/homebrew/bin/python3 scripts/bhav_refresh.py:*)",
+      "Bash(/opt/homebrew/bin/python3 scripts/commodity_price_refresh.py:*)",
+      "Bash(/opt/homebrew/bin/python3 scripts/backfill_oi_participants.py:*)",
+      "Bash(/opt/homebrew/bin/python3 scripts/price_refresh.py:*)",
+      "Bash(/opt/homebrew/bin/python3 scripts/margin_refresh.py:*)",
+      "Bash(launchctl list:*)",
+      "Bash(tail:*)",
+      "Bash(osascript -e:*)",
+      "Edit(//Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel/api/quarterly.py)",
+      "WebFetch(domain:www.mcxindia.com)",
+      "WebFetch(domain:www.screener.in)",
+      "WebFetch(domain:www.business-standard.com)"
+    ],
+    "deny": [
+      "Edit(//Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel/lib/**)",
+      "Bash(vercel deploy:*)",
+      "Bash(git push:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}
