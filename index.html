@@ -1909,7 +1909,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
     <h3>Current Market</h3>
     <div class="fc-hero-price" style="color:var(--text)" id="fcCmpPrice">₹2,722</div>
     <div class="fc-hero-sub" id="fcCmpMeta">
-      EPS (TTM): ₹36.75 · PE: 65.2x · MCap: ₹61,090 Cr
+      EPS (TTM): ₹52.30 · PE: 52.0x · MCap: ₹69,278 Cr
     </div>
     <div class="fc-hero-sub" id="fcCmpSource" style="margin-top:4px;font-size:11px;opacity:0.6"></div>
     <div class="fc-hero-sub" id="fcCmpLastUpdated" style="margin-top:2px;font-size:10px;opacity:0.5"></div>
@@ -4055,6 +4055,12 @@ function seedForecastFromAPI(totalRev) {
 let _lastCMPPrice = null;
 let _lastCMPTimer = null;
 
+// Latest reported trailing-twelve-month EPS (₹, diluted) — FY26 actual
+// (Q1–Q4 FY26, PAT ₹1,331 Cr / 25.451 Cr shares). Update alongside
+// QUARTERLY_ACTUALS in api/quarterly.py on each new result.
+const CMP_TTM_EPS = 52.3;
+const CMP_DILUTED_SHARES_CR = 25.451; // post 1:5 split Jan 2026
+
 async function fetchLiveCMP() {
   try {
     const resp = await fetch('/api/mcxprice');
@@ -4078,6 +4084,18 @@ async function fetchLiveCMP() {
     // Update advanced CMP input + FC constant
     document.getElementById('fcAdvCMP').value = price;
     FC.currentPrice = price;
+
+    // Live-derive the hero meta line — previously a hardcoded HTML string
+    // that froze at an old price (EPS/PE/MCap internally consistent with
+    // ₹2,396 while the CMP above showed live). PE & MCap now track the live
+    // price; EPS is the latest reported TTM (see CMP_TTM_EPS above).
+    const metaEl = document.getElementById('fcCmpMeta');
+    if (metaEl) {
+      const pe = price / CMP_TTM_EPS;
+      const mcapCr = Math.round(price * CMP_DILUTED_SHARES_CR);
+      metaEl.textContent =
+        `EPS (TTM): ₹${CMP_TTM_EPS.toFixed(2)} · PE: ${pe.toFixed(1)}x · MCap: ₹${mcapCr.toLocaleString('en-IN')} Cr`;
+    }
 
     // Source indicator
     const srcEl = document.getElementById('fcCmpSource');

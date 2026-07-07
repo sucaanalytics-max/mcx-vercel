@@ -78,6 +78,35 @@ def _to_iso(val):
     return s[:10]  # last resort: already ISO-like
 
 
+def _fix_snapshot_date(iso):
+    """Guard against day/month-swapped snapshot dates.
+
+    xlrd/pandas parses an ambiguous cell like '06-07-2026' (Sharekhan means
+    DD-MM = 6 July) MONTH-FIRST into datetime(2026,6,7), which _to_iso then
+    faithfully renders as 2026-06-07 — a Sunday. A SPAN snapshot can never be
+    a weekend or a future date, so if the parsed date is implausible and the
+    day/month swap yields a valid past weekday, use the swap. (Root cause of
+    the phantom 2026-06-07 rows written on 2026-07-06.)"""
+    if not iso:
+        return iso
+    from datetime import datetime as _dt
+    try:
+        d = _dt.strptime(iso, "%Y-%m-%d").date()
+    except ValueError:
+        return iso
+    today = now_ist().date()
+    if d.weekday() < 5 and d <= today:
+        return iso  # plausible as-is
+    if d.day <= 12 and d.month != d.day:
+        try:
+            swapped = d.replace(month=d.day, day=d.month)
+        except ValueError:
+            return iso
+        if swapped.weekday() < 5 and swapped <= today:
+            return swapped.strftime("%Y-%m-%d")
+    return iso
+
+
 def _parse_xls(data):
     """Parse XLS bytes into list of margin row dicts."""
     import pandas as pd
@@ -91,8 +120,9 @@ def _parse_xls(data):
 
     rows = []
     for _, r in df.iterrows():
-        # Extract date from first column (normalize DD-MM-YYYY → ISO).
-        snapshot_date = _to_iso(r.iloc[0])
+        # Extract date from first column (normalize DD-MM-YYYY → ISO,
+        # then day/month-swap guard for ambiguous cells).
+        snapshot_date = _fix_snapshot_date(_to_iso(r.iloc[0]))
 
         symbol = str(r.iloc[3]).strip()
         instrument = str(r.iloc[2]).strip()

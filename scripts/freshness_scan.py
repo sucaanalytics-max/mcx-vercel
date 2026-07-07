@@ -114,11 +114,14 @@ def scan():
             status = "OK"
         else:
             status = "STALE"
+        monitored = dom.get("monitor", True)
+        if not monitored and status != "OK":
+            status = f"INFO_{status}"  # unmonitored domain: report, never alert
         entry = {"domain": name, "table": dom["table"], "latest": latest,
                  "expected": exp_iso, "min_acceptable": min_ok, "grace_days": grace,
                  "status": status, "fixer": dom.get("fixer"),
                  "depends_on": dom.get("depends_on", [])}
-        if status in ("STALE", "EMPTY", "ERROR"):
+        if monitored and status in ("STALE", "EMPTY", "ERROR"):
             stale.append(name)
         out["domains"].append(entry)
     out["stale_domains"] = stale

@@ -30,6 +30,12 @@ def generate_margin_dashboard():
     """Fetch margin data and compute dashboard payload."""
     ist = now_ist()
 
+    # Order newest-date first so the max_rows cap truncates the OLDEST history,
+    # never the current snapshot (with .asc the dashboard froze at the date
+    # sitting at row 20,000 once the table outgrew the cap — seen 2026-07-07,
+    # stuck at "as of 2026-06-07" while the table had 2026-07-06).
+    # expiry.asc within each date makes the first-occurrence dedup below
+    # genuinely pick the nearest expiry (previously unordered).
     rows = supabase_read_all(
         "mcx_margin_daily",
         "?select=snapshot_date,symbol,instrument,expiry,"
@@ -38,7 +44,7 @@ def generate_margin_dashboard():
         "special_long_pct,special_short_pct,"
         "elm_long_pct,elm_short_pct,delivery_margin_pct"
         "&instrument=eq.FUTCOM"
-        "&order=snapshot_date.asc",
+        "&order=snapshot_date.desc,expiry.asc.nullslast",
         max_rows=20000,
     )
 
@@ -51,6 +57,17 @@ def generate_margin_dashboard():
     for r in rows:
         inst = (r.get("instrument") or "").strip()
         if inst not in MAIN_INSTRUMENTS:
+            continue
+
+        # Defensive: a SPAN snapshot can never be a weekend — such rows are
+        # day/month-swapped parse artifacts (e.g. the phantom 2026-06-07
+        # Sunday rows, really 2026-07-06). cron_margins now guards at write
+        # time; this shields the dashboard from any legacy/future bad rows.
+        try:
+            from datetime import date as _date
+            if _date.fromisoformat(r["snapshot_date"]).weekday() >= 5:
+                continue
+        except (ValueError, KeyError):
             continue
 
         sym = r["symbol"].strip()
