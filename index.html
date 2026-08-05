@@ -2897,15 +2897,15 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 
   <!-- Margin Changes Log -->
   <div class="card" id="marginChangesSection" style="display:none">
-    <div class="card-title">Recent Margin Changes</div>
-    <div style="overflow-x:auto">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Recent Margin Changes</span><span id="marginChangesRange"></span></div>
+    <div class="scroll-table-wrap">
       <table class="exd-table" id="marginChangesTable"></table>
     </div>
   </div>
 
   <!-- Margin History Chart -->
   <div class="card" id="marginChartSection" style="display:none">
-    <div class="card-title">Margin History (Total Margin %)</div>
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Margin History (Total Margin %) <span id="marginHistRangeLabel">(60 days)</span></span><span id="marginHistRange"></span></div>
     <div style="position:relative;height:320px">
       <canvas id="marginHistoryChart"></canvas>
     </div>
@@ -3960,6 +3960,19 @@ makeRangeToggle({
   key: 'exdMonth', containerId: 'exdMonthRange',
   ranges: ['3M','6M','12M','All'], defaultRange: '3M',
   onChange: () => { if (exdCache) renderExdMonthGrid(exdCache); }
+});
+
+makeRangeToggle({
+  key: 'marginHist', containerId: 'marginHistRange',
+  ranges: ['30D','60D','Q','1Y','2Y','Max'], defaultRange: '60D',
+  labelIds: ['marginHistRangeLabel'],
+  onChange: () => updateMarginChart(Object.keys(marginSelectedSymbols))
+});
+
+makeRangeToggle({
+  key: 'marginChanges', containerId: 'marginChangesRange',
+  ranges: ['30D','60D','Q','1Y','Max'], defaultRange: '60D',
+  onChange: () => renderMarginChangesTable()
 });
 
 loadHero();
@@ -6466,12 +6479,12 @@ var MARGIN_COLORS = [
 ];
 
 function loadMargins() {
-  if (marginCache && (Date.now() - marginCache._ts < 300000)) { renderMargins(marginCache); return; }
+  if (marginCache) { renderMargins(marginCache); return; }
   document.getElementById('marginAsOf').textContent = 'Loading…';
   fetch('/api/commodity_dashboard?view=margins')
     .then(function(r) { return r.json(); })
     .then(function(d) {
-      if (d.success) { d._ts = Date.now(); marginCache = d; renderMargins(d); }
+      if (d.success) { marginCache = d; renderMargins(d); }
       else { document.getElementById('marginAsOf').textContent = d.error || 'No data'; }
     })
     .catch(function(e) { document.getElementById('marginAsOf').textContent = 'Error: ' + e; });
@@ -6536,6 +6549,38 @@ function setAllMarginCommodities(selectAll) {
   applyMarginFilter();
 }
 
+function renderMarginChangesTable() {
+  if (!marginFullData) return;
+  var data = marginFullData;
+  var selected = marginSelectedSymbols;
+  var changesSection = document.getElementById('marginChangesSection');
+  var winDates = sliceTailByRange(data.margin_history.dates, rangeState['marginChanges'] || '60D');
+  var minDate = winDates.length ? winDates[0] : null;
+  var changes = (data.margin_changes || []).filter(function(c) {
+    return selected[c.symbol] && (minDate == null || c.date >= minDate);
+  });
+  if (changes.length > 0) {
+    changesSection.style.display = '';
+    var ctbl = document.getElementById('marginChangesTable');
+    var ch = '<thead><tr><th>Date</th><th>Symbol</th><th>Old Total %</th><th>New Total %</th><th>Change</th></tr></thead><tbody>';
+    changes.forEach(function(c) {
+      var cls = c.direction === 'up' ? 'chg-neg' : 'chg-pos';
+      var arrow = c.direction === 'up' ? '\u25B2' : '\u25BC';
+      ch += '<tr>' +
+        '<td>' + c.date + '</td>' +
+        '<td style="font-weight:600">' + c.symbol + '</td>' +
+        '<td>' + c.old_total.toFixed(1) + '</td>' +
+        '<td>' + c.new_total.toFixed(1) + '</td>' +
+        '<td><span class="' + cls + '">' + arrow + ' ' + Math.abs(c.change).toFixed(1) + '%</span></td>' +
+        '</tr>';
+    });
+    ch += '</tbody>';
+    ctbl.innerHTML = ch;
+  } else {
+    changesSection.style.display = 'none';
+  }
+}
+
 function applyMarginFilter() {
   if (!marginFullData) return;
   var data = marginFullData;
@@ -6594,28 +6639,7 @@ function applyMarginFilter() {
   tbl.innerHTML = h;
 
   // ── Margin Changes Log ──
-  var changesSection = document.getElementById('marginChangesSection');
-  var changes = (data.margin_changes || []).filter(function(c) { return selected[c.symbol]; });
-  if (changes.length > 0) {
-    changesSection.style.display = '';
-    var ctbl = document.getElementById('marginChangesTable');
-    var ch = '<thead><tr><th>Date</th><th>Symbol</th><th>Old Total %</th><th>New Total %</th><th>Change</th></tr></thead><tbody>';
-    changes.forEach(function(c) {
-      var cls = c.direction === 'up' ? 'chg-neg' : 'chg-pos';
-      var arrow = c.direction === 'up' ? '\u25B2' : '\u25BC';
-      ch += '<tr>' +
-        '<td>' + c.date + '</td>' +
-        '<td style="font-weight:600">' + c.symbol + '</td>' +
-        '<td>' + c.old_total.toFixed(1) + '</td>' +
-        '<td>' + c.new_total.toFixed(1) + '</td>' +
-        '<td><span class="' + cls + '">' + arrow + ' ' + Math.abs(c.change).toFixed(1) + '%</span></td>' +
-        '</tr>';
-    });
-    ch += '</tbody>';
-    ctbl.innerHTML = ch;
-  } else {
-    changesSection.style.display = 'none';
-  }
+  renderMarginChangesTable();
 
   // ── Margin History Chart ──
   var chartSection = document.getElementById('marginChartSection');
@@ -6637,6 +6661,10 @@ function updateMarginChart(syms) {
   var hist = marginHistData.hist;
   if (!syms || !syms.length) return;
 
+  var allDates = hist.dates;
+  var dates = sliceTailByRange(allDates, rangeState['marginHist'] || '60D');
+  var startIdx = allDates.length - dates.length;
+
   var isDark = document.documentElement.classList.contains('dark');
   var gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
   var txtColor = isDark ? '#888' : '#999';
@@ -6644,7 +6672,7 @@ function updateMarginChart(syms) {
     '#14b8a6','#f97316','#6366f1','#84cc16','#06b6d4','#d97706',
     '#a855f7','#f43f5e','#9ca3af','#22d3ee','#4ade80','#fb923c','#c084fc'];
 
-  var labels = hist.dates.map(function(d) {
+  var labels = dates.map(function(d) {
     var dt = new Date(d);
     return dt.getDate() + ' ' + dt.toLocaleString('en', {month:'short', year:'2-digit'});
   });
@@ -6652,11 +6680,11 @@ function updateMarginChart(syms) {
   var datasets = syms.map(function(sym, i) {
     return {
       label: sym,
-      data: hist[sym] || [],
+      data: (hist[sym] || []).slice(startIdx),
       borderColor: chartColors[i % chartColors.length],
       backgroundColor: 'transparent',
       borderWidth: syms.length > 6 ? 1.2 : 2,
-      pointRadius: syms.length > 6 ? 0 : (hist.dates.length < 30 ? 3 : 0),
+      pointRadius: syms.length > 6 ? 0 : (dates.length < 30 ? 3 : 0),
       pointHoverRadius: 4,
       tension: 0.2,
     };

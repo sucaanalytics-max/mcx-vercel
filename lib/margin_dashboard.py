@@ -51,6 +51,13 @@ def generate_margin_dashboard():
     if not rows:
         return {"success": False, "error": "No margin data yet. Run margin collection first."}
 
+    # Sentinel filter: drop any parse-artifact rows dated before the app's
+    # earliest plausible data (mirrors the sentinel guard used elsewhere in
+    # the dashboard, e.g. valuation) — cheap safety net against bad rows.
+    rows = [r for r in rows if (r.get("snapshot_date") or "") >= "2020-01-01"]
+    if not rows:
+        return {"success": False, "error": "No margin data after sentinel date filter."}
+
     # ── Group by (snapshot_date, symbol) — take FUTCOM only, pick nearest expiry ──
     # For each date+symbol, keep one representative row (nearest expiry)
     keyed = {}  # (date, symbol) → row
@@ -172,6 +179,6 @@ def generate_margin_dashboard():
         "snapshot_dates": len(all_dates),
         "current_margins": current_margins,
         "margin_history": margin_history,
-        "margin_changes": margin_changes[:50],  # Last 50 changes
+        "margin_changes": margin_changes[:1000],  # safety cap, far above realistic few-hundred total
         "commodities": all_symbols,
     }
