@@ -1574,7 +1574,10 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 <!-- ═══ SPARKLINE ═══════════════════════════════════════════════════════════ -->
 <div class="spark-section">
   <div class="spark-header">
-    <div class="spark-title">45-Day Revenue Trend (₹ Cr/day)</div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div class="spark-title">Revenue Trend (₹ Cr/day) <span id="sparkRangeLabel">(60 days)</span></div>
+      <div id="sparkRange"></div>
+    </div>
     <div class="spark-legend">
       <span class="leg-actual">Actual</span>
       <span class="leg-ma">45d MA</span>
@@ -3770,7 +3773,8 @@ async function doRefresh(silent) {
 // ════════════════════════════════════════════════════════════════════════════
 async function loadHero() {
   try {
-    const resp = await fetch('/api/history');
+    const days = RANGE_TRADING_DAYS[rangeState['spark'] || '60D'];
+    const resp = await fetch('/api/history?days=' + (days == null ? 0 : days));
     const data = await resp.json();
     renderHero(data);
   } catch(e) {
@@ -3797,7 +3801,7 @@ function renderHero(data) {
   const todayLabel = data.today_label || new Date().toLocaleDateString('en-IN', {weekday:'short',day:'2-digit',month:'short'});
   document.getElementById('heroDate').textContent = todayLabel;
 
-  renderSparkline(history, ma45);
+  renderSparkline(history, data.period_avg || ma45);
 }
 
 function renderSparkline(history, ma45) {
@@ -3829,7 +3833,7 @@ function renderSparkline(history, ma45) {
           borderWidth: 1.5
         },
         {
-          label: '45d MA',
+          label: 'Period Avg',
           data: maLine,
           borderColor: isDark ? '#5B9CF5' : '#0958D9',
           borderDash: [5, 3],
@@ -3851,8 +3855,6 @@ function renderSparkline(history, ma45) {
 // ════════════════════════════════════════════════════════════════════════════
 //  INIT
 // ════════════════════════════════════════════════════════════════════════════
-loadHero();
-
 // ── Range toggle registrations ──
 makeRangeToggle({
   key: 'valChart', containerId: 'valChartRange',
@@ -3867,6 +3869,15 @@ makeRangeToggle({
   labelIds: ['ecmChartRangeLabel'],
   onChange: () => loadModels()
 });
+
+makeRangeToggle({
+  key: 'spark', containerId: 'sparkRange',
+  ranges: ['30D','60D','Q','1Y','2Y','Max'], defaultRange: '60D',
+  labelIds: ['sparkRangeLabel'],
+  onChange: () => loadHero()
+});
+
+loadHero();
 
 // Auto-trigger first refresh
 setTimeout(() => doRefresh(true), 800);

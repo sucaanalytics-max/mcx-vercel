@@ -14,7 +14,7 @@ try:
         AV_KEY, MCX_HOLIDAYS_2026,
         get_day_type, calc_revenue, now_ist, make_cors_headers,
         DAY_MULTIPLIER,
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_upsert,
+        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_read_all, supabase_upsert,
     )
 except ImportError:
     from lib.mcx_config import (
@@ -22,7 +22,7 @@ except ImportError:
         AV_KEY, MCX_HOLIDAYS_2026,
         get_day_type, calc_revenue, now_ist, make_cors_headers,
         DAY_MULTIPLIER,
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_upsert,
+        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_read_all, supabase_upsert,
     )
 
 import urllib.request
@@ -62,16 +62,19 @@ def _fetch_commodity_prices() -> dict:
     return prices
 
 
-def _fetch_supabase_history():
-    """Fetch cached daily revenue from Supabase (F-08).
+def _fetch_supabase_history(limit=60):
+    """Fetch cached daily revenue from Supabase (F-08). limit=None fetches all rows.
     Returns dict: {date_str: {"rev": total_rev_cr, "source": source_tag}}"""
     if not SUPABASE_ANON_KEY:
         return {}
     try:
-        rows = supabase_read(
-            "mcx_daily_revenue",
-            "?select=trading_date,total_rev_cr,source&order=trading_date.desc&limit=60"
-        )
+        q = "?select=trading_date,total_rev_cr,source&order=trading_date.desc"
+        if limit is not None:
+            q += f"&limit={limit}"
+            rows = supabase_read("mcx_daily_revenue", q)
+        else:
+            rows = supabase_read_all("mcx_daily_revenue", q, max_rows=5000)
+        rows = [r for r in rows if (r.get("trading_date") or "") >= "2020-01-01"]
         return {
             r["trading_date"]: {
                 "rev": r["total_rev_cr"],
@@ -83,30 +86,40 @@ def _fetch_supabase_history():
         return {}
 
 
-def generate_history_45d():
+def generate_history(days=60):
     """
-    45-day rolling history with 3-tier data quality:
+    Rolling revenue history with 3-tier data quality:
       1. SUPABASE    — refreshed daily by bhav_refresh.py / relay EOD (gold standard)
       2. COMMODITY   — Alpha Vantage volatility-based estimate
       3. SYNTHETIC   — deterministic random fallback
+
+    days: window size in trading days (30/60/63/252/504); 0 or None = all history.
     """
     ist_now = now_ist()
     today = ist_now.replace(hour=0, minute=0, second=0, microsecond=0)
     day_seed = int(today.strftime("%Y%m%d"))
     rng = random.Random(day_seed)
 
-    # Collect trading days
-    trading_days = []
+    window = None if days in (0, None) else int(days)
+
+    # ── Tier 1 fetch first: actual trading dates come from Supabase ────
+    fetch_limit = None if window is None else max(60, window + 15)
+    supabase_cache = _fetch_supabase_history(limit=fetch_limit)
+
+    # Recent walk (last 75 calendar days) supplies today + recent gap dates;
+    # MCX_HOLIDAYS_2026 only covers the current period so keep the walk short.
+    recent_walk = []
     d = today - timedelta(days=75)
     while d <= today:
         ds = d.strftime("%Y-%m-%d")
         if d.weekday() < 5 and ds not in MCX_HOLIDAYS_2026:
-            trading_days.append(d)
+            recent_walk.append(ds)
         d += timedelta(days=1)
-    trading_days = trading_days[-45:]
 
-    # ── Tier 1: Supabase cached revenue ──────────────────────────────
-    supabase_cache = _fetch_supabase_history()
+    all_date_strs = sorted(set(list(supabase_cache.keys()) + recent_walk))
+    if window is not None:
+        all_date_strs = all_date_strs[-window:]
+    trading_days = [datetime.strptime(ds, "%Y-%m-%d") for ds in all_date_strs]
 
     # ── Tier 2: Alpha Vantage commodity prices (fallback) ──────────────
     commodity_prices = _fetch_commodity_prices()
@@ -137,7 +150,7 @@ def generate_history_45d():
         date_str = td.strftime("%Y-%m-%d")
         idx = len(history)
 
-        if td == today:
+        if td.strftime("%Y-%m-%d") == today.strftime("%Y-%m-%d"):
             history.append({
                 "date": date_str, "label": td.strftime("%a %d %b"),
                 "adr": None, "is_actual": False, "is_today": True,
@@ -206,7 +219,8 @@ def generate_history_45d():
         entry["source"] = "synthetic"
 
     valid = [h["adr"] for h in history if h["adr"] is not None]
-    ma_45 = round(sum(valid) / len(valid), 2) if valid else 0.0
+    ma_45 = round(sum(valid[-45:]) / len(valid[-45:]), 2) if valid else 0.0
+    period_avg = round(sum(valid) / len(valid), 2) if valid else 0.0
 
     real_cnt = supabase_used + commodity_used
     total_cnt = max(len(history), 1)
@@ -221,6 +235,8 @@ def generate_history_45d():
     return {
         "history": history,
         "ma_45": ma_45,
+        "period_avg": period_avg,
+        "days_requested": days,
         "today_label": today.strftime("%a %d %b %Y"),
         "today_iso": today.strftime("%Y-%m-%d"),
         "data_quality": {
@@ -267,7 +283,15 @@ class handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
-            result = generate_history_45d()
+            from urllib.parse import urlparse, parse_qs
+            qs = parse_qs(urlparse(self.path).query)
+            try:
+                days = int(qs.get("days", ["60"])[0])
+            except ValueError:
+                days = 60
+            if days not in (0, 30, 60, 63, 252, 504):
+                days = 60
+            result = generate_history(days=days)
             last3 = [h for h in result["history"] if not h.get("is_today")][-3:]
             result["last3"] = last3
             result["days"] = len(result["history"])
