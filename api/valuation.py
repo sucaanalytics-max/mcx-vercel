@@ -101,6 +101,7 @@ def _fetch_precomputed_valuations(limit=90):
         else:
             q += f"&limit={limit}"
             rows = supabase_read("mcx_valuation", q)
+        rows = [r for r in rows if (r.get("trading_date") or "") >= "2020-01-01"]
         return sorted(rows, key=lambda r: r["trading_date"])
     except Exception:
         return []
