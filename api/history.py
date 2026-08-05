@@ -106,6 +106,10 @@ def generate_history(days=60):
     fetch_limit = None if window is None else max(60, window + 15)
     supabase_cache = _fetch_supabase_history(limit=fetch_limit)
 
+    # True trailing-45 MA from actual data, independent of the display window
+    cache_vals = [supabase_cache[k]["rev"] for k in sorted(supabase_cache.keys())[-45:]]
+    ma_45 = round(sum(cache_vals) / len(cache_vals), 2) if cache_vals else 0.0
+
     # Recent walk (last 75 calendar days) supplies today + recent gap dates;
     # MCX_HOLIDAYS_2026 only covers the current period so keep the walk short.
     recent_walk = []
@@ -219,7 +223,6 @@ def generate_history(days=60):
         entry["source"] = "synthetic"
 
     valid = [h["adr"] for h in history if h["adr"] is not None]
-    ma_45 = round(sum(valid[-45:]) / len(valid[-45:]), 2) if valid else 0.0
     period_avg = round(sum(valid) / len(valid), 2) if valid else 0.0
 
     real_cnt = supabase_used + commodity_used
