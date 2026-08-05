@@ -2843,11 +2843,11 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
     <div class="exd-4up-grid" id="exdFyGrid"></div>
   </div>
   <div class="card">
-    <div class="card-title">Quarterly Breakdown</div>
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Quarterly Breakdown</span><span id="exdQtrRange"></span></div>
     <div class="exd-4up-grid" id="exdQtrGrid"></div>
   </div>
   <div class="card">
-    <div class="card-title">Monthly Breakdown</div>
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Monthly Breakdown</span><span id="exdMonthRange"></span></div>
     <div class="exd-4up-grid" id="exdMonthGrid"></div>
   </div>
   <div class="card">
@@ -2863,7 +2863,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
     <div style="overflow-x:auto"><table class="exd-table" id="exdQdowTable"></table></div>
   </div>
   <div class="card">
-    <div class="card-title">Daily Revenue Trend (Last 60 Days)</div>
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Daily Revenue Trend <span id="exdTrendRangeLabel">(60 days)</span></span><span id="exdTrendRange"></span></div>
     <div style="position:relative;height:320px">
       <canvas id="exdTrendChart"></canvas>
     </div>
@@ -3941,6 +3941,25 @@ makeRangeToggle({
   ranges: ['60D','Q','1Y','2Y','Max'], defaultRange: '1Y',
   labelIds: ['corrTableRangeLabel'],
   onChange: () => { if (analyticsCache) renderCorrTable(analyticsCache); }
+});
+
+makeRangeToggle({
+  key: 'exdTrend', containerId: 'exdTrendRange',
+  ranges: ['30D','60D','Q','1Y','2Y','Max'], defaultRange: '60D',
+  labelIds: ['exdTrendRangeLabel'],
+  onChange: () => { if (exdCache) renderExdTrendChart(exdCache); }
+});
+
+makeRangeToggle({
+  key: 'exdQtr', containerId: 'exdQtrRange',
+  ranges: ['4Q','8Q','All'], defaultRange: '4Q',
+  onChange: () => { if (exdCache) renderExdQtrGrid(exdCache); }
+});
+
+makeRangeToggle({
+  key: 'exdMonth', containerId: 'exdMonthRange',
+  ranges: ['3M','6M','12M','All'], defaultRange: '3M',
+  onChange: () => { if (exdCache) renderExdMonthGrid(exdCache); }
 });
 
 loadHero();
@@ -6012,14 +6031,13 @@ function renderQtrTable(data) {
 let exdCache = null, exdLoading = false, exdTrendChart = null;
 
 async function loadExchange() {
-  if (exdCache && (Date.now() - exdCache._ts < 300000)) { renderExchange(exdCache); return; }
+  if (exdCache) { renderExchange(exdCache); return; }
   if (exdLoading) return;
   exdLoading = true;
   document.getElementById('exdHeroContent').innerHTML = '<div style="text-align:center;padding:2rem;opacity:0.5">Loading exchange data...</div>';
   try {
-    const r = await fetch('/api/exchange_dashboard');
-    const d = await r.json();
-    if (d.success) { d._ts = Date.now(); exdCache = d; renderExchange(d); }
+    const d = await fetchRanged('/api/exchange_dashboard');
+    if (d.success) { exdCache = d; renderExchange(d); }
     else { document.getElementById('exdHeroContent').innerHTML = '<div style="color:var(--danger)">Error: ' + (d.error||'unknown') + '</div>'; }
   } catch(e) { document.getElementById('exdHeroContent').innerHTML = '<div style="color:var(--danger)">Failed to load: ' + e.message + '</div>'; }
   finally { exdLoading = false; }
@@ -6076,21 +6094,9 @@ function renderExchange(data) {
         'Latest trading day: ' + ld.date + '</div>';
   }
 
-  renderExd4Up('exdFyGrid', data.fy_summary || [], {
-    periodKey: 'fy',
-    chips: [{prefix:'yoy', label:'YoY'}],
-    maxRows: 3
-  });
-  renderExd4Up('exdQtrGrid', data.quarterly || [], {
-    periodKey: 'quarter',
-    chips: [{prefix:'qoq', label:'QoQ'}, {prefix:'yoy', label:'YoY'}],
-    maxRows: 3
-  });
-  renderExd4Up('exdMonthGrid', data.monthly || [], {
-    periodKey: 'label',
-    chips: [{prefix:'mom', label:'MoM'}, {prefix:'mo6m', label:'Mo6M'}],
-    maxRows: 4
-  });
+  renderExdFyGrid(data);
+  renderExdQtrGrid(data);
+  renderExdMonthGrid(data);
   renderExd4Up('exdWeekGrid', data.weekly || [], {
     periodKey: 'label',
     chips: [{prefix:'wow', label:'WoW'}, {prefix:'wo10w', label:'Wo10W'}],
@@ -6159,6 +6165,32 @@ function _exdChgInline(v) {
   return '<span class="exd-mini-row-chg ' + cls + '">' + sign + Math.round(v) + '%</span>';
 }
 
+function renderExdFyGrid(data) {
+  renderExd4Up('exdFyGrid', data.fy_summary || [], {
+    periodKey: 'fy',
+    chips: [{prefix:'yoy', label:'YoY'}],
+    maxRows: 99
+  });
+}
+
+function renderExdQtrGrid(data) {
+  const maxRows = ({'4Q':4, '8Q':8, 'All':99})[rangeState['exdQtr'] || '4Q'];
+  renderExd4Up('exdQtrGrid', data.quarterly || [], {
+    periodKey: 'quarter',
+    chips: [{prefix:'qoq', label:'QoQ'}, {prefix:'yoy', label:'YoY'}],
+    maxRows
+  });
+}
+
+function renderExdMonthGrid(data) {
+  const maxRows = ({'3M':3, '6M':6, '12M':12, 'All':99})[rangeState['exdMonth'] || '3M'];
+  renderExd4Up('exdMonthGrid', data.monthly || [], {
+    periodKey: 'label',
+    chips: [{prefix:'mom', label:'MoM'}, {prefix:'mo6m', label:'Mo6M'}],
+    maxRows
+  });
+}
+
 function renderExd4Up(containerId, rows, opts) {
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -6174,6 +6206,13 @@ function renderExd4Up(containerId, rows, opts) {
   const periodKey = opts.periodKey;
   const maxRows = opts.maxRows || 3;
 
+  // Synthetic average rows (e.g. "Avg Of Last 6 Months") stay visible
+  // regardless of the range cap — only real period rows are capped.
+  const realRows = rows.filter(r => !r.is_average);
+  const avgRows = rows.filter(r => r.is_average);
+  const limit = Math.min(realRows.length, maxRows);
+  const displayRows = realRows.slice(0, limit).concat(avgRows);
+
   let html = '';
   for (const m of metrics) {
     html += '<div class="exd-mini">';
@@ -6186,9 +6225,8 @@ function renderExd4Up(containerId, rows, opts) {
     }
     html += '</div>';
 
-    const limit = Math.min(rows.length, maxRows);
-    for (let i = 0; i < limit; i++) {
-      const row = rows[i];
+    for (let i = 0; i < displayRows.length; i++) {
+      const row = displayRows[i];
       const rowCls = (i === 0 ? ' exd-mini-row--current' : '') + (row.is_average ? ' exd-mini-row--avg' : '');
       html += '<div class="exd-mini-row' + rowCls + '">';
       html += '<span class="exd-mini-row-label">' + (row[periodKey] != null ? row[periodKey] : '') + '</span>';
@@ -6232,7 +6270,7 @@ function renderExdTrendChart(data) {
   const ctx = document.getElementById('exdTrendChart');
   if (!ctx) return;
   if (exdTrendChart) exdTrendChart.destroy();
-  const trend = data.daily_trend || [];
+  const trend = sliceTailByRange(data.daily_trend || [], rangeState['exdTrend'] || '60D');
   if (!trend.length) return;
   const isDark = document.documentElement.classList.contains('dark');
   const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';

@@ -122,6 +122,8 @@ def generate_exchange_dashboard(today=None):
     # Parse and normalize
     data = []
     for r in rows:
+        if (r.get("trading_date") or "") < "2020-01-01":
+            continue
         try:
             d = date.fromisoformat(r["trading_date"])
         except (ValueError, TypeError):
@@ -186,7 +188,7 @@ def generate_exchange_dashboard(today=None):
         q_stats[q] = _group_stats(q_groups[q])
 
     quarterly = []
-    for q in q_order[:6]:  # Last 6 quarters
+    for q in q_order:  # All quarters (client slices via range chips)
         s = q_stats[q]
         if not s:
             continue
@@ -229,7 +231,7 @@ def generate_exchange_dashboard(today=None):
     avg_6m = _group_stats(all_6m_rows)
 
     monthly = []
-    for i, mk in enumerate(m_order[:3]):  # Last 3 months
+    for i, mk in enumerate(m_order):  # All months (client slices via range chips)
         s = m_stats[mk]
         if not s:
             continue
@@ -369,9 +371,9 @@ def generate_exchange_dashboard(today=None):
             entry["yoy_total_pct"] = _pct_change(entry["cur_total"], entry["yoy_total"])
         quarter_dow.append(entry)
 
-    # ── 7. Daily Trend (last 60 days for chart) ──────────────────────────
+    # ── 7. Daily Trend (full history; client slices via range chips) ─────
     daily_trend = []
-    for r in data[-60:]:
+    for r in data:
         daily_trend.append({
             "date": r["date"].isoformat(),
             "fut": r["fut"], "opt": r["opt"], "total": r["total"],
