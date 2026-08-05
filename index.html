@@ -6054,7 +6054,7 @@ function renderQtrTable(data) {
   const tbody = document.getElementById('qtrTableBody');
   const cq = data.current_quarter;
 
-  // Find YoY pairs (same q_num, 4 quarters apart)
+  // Build full rows array with all historical data
   const allRows = [...data.actuals];
   allRows.push({
     quarter: cq.quarter, label: cq.label, q_num: cq.q_num,
@@ -6063,21 +6063,27 @@ function renderQtrTable(data) {
     is_actual: false,
   });
 
-  // Slice based on range selection
+  // Pre-compute YoY against FULL array (before slicing)
+  // This ensures consistent YoY values across All/8Q/4Q views
+  for (let i = 0; i < allRows.length; i++) {
+    const a = allRows[i];
+    let yoy = '—';
+    for (let j = 0; j < i; j++) {
+      if (allRows[j].q_num === a.q_num && i - j >= 3 && i - j <= 5) {
+        const pct = ((a.revenue_cr - allRows[j].revenue_cr) / allRows[j].revenue_cr * 100).toFixed(0);
+        yoy = (pct >= 0 ? '+' : '') + pct + '%';
+        break;
+      }
+    }
+    allRows[i]._yoy = yoy;
+  }
+
+  // Slice based on range selection (for display only)
   const sliced = sliceQuartersKeepProjection(allRows, rangeState['qtrTable'] || 'All');
 
   let rows = '';
   for (let i = 0; i < sliced.length; i++) {
     const a = sliced[i];
-    // Find YoY match
-    let yoy = '—';
-    for (let j = 0; j < i; j++) {
-      if (sliced[j].q_num === a.q_num && i - j >= 3 && i - j <= 5) {
-        const pct = ((a.revenue_cr - sliced[j].revenue_cr) / sliced[j].revenue_cr * 100).toFixed(0);
-        yoy = (pct >= 0 ? '+' : '') + pct + '%';
-        break;
-      }
-    }
     const projected = a.is_actual === false;
     const style = projected ? ' style="background:rgba(59,130,246,0.08);font-weight:600"' : '';
     const tag = projected ? ' <span style="font-size:0.7rem;color:var(--accent)">(P)</span>' : '';
@@ -6087,7 +6093,7 @@ function renderQtrTable(data) {
       <td>${fmt(a.expenses_cr)}</td>
       <td style="color:var(--success);font-weight:600">${fmt(a.pat_cr)}</td>
       <td>${a.pat_margin_pct}%</td>
-      <td>${yoy}</td>
+      <td>${a._yoy}</td>
     </tr>`;
   }
   tbody.innerHTML = rows;
