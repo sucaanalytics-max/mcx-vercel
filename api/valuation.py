@@ -33,6 +33,8 @@ except ImportError:
 
 import math
 
+RANGE_DAYS = {"30D": 30, "60D": 60, "Q": 63, "1Y": 252, "2Y": 504, "Max": None}
+DEFAULT_RANGE = "60D"
 
 # ─── Core valuation engine ─────────────────────────────────────────────────
 
@@ -84,17 +86,19 @@ def classify_signal(price, fair_bear, fair_base, fair_bull):
 # ─── Pre-computed data from Supabase ───────────────────────────────────────
 
 def _fetch_precomputed_valuations(limit=90):
-    """Fetch pre-computed valuations from mcx_valuation table."""
+    """Fetch pre-computed valuations from mcx_valuation table. limit=None fetches all."""
     if not SUPABASE_ANON_KEY:
         return []
     try:
-        rows = supabase_read(
-            "mcx_valuation",
+        q = (
             f"?select=trading_date,daily_rev_cr,ma45_rev_cr,annualized_rev_cr,"
             f"pat_cr,eps,close_price,implied_pe,fair_value_bear,fair_value_base,"
             f"fair_value_bull,signal,pe_mean_used,pe_sd_used"
-            f"&order=trading_date.desc&limit={limit}"
+            f"&order=trading_date.desc"
         )
+        if limit is not None:
+            q += f"&limit={limit}"
+        rows = supabase_read("mcx_valuation", q)
         return sorted(rows, key=lambda r: r["trading_date"])
     except Exception:
         return []
@@ -132,14 +136,19 @@ def _fetch_latest_price():
 
 # ─── Main valuation generator ──────────────────────────────────────────────
 
-def generate_valuation():
+def generate_valuation(range_key=DEFAULT_RANGE):
     """
     Full EPS-Path valuation: pre-computed data + live snapshot.
     """
+    if range_key not in RANGE_DAYS:
+        range_key = DEFAULT_RANGE
+    window = RANGE_DAYS[range_key]
+
     ist_now = now_ist()
 
     # ── Primary: pre-computed valuations from Supabase ──────────────
-    precomputed = _fetch_precomputed_valuations(limit=90)
+    fetch_limit = None if window is None else max(90, window + 10)
+    precomputed = _fetch_precomputed_valuations(limit=fetch_limit)
 
     if not precomputed:
         return {"error": "No valuation data available. Run valuation_refresh.py --backfill first.", "success": False}
@@ -176,9 +185,10 @@ def generate_valuation():
         pct_from_base = round((latest_price - fair_base) / fair_base * 100, 2)
         upside_to_base = round((fair_base - latest_price) / latest_price * 100, 2)
 
-    # ── Build history for charting (last 60 entries) ────────────────
+    # ── Build history for charting (range-based window) ────────────────
     history = []
-    for row in precomputed[-60:]:
+    display_rows = precomputed if window is None else precomputed[-window:]
+    for row in display_rows:
         price = float(row["close_price"]) if row.get("close_price") else None
         history.append({
             "date": row["trading_date"],
@@ -221,6 +231,7 @@ def generate_valuation():
             "history_returned": len(history),
             "revenue_window": 45,
             "latest_valuation_date": latest["trading_date"],
+            "range": range_key,
         },
     }
 
@@ -256,7 +267,10 @@ class handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
-            result = generate_valuation()
+            from urllib.parse import urlparse, parse_qs
+            qs = parse_qs(urlparse(self.path).query)
+            range_key = qs.get("range", [DEFAULT_RANGE])[0]
+            result = generate_valuation(range_key=range_key)
             self.send_json(result)
         except Exception as e:
             self.send_json({"success": False, "error": str(e)[:200]}, 500)

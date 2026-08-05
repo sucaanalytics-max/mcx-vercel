@@ -2142,7 +2142,10 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 
 <!-- ── Fair Value vs Price Chart ──────────────────────────────────────────── -->
 <div class="val-chart-wrap">
-  <div class="val-chart-title">Fair Value vs Market Price — 60-Day History</div>
+  <div class="val-chart-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+    <span>Fair Value vs Market Price <span id="valChartRangeLabel">(60 days)</span></span>
+    <span id="valChartRange"></span>
+  </div>
   <canvas id="valChart" style="max-height:260px"></canvas>
 </div>
 
@@ -3849,6 +3852,14 @@ function renderSparkline(history, ma45) {
 // ════════════════════════════════════════════════════════════════════════════
 loadHero();
 
+// ── Range toggle registrations ──
+makeRangeToggle({
+  key: 'valChart', containerId: 'valChartRange',
+  ranges: ['30D','60D','Q','1Y','2Y','Max'], defaultRange: '60D',
+  labelIds: ['valChartRangeLabel'],
+  onChange: () => loadValuation()
+});
+
 // Auto-trigger first refresh
 setTimeout(() => doRefresh(true), 800);
 
@@ -4289,9 +4300,7 @@ async function loadValuation() {
   valLoading = true;
 
   try {
-    const resp = await fetch('/api/valuation');
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
+    const data = await fetchRanged('/api/valuation?range=' + encodeURIComponent(rangeState['valChart'] || '60D'));
     if (!data.success) throw new Error(data.error || 'No valuation data');
     data._ts = Date.now();
     valCache = data;
