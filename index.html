@@ -3972,7 +3972,7 @@ makeRangeToggle({
   key: 'momRegime', containerId: 'momRegimeRange',
   ranges: ['30D','60D','Q','1Y','2Y','Max'], defaultRange: '60D',
   labelIds: ['momRangeLabel'],
-  onChange: () => { momHideTooltip(); fetchRanged(momUrl('momRegime')).then(d => { renderMomentumHero(d); renderMomRegimeChart(d.history||[]); }); }
+  onChange: () => { momHideTooltip(); fetchRanged(momUrl('momRegime')).then(d => { if (d.success) { renderMomentumHero(d); renderMomRegimeChart(d.history||[]); } }); }
 });
 
 makeRangeToggle({
