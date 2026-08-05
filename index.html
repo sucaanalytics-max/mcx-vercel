@@ -1269,23 +1269,6 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 .exd-mini-row--current { background: color-mix(in srgb, var(--accent2) 6%, transparent); border-left: 3px solid var(--accent2); padding-left: 7px; }
 .exd-mini-row--current .exd-mini-row-val { color: var(--accent2); }
 .exd-mini-row--avg .exd-mini-row-label { font-style: italic; }
-/* Period-per-row grids (FY / Quarterly / Monthly) — one card per period,
-   with all 4 metrics laid out inline, so the range chips visibly add/remove
-   whole period rows. */
-.exd-period-grid { display: flex; flex-direction: column; gap: 6px; max-width: 1316px; }
-.exd-period-row {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px;
-  padding: 6px 10px; font-family: var(--mono);
-  background: var(--surface); border: 1px solid var(--border);
-}
-.exd-period-row--current { background: color-mix(in srgb, var(--accent2) 6%, transparent); border-left: 3px solid var(--accent2); padding-left: 7px; }
-.exd-period-row--current .exd-period-label { color: var(--accent2); }
-.exd-period-row--avg .exd-period-label { font-style: italic; }
-.exd-period-label { min-width: 110px; font-size: 11px; font-weight: 700; color: var(--text-secondary); white-space: nowrap; }
-.exd-period-metrics { display: flex; flex: 1; flex-wrap: wrap; gap: 6px 16px; }
-.exd-period-metric { display: flex; align-items: baseline; gap: 5px; min-width: 104px; }
-.exd-period-metric-name { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); min-width: 30px; }
-.exd-period-metric-val { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
 
 /* ── PAT PREDICTOR (Interactive Forecast) ──────────────────────────────── */
 .pat-card { padding: 20px 24px; margin: 0 auto 24px; max-width: 720px; }
@@ -2857,15 +2840,15 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   </div>
   <div class="card">
     <div class="card-title">Financial Year Summary</div>
-    <div class="exd-period-grid" id="exdFyGrid"></div>
+    <div class="exd-4up-grid" id="exdFyGrid"></div>
   </div>
   <div class="card">
     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Quarterly Breakdown</span><span id="exdQtrRange"></span></div>
-    <div class="exd-period-grid" id="exdQtrGrid"></div>
+    <div class="exd-4up-grid" id="exdQtrGrid"></div>
   </div>
   <div class="card">
     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Monthly Breakdown</span><span id="exdMonthRange"></span></div>
-    <div class="exd-period-grid" id="exdMonthGrid"></div>
+    <div class="exd-4up-grid" id="exdMonthGrid"></div>
   </div>
   <div class="card">
     <div class="card-title">Weekly Breakdown</div>
@@ -6219,7 +6202,7 @@ function _exdChgInline(v) {
 }
 
 function renderExdFyGrid(data) {
-  renderExdPeriodGrid('exdFyGrid', data.fy_summary || [], {
+  renderExd4Up('exdFyGrid', data.fy_summary || [], {
     periodKey: 'fy',
     chips: [{prefix:'yoy', label:'YoY'}],
     maxRows: 99
@@ -6228,7 +6211,7 @@ function renderExdFyGrid(data) {
 
 function renderExdQtrGrid(data) {
   const maxRows = ({'4Q':4, '8Q':8, 'All':99})[rangeState['exdQtr'] || '4Q'];
-  renderExdPeriodGrid('exdQtrGrid', data.quarterly || [], {
+  renderExd4Up('exdQtrGrid', data.quarterly || [], {
     periodKey: 'quarter',
     chips: [{prefix:'qoq', label:'QoQ'}, {prefix:'yoy', label:'YoY'}],
     maxRows
@@ -6237,61 +6220,11 @@ function renderExdQtrGrid(data) {
 
 function renderExdMonthGrid(data) {
   const maxRows = ({'3M':3, '6M':6, '12M':12, 'All':99})[rangeState['exdMonth'] || '3M'];
-  renderExdPeriodGrid('exdMonthGrid', data.monthly || [], {
+  renderExd4Up('exdMonthGrid', data.monthly || [], {
     periodKey: 'label',
     chips: [{prefix:'mom', label:'MoM'}, {prefix:'mo6m', label:'Mo6M'}],
     maxRows
   });
-}
-
-// Renders one direct child per period row (real rows capped by maxRows,
-// any is_average row always appended after the cap), with all 4 metrics
-// laid out inline within each row. Used by FY/Quarterly/Monthly grids so
-// the container's own child count — and thus what a chip click visibly
-// adds/removes — tracks the number of periods shown, not the metric count.
-function renderExdPeriodGrid(containerId, rows, opts) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
-  if (!rows || !rows.length) { container.innerHTML = ''; return; }
-
-  const metrics = [
-    {stem:'fut', label:'FUT', valKey:'avg_fut'},
-    {stem:'opt', label:'OPT', valKey:'avg_opt'},
-    {stem:'total', label:'TOTAL', valKey:'avg_total'},
-    {stem:'of', label:'O/F', valKey:'of_ratio'}
-  ];
-  const chips = opts.chips || [];
-  const periodKey = opts.periodKey;
-  const maxRows = opts.maxRows || 3;
-
-  // Synthetic average rows (e.g. "Avg Of Last 6 Months") stay visible
-  // regardless of the range cap — only real period rows are capped.
-  const realRows = rows.filter(r => !r.is_average);
-  const avgRows = rows.filter(r => r.is_average);
-  const limit = Math.min(realRows.length, maxRows);
-  const displayRows = realRows.slice(0, limit).concat(avgRows);
-
-  let html = '';
-  for (let i = 0; i < displayRows.length; i++) {
-    const row = displayRows[i];
-    const rowCls = (i === 0 ? ' exd-period-row--current' : '') + (row.is_average ? ' exd-period-row--avg' : '');
-    html += '<div class="exd-period-row' + rowCls + '">';
-    html += '<span class="exd-period-label">' + (row[periodKey] != null ? row[periodKey] : '') + '</span>';
-    html += '<span class="exd-period-metrics">';
-    for (const m of metrics) {
-      html += '<span class="exd-period-metric"><span class="exd-period-metric-name">' + m.label + '</span>';
-      html += '<span class="exd-period-metric-val">' + exdFmt(row[m.valKey]) + '</span>';
-      if (i === 0) {
-        for (const c of chips) {
-          const chgKey = c.prefix + '_' + m.stem;
-          html += _exdChgInline(row[chgKey]);
-        }
-      }
-      html += '</span>';
-    }
-    html += '</span></div>';
-  }
-  container.innerHTML = html;
 }
 
 function renderExd4Up(containerId, rows, opts) {
@@ -6309,6 +6242,13 @@ function renderExd4Up(containerId, rows, opts) {
   const periodKey = opts.periodKey;
   const maxRows = opts.maxRows || 3;
 
+  // Synthetic average rows (e.g. "Avg Of Last 6 Months") stay visible
+  // regardless of the range cap — only real period rows are capped.
+  const realRows = rows.filter(r => !r.is_average);
+  const avgRows = rows.filter(r => r.is_average);
+  const limit = Math.min(realRows.length, maxRows);
+  const displayRows = realRows.slice(0, limit).concat(avgRows);
+
   let html = '';
   for (const m of metrics) {
     html += '<div class="exd-mini">';
@@ -6321,9 +6261,8 @@ function renderExd4Up(containerId, rows, opts) {
     }
     html += '</div>';
 
-    const limit = Math.min(rows.length, maxRows);
-    for (let i = 0; i < limit; i++) {
-      const row = rows[i];
+    for (let i = 0; i < displayRows.length; i++) {
+      const row = displayRows[i];
       const rowCls = (i === 0 ? ' exd-mini-row--current' : '') + (row.is_average ? ' exd-mini-row--avg' : '');
       html += '<div class="exd-mini-row' + rowCls + '">';
       html += '<span class="exd-mini-row-label">' + (row[periodKey] != null ? row[periodKey] : '') + '</span>';
