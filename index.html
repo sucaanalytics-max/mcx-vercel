@@ -1181,6 +1181,9 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 .margin-chip.active { background:var(--accent2); color:#fff; border-color:var(--accent2); }
 .margin-chip-ctrl { display:inline-block; padding:3px 8px; margin:3px; border-radius:6px; border:1px solid var(--border); font-size:10px; cursor:pointer; background:var(--surface); color:var(--text-secondary); font-weight:600; user-select:none; }
 .margin-chip-ctrl:hover { border-color:var(--text-secondary); color:var(--text-primary); }
+.range-chips { display:inline-flex; flex-wrap:wrap; gap:2px; vertical-align:middle; }
+.scroll-table-wrap { max-height:420px; overflow-y:auto; }
+.scroll-table-wrap table thead th { position:sticky; top:0; background:var(--bg-card); z-index:1; }
 .exd-kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1rem; }
 .exd-kpi { text-align: center; }
 .exd-kpi-label { font-size: 0.7rem; color: var(--text-secondary); font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.5px; }
@@ -3200,6 +3203,74 @@ let autoRefreshInterval = null;
 let nextRefreshAt = null;
 const AUTO_REFRESH_MS = 2 * 60 * 1000;  // 2 minutes
 
+// ══════════════════════════════════════════════════════════════════════════
+//  SHARED TIME-PERIOD TOGGLE INFRASTRUCTURE (see docs/superpowers/specs/
+//  2026-08-05-time-period-toggles-design.md)
+// ══════════════════════════════════════════════════════════════════════════
+const RANGE_TRADING_DAYS = { '30D':30, '60D':60, 'Q':63, '1Y':252, '2Y':504, 'Max':null };
+const RANGE_LABELS = {
+  '30D':'(30 days)', '60D':'(60 days)', 'Q':'(quarter)', '1Y':'(1 year)',
+  '2Y':'(2 years)', 'Max':'(max history)',
+  '3M':'(3 months)', '6M':'(6 months)', '12M':'(12 months)', '24M':'(24 months)',
+  '4Q':'(4 quarters)', '8Q':'(8 quarters)', 'All':'(all)'
+};
+const rangeState = {};        // controlKey -> selected range key
+const rangedFetchCache = {};  // full URL -> Promise of parsed JSON
+
+function makeRangeToggle(cfg) {
+  const saved = localStorage.getItem('mcx.range.' + cfg.key);
+  const initial = (saved && cfg.ranges.indexOf(saved) !== -1) ? saved : cfg.defaultRange;
+  rangeState[cfg.key] = initial;
+  const el = document.getElementById(cfg.containerId);
+  if (!el) return initial;
+  el.classList.add('range-chips');
+  el.innerHTML = cfg.ranges.map(r =>
+    '<span class="margin-chip' + (r === initial ? ' active' : '') + '" data-range="' + r + '">' + r + '</span>'
+  ).join('');
+  el.querySelectorAll('.margin-chip').forEach(chip => {
+    chip.onclick = () => {
+      const r = chip.getAttribute('data-range');
+      if (rangeState[cfg.key] === r) return;
+      rangeState[cfg.key] = r;
+      localStorage.setItem('mcx.range.' + cfg.key, r);
+      el.querySelectorAll('.margin-chip').forEach(c =>
+        c.className = c.getAttribute('data-range') === r ? 'margin-chip active' : 'margin-chip');
+      updateRangeLabels(cfg, r);
+      cfg.onChange(r);
+    };
+  });
+  updateRangeLabels(cfg, initial);
+  return initial;
+}
+
+function updateRangeLabels(cfg, r) {
+  (cfg.labelIds || []).forEach(id => {
+    const s = document.getElementById(id);
+    if (s) s.textContent = RANGE_LABELS[r] || ('(' + r + ')');
+  });
+}
+
+function fetchRanged(url) {
+  if (!rangedFetchCache[url]) {
+    rangedFetchCache[url] = fetch(url).then(r => r.json())
+      .catch(e => { delete rangedFetchCache[url]; throw e; });
+  }
+  return rangedFetchCache[url];
+}
+
+function clearRangedCache() {
+  Object.keys(rangedFetchCache).forEach(k => { delete rangedFetchCache[k]; });
+}
+
+function sliceTailByRange(arr, rangeKey) {
+  const n = RANGE_TRADING_DAYS[rangeKey];
+  return (n == null) ? arr : arr.slice(-n);
+}
+
+function sliceTailByCount(arr, n) {
+  return (n == null) ? arr : arr.slice(-n);
+}
+
 function fmt(n) { return parseFloat(n).toLocaleString('en-IN', {maximumFractionDigits:0}); }
 function fmtDec(n,d=2) { return parseFloat(n).toFixed(d); }
 
@@ -3675,6 +3746,7 @@ async function doRefresh(silent) {
     }
 
     if (data.success) {
+      clearRangedCache();
       updateSnapshotFromAPI(data);
       if (!silent) showToast('Data refreshed', 'success');
       if (!autoRefreshInterval && isInsideTradingHours()) startAutoRefresh();
