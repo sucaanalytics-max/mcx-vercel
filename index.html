@@ -2788,7 +2788,10 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 
   <!-- Chart: Quarterly Revenue & PAT Trend -->
   <div class="card">
-    <div class="card-title">Quarterly Revenue & PAT Trend</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
+      <div class="card-title">Quarterly Revenue & PAT Trend</div>
+      <div id="qtrChartRange"></div>
+    </div>
     <div style="position:relative;height:320px">
       <canvas id="qtrTrendChart"></canvas>
     </div>
@@ -2804,7 +2807,10 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 
   <!-- Table: Historical P&L -->
   <div class="card">
-    <div class="card-title">Historical Quarterly P&L</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
+      <div class="card-title">Historical Quarterly P&L</div>
+      <div id="qtrTableRange"></div>
+    </div>
     <div style="overflow-x:auto">
       <table class="dtable" id="qtrTable">
         <thead>
@@ -3996,6 +4002,18 @@ makeRangeToggle({
   key: 'oipComp', containerId: 'oipCompRange',
   ranges: ['30D','60D','Q','1Y','Max'], defaultRange: 'Max',
   onChange: () => oipRenderAll()
+});
+
+makeRangeToggle({
+  key: 'qtrChart', containerId: 'qtrChartRange',
+  ranges: ['4Q','8Q','All'], defaultRange: 'All',
+  onChange: () => { if (qtrCache) renderQtrTrendChart(qtrCache); }
+});
+
+makeRangeToggle({
+  key: 'qtrTable', containerId: 'qtrTableRange',
+  ranges: ['4Q','8Q','All'], defaultRange: 'All',
+  onChange: () => { if (qtrCache) renderQtrTable(qtrCache); }
 });
 
 loadHero();
@@ -5928,6 +5946,14 @@ function renderQuarterly(data) {
 
 function fmt(v) { return v != null ? Number(v).toLocaleString('en-IN', {maximumFractionDigits:1}) : '—'; }
 
+function sliceQuartersKeepProjection(list, rangeKey) {
+  const n = { '4Q': 4, '8Q': 8, 'All': null }[rangeKey];
+  if (n == null) return list;
+  const projected = list.filter(q => q.is_actual === false);
+  const actual = list.filter(q => q.is_actual !== false);
+  return actual.slice(-n).concat(projected);
+}
+
 function renderQtrTrendChart(data) {
   const ctx = document.getElementById('qtrTrendChart');
   if (qtrTrendChart) qtrTrendChart.destroy();
@@ -5942,12 +5968,15 @@ function renderQtrTrendChart(data) {
     is_actual: false,
   });
 
-  const labels = all.map(a => a.label);
-  const revs = all.map(a => a.revenue_cr);
-  const pats = all.map(a => a.pat_cr);
-  const margins = all.map(a => a.pat_margin_pct);
-  const bgColors = all.map(a => a.is_actual !== false ? 'rgba(59,130,246,0.7)' : 'rgba(59,130,246,0.3)');
-  const patColors = all.map(a => a.is_actual !== false ? 'rgba(16,185,129,0.7)' : 'rgba(16,185,129,0.3)');
+  // Slice based on range selection
+  const sliced = sliceQuartersKeepProjection(all, rangeState['qtrChart'] || 'All');
+
+  const labels = sliced.map(a => a.label);
+  const revs = sliced.map(a => a.revenue_cr);
+  const pats = sliced.map(a => a.pat_cr);
+  const margins = sliced.map(a => a.pat_margin_pct);
+  const bgColors = sliced.map(a => a.is_actual !== false ? 'rgba(59,130,246,0.7)' : 'rgba(59,130,246,0.3)');
+  const patColors = sliced.map(a => a.is_actual !== false ? 'rgba(16,185,129,0.7)' : 'rgba(16,185,129,0.3)');
 
   qtrTrendChart = new Chart(ctx, {
     type: 'bar',
@@ -5958,7 +5987,7 @@ function renderQtrTrendChart(data) {
         { label: 'PAT (Cr)', data: pats, backgroundColor: patColors, borderRadius: 4, order: 2 },
         { label: 'PAT Margin %', data: margins, type: 'line', borderColor: '#f59e0b',
           backgroundColor: 'transparent', yAxisID: 'y1', pointRadius: 4, tension: 0.3, order: 1,
-          borderDash: all.map((a,i) => i === all.length-1 ? [5,5] : []).flat().length ? undefined : undefined },
+          borderDash: sliced.map((a,i) => i === sliced.length-1 ? [5,5] : []).flat().length ? undefined : undefined },
       ]
     },
     options: {
@@ -6034,14 +6063,17 @@ function renderQtrTable(data) {
     is_actual: false,
   });
 
+  // Slice based on range selection
+  const sliced = sliceQuartersKeepProjection(allRows, rangeState['qtrTable'] || 'All');
+
   let rows = '';
-  for (let i = 0; i < allRows.length; i++) {
-    const a = allRows[i];
+  for (let i = 0; i < sliced.length; i++) {
+    const a = sliced[i];
     // Find YoY match
     let yoy = '—';
     for (let j = 0; j < i; j++) {
-      if (allRows[j].q_num === a.q_num && i - j >= 3 && i - j <= 5) {
-        const pct = ((a.revenue_cr - allRows[j].revenue_cr) / allRows[j].revenue_cr * 100).toFixed(0);
+      if (sliced[j].q_num === a.q_num && i - j >= 3 && i - j <= 5) {
+        const pct = ((a.revenue_cr - sliced[j].revenue_cr) / sliced[j].revenue_cr * 100).toFixed(0);
         yoy = (pct >= 0 ? '+' : '') + pct + '%';
         break;
       }
