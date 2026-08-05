@@ -88,9 +88,10 @@ def generate_commodity_dashboard(range_key=DEFAULT_RANGE):
     fy_label = _fy_label(ist.date() if hasattr(ist, 'date') else ist)
     yy = int(fy_label[2:])
     start_date = date(2000 + yy - 2, 4, 1)  # 2 FYs back
-    if range_key == "2Y":
-        today_d = ist.date() if hasattr(ist, "date") else ist
-        start_date = min(start_date, today_d - timedelta(days=800))
+    # Floor the window at ~26 months so the quarterly (8Q) and monthly (24M)
+    # table chips always have their full span, regardless of trend range.
+    today_d = ist.date() if hasattr(ist, "date") else ist
+    start_date = min(start_date, today_d - timedelta(days=800))
 
     rows = supabase_read_all(
         "mcx_commodity_daily",
