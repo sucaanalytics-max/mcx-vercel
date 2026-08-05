@@ -3898,21 +3898,21 @@ makeRangeToggle({
   key: 'hourlyRev', containerId: 'hourlyRevRange',
   ranges: ['30D','60D','Q','Max'], defaultRange: 'Q',
   labelIds: ['hourlyRevRangeLabel'],
-  onChange: () => fetchRanged(hourlyUrl('hourlyRev')).then(hourlyCheckSuccess).then(d => renderHourlyAccuracy(d)).catch(hourlyLoadFail)
+  onChange: () => loadHourlySingle('hourlyRev', renderHourlyAccuracy, hourlyRevFail)
 });
 
 makeRangeToggle({
   key: 'hourlySig', containerId: 'hourlySigRange',
   ranges: ['30D','60D','Q','Max'], defaultRange: 'Q',
   labelIds: ['hourlySigRangeLabel'],
-  onChange: () => fetchRanged(hourlyUrl('hourlySig')).then(hourlyCheckSuccess).then(d => renderHourlySignalChart(d)).catch(hourlyLoadFail)
+  onChange: () => loadHourlySingle('hourlySig', renderHourlySignalChart)
 });
 
 makeRangeToggle({
   key: 'hourlyFwd', containerId: 'hourlyFwdRange',
   ranges: ['30D','60D','Q','Max'], defaultRange: 'Q',
   labelIds: ['hourlyFwdRangeLabel'],
-  onChange: () => fetchRanged(hourlyUrl('hourlyFwd')).then(hourlyCheckSuccess).then(d => renderHourlyForwardChart(d)).catch(hourlyLoadFail)
+  onChange: () => loadHourlySingle('hourlyFwd', renderHourlyForwardChart)
 });
 
 loadHero();
@@ -5417,16 +5417,29 @@ function hourlyCheckSuccess(d) {
   if (!d.success) throw new Error(d.error || 'No hourly data');
   return d;
 }
-function hourlyLoadFail(e) {
+// hourlyRev is the only control whose failure should surface in the shared
+// #hourlyConvergence summary — hourlySig/hourlyFwd failures must not clobber
+// a valid convergence summary that hourlyRev already rendered successfully.
+function hourlyRevFail(e) {
   console.warn('Hourly accuracy load error:', e);
   const el = document.getElementById('hourlyConvergence');
   if (el) el.textContent = 'Hourly accuracy data unavailable — requires sufficient snapshot history.';
 }
+function hourlyChartFail(e) {
+  console.warn('Hourly accuracy load error:', e);
+}
+
+// Shared single-chart loader: used by loadHourlyAccuracy's initial parallel
+// load AND by each control's onChange, so the fetch→check→render→fail chain
+// isn't repeated per call site.
+function loadHourlySingle(key, renderFn, onFail) {
+  return fetchRanged(hourlyUrl(key)).then(hourlyCheckSuccess).then(renderFn).catch(onFail || hourlyChartFail);
+}
 
 function loadHourlyAccuracy() {
-  fetchRanged(hourlyUrl('hourlyRev')).then(hourlyCheckSuccess).then(d => renderHourlyAccuracy(d)).catch(hourlyLoadFail);
-  fetchRanged(hourlyUrl('hourlySig')).then(hourlyCheckSuccess).then(d => renderHourlySignalChart(d)).catch(hourlyLoadFail);
-  fetchRanged(hourlyUrl('hourlyFwd')).then(hourlyCheckSuccess).then(d => renderHourlyForwardChart(d)).catch(hourlyLoadFail);
+  loadHourlySingle('hourlyRev', renderHourlyAccuracy, hourlyRevFail);
+  loadHourlySingle('hourlySig', renderHourlySignalChart);
+  loadHourlySingle('hourlyFwd', renderHourlyForwardChart);
 }
 
 function renderHourlyAccuracy(data) {
