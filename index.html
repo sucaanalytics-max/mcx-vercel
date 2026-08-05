@@ -4291,11 +4291,6 @@ async function fetchLiveCMP() {
 // ════════════════════════════════════════════════════════════════════════════
 
 async function loadValuation() {
-  // Use cache if fresh (< 5 min)
-  if (valCache && (Date.now() - valCache._ts < 300000)) {
-    renderValuation(valCache);
-    return;
-  }
   if (valLoading) return;
   valLoading = true;
 

@@ -20,14 +20,14 @@ try:
     from lib.mcx_config import (
         TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
         PE_MEAN_DEFAULT, PE_SD_DEFAULT,
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read,
+        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_read_all,
         now_ist, make_cors_headers,
     )
 except ImportError:
     from lib.mcx_config import (
         TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
         PE_MEAN_DEFAULT, PE_SD_DEFAULT,
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read,
+        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_read_all,
         now_ist, make_cors_headers,
     )
 
@@ -96,9 +96,11 @@ def _fetch_precomputed_valuations(limit=90):
             f"fair_value_bull,signal,pe_mean_used,pe_sd_used"
             f"&order=trading_date.desc"
         )
-        if limit is not None:
+        if limit is None:
+            rows = supabase_read_all("mcx_valuation", q, max_rows=5000)
+        else:
             q += f"&limit={limit}"
-        rows = supabase_read("mcx_valuation", q)
+            rows = supabase_read("mcx_valuation", q)
         return sorted(rows, key=lambda r: r["trading_date"])
     except Exception:
         return []
@@ -193,13 +195,13 @@ def generate_valuation(range_key=DEFAULT_RANGE):
         history.append({
             "date": row["trading_date"],
             "price": price,
-            "eps": float(row["eps"]),
+            "eps": float(row["eps"]) if row.get("eps") else None,
             "implied_pe": float(row["implied_pe"]) if row.get("implied_pe") else None,
-            "fair_bear": float(row["fair_value_bear"]),
-            "fair_base": float(row["fair_value_base"]),
-            "fair_bull": float(row["fair_value_bull"]),
-            "signal": row["signal"],
-            "ma45_rev": float(row["ma45_rev_cr"]),
+            "fair_bear": float(row["fair_value_bear"]) if row.get("fair_value_bear") else None,
+            "fair_base": float(row["fair_value_base"]) if row.get("fair_value_base") else None,
+            "fair_bull": float(row["fair_value_bull"]) if row.get("fair_value_bull") else None,
+            "signal": row.get("signal"),
+            "ma45_rev": float(row["ma45_rev_cr"]) if row.get("ma45_rev_cr") else None,
         })
 
     return {
