@@ -13,12 +13,12 @@ import json, math
 
 try:
     from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read,
+        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_read_all,
         now_ist, make_cors_headers,
     )
 except ImportError:
     from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read,
+        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_read_all,
         now_ist, make_cors_headers,
     )
 
@@ -73,28 +73,52 @@ MODEL_META = {
 }
 
 
+# Range key → trading-day window. Used both to size the Supabase fetch and to
+# slice the tail of the sorted result for chart history.
+RANGE_DAYS = {
+    "30D": 30,
+    "60D": 60,
+    "Q":   63,
+    "1Y":  252,
+    "2Y":  504,
+    "Max": None,  # all rows
+}
+DEFAULT_RANGE = "60D"
+
+
 def _fetch_model_signals(limit=120):
-    """Fetch pre-computed model signals from Supabase."""
+    """Fetch pre-computed model signals from Supabase. limit=None fetches all."""
     if not SUPABASE_ANON_KEY:
         return []
     try:
-        rows = supabase_read(
-            "mcx_model_signals",
+        q = (
             f"?select=trading_date,close_price,fair_value_base,"
             f"ecm_spread,ecm_spread_pct,ecm_spread_zscore,ecm_half_life_days,ecm_signal,"
             f"mf_revenue_z,mf_turnover_z,mf_volume_z,mf_volatility_z,mf_composite_z,mf_signal,"
             f"ensemble_score,ensemble_signal,"
             f"position_score,conviction,signal_momentum,position_velocity,conviction_2d_ma"
-            f"&order=trading_date.desc&limit={limit}"
+            f"&order=trading_date.desc"
         )
+        if limit is not None:
+            q += f"&limit={limit}"
+            rows = supabase_read("mcx_model_signals", q)
+        else:
+            rows = supabase_read_all("mcx_model_signals", q, max_rows=5000)
+        rows = [r for r in rows if (r.get("trading_date") or "") >= "2020-01-01"]
         return sorted(rows, key=lambda r: r["trading_date"])
     except Exception:
         return []
 
 
-def generate_models_response():
+def generate_models_response(range_key=DEFAULT_RANGE):
+    if range_key not in RANGE_DAYS:
+        range_key = DEFAULT_RANGE
+    window = RANGE_DAYS[range_key]
+    # +60 warm-up rows so the rolling σ-bands are well-formed at the window start
+    fetch_limit = None if window is None else max(120, window + 60)
+
     ist_now = now_ist()
-    rows = _fetch_model_signals(limit=120)
+    rows = _fetch_model_signals(limit=fetch_limit)
 
     if not rows:
         return {"success": False, "error": "No model signals available. Run cron_models first."}
@@ -134,10 +158,10 @@ def generate_models_response():
         },
     }
 
-    # Build history (last 60 entries for charting)
-    # Pre-extract all spreads from the full 90-row fetch for rolling band computation
+    # Build history (sized by range window)
+    # Pre-extract all spreads from the full fetch for rolling band computation
     all_spreads = [_f(r.get("ecm_spread_pct")) for r in rows]
-    display_rows = rows[-60:]
+    display_rows = rows if window is None else rows[-window:]
     offset = len(rows) - len(display_rows)   # index offset into full array
 
     history = []
@@ -189,6 +213,7 @@ def generate_models_response():
             "history_returned": len(history),
             "latest_date": latest["trading_date"],
             "rolling_window": 60,
+            "range": range_key,
         },
     }
 
@@ -239,28 +264,12 @@ MOMENTUM_META = {
 }
 
 
-# Range key → trading-day window. Used both to size the Supabase fetch and to
-# slice the tail of the sorted result for chart history.
-RANGE_DAYS = {
-    "30D": 30,
-    "60D": 60,
-    "Q":   63,
-    "1Y":  252,
-    "2Y":  504,
-    "Max": None,  # all rows
-}
-DEFAULT_RANGE = "60D"
-
-
 def _fetch_momentum_signals(limit=120):
-    """Fetch pre-computed momentum signals from Supabase.
-
-    ``limit`` may be None to fetch all rows.
-    """
+    """Fetch pre-computed momentum signals from Supabase. limit=None fetches all."""
     if not SUPABASE_ANON_KEY:
         return []
     try:
-        select = (
+        q = (
             "?select=trading_date,fno_rev_cr,close_price,"
             "ma10_rev_cr,ma45_rev_cr,ratio_10d_45d,regime,"
             "daily_range,adr_5d,adr_20d,adr_ratio,price_mom_5d,"
@@ -268,8 +277,11 @@ def _fetch_momentum_signals(limit=120):
             "&order=trading_date.desc"
         )
         if limit is not None:
-            select += f"&limit={limit}"
-        rows = supabase_read("mcx_momentum_signals", select)
+            q += f"&limit={limit}"
+            rows = supabase_read("mcx_momentum_signals", q)
+        else:
+            rows = supabase_read_all("mcx_momentum_signals", q, max_rows=5000)
+        rows = [r for r in rows if (r.get("trading_date") or "") >= "2020-01-01"]
         return sorted(rows, key=lambda r: r["trading_date"])
     except Exception:
         return []
@@ -408,7 +420,8 @@ class handler(BaseHTTPRequestHandler):
                 range_key = qs.get("range", [DEFAULT_RANGE])[0]
                 result = generate_momentum_response(range_key=range_key)
             else:
-                result = generate_models_response()
+                range_key = qs.get("range", [DEFAULT_RANGE])[0]
+                result = generate_models_response(range_key=range_key)
             self.send_json(result)
         except Exception as e:
             self.send_json({"success": False, "error": str(e)[:200]}, 500)

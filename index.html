@@ -2340,7 +2340,8 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 
 <!-- ── ECM Spread Chart ────────────────────────────────────────────────── -->
 <div class="val-chart-wrap">
-  <div class="val-chart-title">ECM Spread % — 60-Day History (with ±1σ / ±1.5σ bands)</div>
+  <div class="val-chart-title">ECM Spread % <span id="ecmChartRangeLabel">(60 days)</span> (with ±1σ / ±1.5σ bands)</div>
+  <div id="ecmChartRange" style="display:inline-block;margin-left:12px;vertical-align:middle"></div>
   <canvas id="ecmChart" style="max-height:220px"></canvas>
 </div>
 
@@ -3860,6 +3861,13 @@ makeRangeToggle({
   onChange: () => loadValuation()
 });
 
+makeRangeToggle({
+  key: 'ecmChart', containerId: 'ecmChartRange',
+  ranges: ['30D','60D','Q','1Y','2Y','Max'], defaultRange: '60D',
+  labelIds: ['ecmChartRangeLabel'],
+  onChange: () => loadModels()
+});
+
 // Auto-trigger first refresh
 setTimeout(() => doRefresh(true), 800);
 
@@ -4580,19 +4588,12 @@ function renderValuationChart(history) {
 // ════════════════════════════════════════════════════════════════════════════
 
 async function loadModels() {
-  if (mdlCache && (Date.now() - mdlCache._ts < 300000)) {
-    renderModels(mdlCache);
-    return;
-  }
   if (mdlLoading) return;
   mdlLoading = true;
 
   try {
-    const resp = await fetch('/api/models');
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
+    const data = await fetchRanged('/api/models?range=' + encodeURIComponent(rangeState['ecmChart'] || '60D'));
     if (!data.success) throw new Error(data.error || 'No model data');
-    data._ts = Date.now();
     mdlCache = data;
     renderModels(data);
   } catch (e) {
