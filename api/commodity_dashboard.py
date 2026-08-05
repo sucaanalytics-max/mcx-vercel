@@ -72,8 +72,14 @@ def _pct(cur, prev):
 
 # ─── Main computation ────────────────────────────────────────────────────
 
-def generate_commodity_dashboard():
+RANGE_DAYS = {"30D": 30, "60D": 60, "Q": 63, "1Y": 252, "2Y": 504}
+DEFAULT_RANGE = "60D"
+
+
+def generate_commodity_dashboard(range_key=DEFAULT_RANGE):
     """Fetch commodity data, compute per-commodity revenue, aggregate."""
+    if range_key not in RANGE_DAYS:
+        range_key = DEFAULT_RANGE
     ist = now_ist()
 
     # Fetch last 2 FYs of commodity data (for YoY)
@@ -82,6 +88,9 @@ def generate_commodity_dashboard():
     fy_label = _fy_label(ist.date() if hasattr(ist, 'date') else ist)
     yy = int(fy_label[2:])
     start_date = date(2000 + yy - 2, 4, 1)  # 2 FYs back
+    if range_key == "2Y":
+        today_d = ist.date() if hasattr(ist, "date") else ist
+        start_date = min(start_date, today_d - timedelta(days=800))
 
     rows = supabase_read_all(
         "mcx_commodity_daily",
@@ -218,12 +227,12 @@ def generate_commodity_dashboard():
     for d in daily_data:
         q_groups[_quarter_key(d["date"])].append(d)
 
-    # Sort quarters chronologically and take last 6
+    # Sort quarters chronologically and take last 9
     sorted_quarters = sorted(q_groups.keys(), key=lambda q: (int(q[5:]), int(q[1])))
-    last_6_quarters = sorted_quarters[-6:]
+    last_quarters = sorted_quarters[-9:]
 
     quarterly = []
-    for q_label in last_6_quarters:
+    for q_label in last_quarters:
         q_entries = q_groups[q_label]
         prev_q = _prev_quarter(q_label)
         yoy_q = _yoy_quarter(q_label)
@@ -256,10 +265,10 @@ def generate_commodity_dashboard():
 
     sorted_months = sorted(m_groups.keys(),
                            key=lambda m: m_groups[m][0]["date"])
-    last_3_months = sorted_months[-3:]
+    last_months = sorted_months[-24:]
 
     monthly = []
-    for m_label in last_3_months:
+    for m_label in last_months:
         m_entries = m_groups[m_label]
         commodities = {}
         total_rev = sum(d["total"] for d in m_entries)
@@ -292,8 +301,8 @@ def generate_commodity_dashboard():
             "total": round(_avg([d["total"] for d in slc]), 4),
         })
 
-    # ── Step 8: Daily trend (last 60 days) for stacked chart ──
-    trend_data = daily_data[-60:]
+    # ── Step 8: Daily trend (ranged) for stacked chart ──
+    trend_data = daily_data[-RANGE_DAYS[range_key]:]
     daily_trend = []
     for d in trend_data:
         entry = {"date": d["date"].isoformat()}
@@ -306,6 +315,7 @@ def generate_commodity_dashboard():
         "success": True,
         "as_of": ist.strftime("%Y-%m-%d %H:%M IST"),
         "current_fy": current_fy,
+        "range": range_key,
         "commodities": all_commodities,
         "summary_matrix": summary_matrix,
         "quarterly": quarterly,
@@ -332,7 +342,7 @@ class handler(BaseHTTPRequestHandler):
                 result = generate_oi_participants_dashboard()
                 cache = "public, max-age=600, s-maxage=600"
             else:
-                result = generate_commodity_dashboard()
+                result = generate_commodity_dashboard(range_key=qs.get("range", [DEFAULT_RANGE])[0])
                 cache = "public, max-age=120, s-maxage=120"
 
             self.send_response(200)

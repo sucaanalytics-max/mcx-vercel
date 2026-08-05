@@ -2700,15 +2700,15 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
     <div style="overflow-x:auto"><table class="exd-table" id="cmdSummaryTable"></table></div>
   </div>
   <div class="card" id="cmdQtrSection" style="display:none">
-    <div class="card-title">Quarterly by Commodity</div>
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Quarterly by Commodity</span><span id="cmdQtrRange"></span></div>
     <div style="overflow-x:auto"><table class="exd-table" id="cmdQtrTable"></table></div>
   </div>
   <div class="card" id="cmdMonthSection" style="display:none">
-    <div class="card-title">Monthly by Commodity</div>
-    <div style="overflow-x:auto"><table class="exd-table" id="cmdMonthTable"></table></div>
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Monthly by Commodity</span><span id="cmdMonthRange"></span></div>
+    <div style="overflow-x:auto" class="scroll-table-wrap"><table class="exd-table" id="cmdMonthTable"></table></div>
   </div>
   <div class="card" id="cmdTrendSection" style="display:none">
-    <div class="card-title">Commodity Trend (Last 60 Days)</div>
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Commodity Trend <span id="cmdTrendRangeLabel">(60 days)</span></span><span id="cmdTrendRange"></span></div>
     <div style="position:relative;height:320px">
       <canvas id="cmdTrendChart"></canvas>
     </div>
@@ -4014,6 +4014,25 @@ makeRangeToggle({
   key: 'qtrTable', containerId: 'qtrTableRange',
   ranges: ['4Q','8Q','All'], defaultRange: 'All',
   onChange: () => { if (qtrCache) renderQtrTable(qtrCache); }
+});
+
+makeRangeToggle({
+  key: 'cmdTrend', containerId: 'cmdTrendRange',
+  ranges: ['30D','60D','Q','1Y','2Y'], defaultRange: '60D',
+  labelIds: ['cmdTrendRangeLabel'],
+  onChange: () => loadCmdDashboard()
+});
+
+makeRangeToggle({
+  key: 'cmdQtr', containerId: 'cmdQtrRange',
+  ranges: ['4Q','8Q'], defaultRange: '8Q',
+  onChange: () => { if (cmdDashCache) renderCmdQtrTable(cmdDashCache); }
+});
+
+makeRangeToggle({
+  key: 'cmdMonth', containerId: 'cmdMonthRange',
+  ranges: ['3M','6M','12M','24M'], defaultRange: '3M',
+  onChange: () => { if (cmdDashCache) renderCmdMonthTable(cmdDashCache); }
 });
 
 loadHero();
@@ -6375,16 +6394,14 @@ function renderExdTrendChart(data) {
 // NOTE: All data is from our own trusted API (commodity_dashboard.py), not user input.
 // innerHTML is safe here as values are numeric from server-side computation.
 
-let cmdCache = null, cmdLoading = false, cmdTrendChart = null;
+let cmdDashCache = null, cmdLoading = false, cmdTrendChart = null;
 
 async function loadCmdDashboard() {
-  if (cmdCache && (Date.now() - cmdCache._ts < 300000)) { renderCmdDashboard(cmdCache); return; }
   if (cmdLoading) return;
   cmdLoading = true;
   try {
-    const r = await fetch('/api/commodity_dashboard');
-    const d = await r.json();
-    if (d.success) { d._ts = Date.now(); cmdCache = d; renderCmdDashboard(d); }
+    const d = await fetchRanged('/api/commodity_dashboard?range=' + encodeURIComponent(rangeState['cmdTrend'] || '60D'));
+    if (d.success) { cmdDashCache = d; renderCmdDashboard(d); }
   } catch(e) { console.error('Commodity dashboard load failed:', e); }
   finally { cmdLoading = false; }
 }
@@ -6401,7 +6418,6 @@ var CMD_COLORS = {
 
 function renderCmdDashboard(data) {
   var sm = data.summary_matrix;
-  var comms = data.commodities;
   if (!sm || !sm.length) return;
 
   // Show sections
@@ -6435,60 +6451,73 @@ function renderCmdDashboard(data) {
   h += '</tbody>';
   document.getElementById('cmdSummaryTable').innerHTML = h;
 
-  // ── Quarterly by Commodity ──
-  var qtrs = data.quarterly || [];
-  if (qtrs.length) {
-    h = '<thead><tr><th>Commodity</th>';
-    for (var q = 0; q < qtrs.length; q++) h += '<th colspan="2">' + qtrs[q].quarter + '</th>';
-    h += '</tr><tr><th></th>';
-    for (var q = 0; q < qtrs.length; q++) h += '<th>Avg Rev</th><th>Share</th>';
-    h += '</tr></thead><tbody>';
-    for (var ci = 0; ci < comms.length; ci++) {
-      var sym = comms[ci];
-      h += '<tr><td style="font-weight:600">' + sym + '</td>';
-      for (var q = 0; q < qtrs.length; q++) {
-        var c = qtrs[q].commodities[sym] || {};
-        h += '<td>' + exdFmt(c.avg_rev) + '</td>';
-        h += '<td style="color:var(--text-secondary);font-size:0.75rem">' + (c.share_pct != null ? c.share_pct.toFixed(1) + '%' : '\u2014') + '</td>';
-      }
-      h += '</tr>';
-    }
-    // Total row
-    h += '<tr style="font-weight:700;border-top:2px solid var(--border)"><td>TOTAL</td>';
+  renderCmdQtrTable(data);
+  renderCmdMonthTable(data);
+  renderCmdTrendChart(data);
+}
+
+// ── Quarterly by Commodity (sliced client-side from cmdDashCache; no refetch) ──
+function renderCmdQtrTable(data) {
+  var comms = data.commodities || [];
+  var qtrCount = ({'4Q':4,'8Q':8})[rangeState['cmdQtr'] || '8Q'];
+  var qtrs = sliceTailByCount(data.quarterly || [], qtrCount);
+  if (!qtrs.length) return;
+  var h = '<thead><tr><th>Commodity</th>';
+  for (var q = 0; q < qtrs.length; q++) h += '<th colspan="2">' + qtrs[q].quarter + '</th>';
+  h += '</tr><tr><th></th>';
+  for (var q = 0; q < qtrs.length; q++) h += '<th>Avg Rev</th><th>Share</th>';
+  h += '</tr></thead><tbody>';
+  for (var ci = 0; ci < comms.length; ci++) {
+    var sym = comms[ci];
+    h += '<tr><td style="font-weight:600">' + sym + '</td>';
     for (var q = 0; q < qtrs.length; q++) {
-      h += '<td>' + exdFmt(qtrs[q].total) + '</td><td>100%</td>';
+      var c = qtrs[q].commodities[sym] || {};
+      h += '<td>' + exdFmt(c.avg_rev) + '</td>';
+      h += '<td style="color:var(--text-secondary);font-size:0.75rem">' + (c.share_pct != null ? c.share_pct.toFixed(1) + '%' : '\u2014') + '</td>';
     }
-    h += '</tr></tbody>';
-    document.getElementById('cmdQtrTable').innerHTML = h;
+    h += '</tr>';
   }
+  // Total row
+  h += '<tr style="font-weight:700;border-top:2px solid var(--border)"><td>TOTAL</td>';
+  for (var q = 0; q < qtrs.length; q++) {
+    h += '<td>' + exdFmt(qtrs[q].total) + '</td><td>100%</td>';
+  }
+  h += '</tr></tbody>';
+  document.getElementById('cmdQtrTable').innerHTML = h;
+}
 
-  // ── Monthly by Commodity ──
-  var mos = data.monthly || [];
-  if (mos.length) {
-    h = '<thead><tr><th>Commodity</th>';
-    for (var m = 0; m < mos.length; m++) h += '<th colspan="2">' + mos[m].month + '</th>';
-    h += '</tr><tr><th></th>';
-    for (var m = 0; m < mos.length; m++) h += '<th>Avg Rev</th><th>Share</th>';
-    h += '</tr></thead><tbody>';
-    for (var ci = 0; ci < comms.length; ci++) {
-      var sym = comms[ci];
-      h += '<tr><td style="font-weight:600">' + sym + '</td>';
-      for (var m = 0; m < mos.length; m++) {
-        var c = mos[m].commodities[sym] || {};
-        h += '<td>' + exdFmt(c.avg_rev) + '</td>';
-        h += '<td style="color:var(--text-secondary);font-size:0.75rem">' + (c.share_pct != null ? c.share_pct.toFixed(1) + '%' : '\u2014') + '</td>';
-      }
-      h += '</tr>';
-    }
-    h += '<tr style="font-weight:700;border-top:2px solid var(--border)"><td>TOTAL</td>';
+// ── Monthly by Commodity (sliced client-side from cmdDashCache; no refetch) ──
+function renderCmdMonthTable(data) {
+  var comms = data.commodities || [];
+  var moCount = ({'3M':3,'6M':6,'12M':12,'24M':24})[rangeState['cmdMonth'] || '3M'];
+  var mos = sliceTailByCount(data.monthly || [], moCount);
+  if (!mos.length) return;
+  var h = '<thead><tr><th>Commodity</th>';
+  for (var m = 0; m < mos.length; m++) h += '<th colspan="2">' + mos[m].month + '</th>';
+  h += '</tr><tr><th></th>';
+  for (var m = 0; m < mos.length; m++) h += '<th>Avg Rev</th><th>Share</th>';
+  h += '</tr></thead><tbody>';
+  for (var ci = 0; ci < comms.length; ci++) {
+    var sym = comms[ci];
+    h += '<tr><td style="font-weight:600">' + sym + '</td>';
     for (var m = 0; m < mos.length; m++) {
-      h += '<td>' + exdFmt(mos[m].total) + '</td><td>100%</td>';
+      var c = mos[m].commodities[sym] || {};
+      h += '<td>' + exdFmt(c.avg_rev) + '</td>';
+      h += '<td style="color:var(--text-secondary);font-size:0.75rem">' + (c.share_pct != null ? c.share_pct.toFixed(1) + '%' : '\u2014') + '</td>';
     }
-    h += '</tr></tbody>';
-    document.getElementById('cmdMonthTable').innerHTML = h;
+    h += '</tr>';
   }
+  h += '<tr style="font-weight:700;border-top:2px solid var(--border)"><td>TOTAL</td>';
+  for (var m = 0; m < mos.length; m++) {
+    h += '<td>' + exdFmt(mos[m].total) + '</td><td>100%</td>';
+  }
+  h += '</tr></tbody>';
+  document.getElementById('cmdMonthTable').innerHTML = h;
+}
 
-  // ── Commodity Stacked Trend Chart ──
+// ── Commodity Stacked Trend Chart (server-ranged via cmdTrend toggle) ──
+function renderCmdTrendChart(data) {
+  var comms = data.commodities || [];
   var trend = data.daily_trend || [];
   if (!trend.length) return;
   var ctx = document.getElementById('cmdTrendChart');
