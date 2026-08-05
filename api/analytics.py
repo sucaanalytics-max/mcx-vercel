@@ -39,6 +39,12 @@ def generate_analytics():
         "?select=trading_date,close&order=trading_date.asc",
         max_rows=2000,
     )
+
+    # Sentinel-date guard: garbage rows (e.g. trading_date ~1900-01-01) sit at the
+    # head of both lists when ordered ascending — filter them before any windowing.
+    signals = [s for s in signals if (s.get("trading_date") or "") >= "2020-01-01"]
+    prices = [p for p in prices if (p.get("trading_date") or "") >= "2020-01-01"]
+
     price_map = {}
     price_dates = []
     price_date_idx = {}  # O(1) lookup replacing O(n) list.index()
@@ -103,9 +109,6 @@ def generate_analytics():
             "date": signals[i]["trading_date"],
             "ensemble_ic": ic,
         })
-
-    # Keep last 60 IC entries for chart
-    ic_history = ic_history[-60:]
 
     # ── 3. Regime Detection ──
     pos_all = [_f(s.get("position_score")) for s in signals if _f(s.get("position_score")) is not None]
@@ -190,8 +193,6 @@ def generate_analytics():
                 "profit_factor": round(pf, 3),
             })
 
-    rolling_metrics = rolling_metrics[-60:]
-
     # ── 5. Factor Decomposition (latest day) ──
     latest = signals[-1]
     ecm_z_val = _f(latest.get("ecm_spread_zscore")) or 0
@@ -231,17 +232,15 @@ def generate_analytics():
                 state = "NEUTRAL"
                 confidence = 1.0 - abs(avg_ps) / 0.15
 
-            # Only keep last 60 entries
-            if i >= len(pos_all) - 60:
-                sig_idx = len(signals) - len(pos_all) + i
-                if 0 <= sig_idx < len(signals):
-                    regime_history.append({
-                        "date": signals[sig_idx]["trading_date"],
-                        "state": state,
-                        "confidence": round(confidence, 3),
-                        "avg_position": round(avg_ps, 4),
-                        "position_vol": round(ps_std, 4),
-                    })
+            sig_idx = len(signals) - len(pos_all) + i
+            if 0 <= sig_idx < len(signals):
+                regime_history.append({
+                    "date": signals[sig_idx]["trading_date"],
+                    "state": state,
+                    "confidence": round(confidence, 3),
+                    "avg_position": round(avg_ps, 4),
+                    "position_vol": round(ps_std, 4),
+                })
 
     # Current regime state
     hmm_current = regime_history[-1] if regime_history else {
@@ -289,6 +288,13 @@ def generate_analytics():
             "labels": factor_names,
             "matrix": corr_matrix,
             "window": min(120, len(recent)),
+        },
+        "factor_series": {
+            "dates": [s["trading_date"] for s in signals],
+            "ecm_z": [_f(s.get("ecm_spread_zscore")) for s in signals],
+            "rev_z": [_f(s.get("mf_revenue_z")) for s in signals],
+            "turn_z": [_f(s.get("mf_turnover_z")) for s in signals],
+            "position_score": [_f(s.get("position_score")) for s in signals],
         },
         "rolling_ic": ic_history,
         "regime": {

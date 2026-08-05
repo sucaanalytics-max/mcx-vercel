@@ -2435,7 +2435,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 
 <!-- Factor Correlation Heatmap -->
 <div class="mdl-card" style="margin-bottom:20px">
-  <div class="mdl-card-header"><div class="mdl-card-title">Factor Correlation Matrix (120-day)</div></div>
+  <div class="mdl-card-header"><div class="mdl-card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Signal Correlation Matrix <span id="corrTableRangeLabel">(1 year)</span></span><span id="corrTableRange"></span></div></div>
   <div id="corrMatrixWrap" style="padding:12px;overflow-x:auto">
     <table class="dtable" id="corrTable" style="font-family:var(--mono);font-size:11px;text-align:center">
       <thead><tr><th></th><th>ECM Z</th><th>Rev Z</th><th>Turn Z</th><th>Pos Score</th></tr></thead>
@@ -2451,7 +2451,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 
 <!-- Rolling IC Chart -->
 <div class="mdl-card" style="margin-bottom:20px">
-  <div class="mdl-card-header"><div class="mdl-card-title">Rolling Information Coefficient (60-day → 5d fwd return)</div></div>
+  <div class="mdl-card-header"><div class="mdl-card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Rolling Information Coefficient <span id="icChartRangeLabel">(60 days)</span> (5d fwd return, 60d IC window)</span><span id="icChartRange"></span></div></div>
   <div style="position:relative;height:250px;padding:12px">
     <canvas id="icChart"></canvas>
   </div>
@@ -2475,7 +2475,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 
 <!-- Rolling Sharpe & Win Rate -->
 <div class="mdl-card" style="margin-bottom:20px">
-  <div class="mdl-card-header"><div class="mdl-card-title">Rolling Performance (60-day window)</div></div>
+  <div class="mdl-card-header"><div class="mdl-card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Rolling Performance <span id="perfChartRangeLabel">(60 days)</span> (60-day window)</span><span id="perfChartRange"></span></div></div>
   <div style="position:relative;height:250px;padding:12px">
     <canvas id="perfChart"></canvas>
   </div>
@@ -2498,7 +2498,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 
 <!-- HMM Regime Detection (3F-1) -->
 <div class="mdl-card" style="margin-bottom:20px">
-  <div class="mdl-card-header"><div class="mdl-card-title">Regime Detection (HMM-like)</div></div>
+  <div class="mdl-card-header"><div class="mdl-card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Regime Detection (HMM-like) <span id="hmmChartRangeLabel">(60 days)</span></span><span id="hmmChartRange"></span></div></div>
   <div style="padding:12px">
     <div id="hmmCurrentState" style="font-size:16px;font-weight:700;margin-bottom:8px">—</div>
     <table class="dtable" style="max-width:500px;margin-bottom:12px">
@@ -3915,6 +3915,34 @@ makeRangeToggle({
   onChange: () => loadHourlySingle('hourlyFwd', renderHourlyForwardChart)
 });
 
+makeRangeToggle({
+  key: 'icChart', containerId: 'icChartRange',
+  ranges: ['30D','60D','Q','1Y','2Y','Max'], defaultRange: '60D',
+  labelIds: ['icChartRangeLabel'],
+  onChange: () => { if (analyticsCache) renderIcChart(analyticsCache); }
+});
+
+makeRangeToggle({
+  key: 'perfChart', containerId: 'perfChartRange',
+  ranges: ['30D','60D','Q','1Y','2Y','Max'], defaultRange: '60D',
+  labelIds: ['perfChartRangeLabel'],
+  onChange: () => { if (analyticsCache) renderPerfChart(analyticsCache); }
+});
+
+makeRangeToggle({
+  key: 'hmmChart', containerId: 'hmmChartRange',
+  ranges: ['30D','60D','Q','1Y','2Y','Max'], defaultRange: '60D',
+  labelIds: ['hmmChartRangeLabel'],
+  onChange: () => { if (analyticsCache) renderHmmChart(analyticsCache); }
+});
+
+makeRangeToggle({
+  key: 'corrTable', containerId: 'corrTableRange',
+  ranges: ['60D','Q','1Y','2Y','Max'], defaultRange: '1Y',
+  labelIds: ['corrTableRangeLabel'],
+  onChange: () => { if (analyticsCache) renderCorrTable(analyticsCache); }
+});
+
 loadHero();
 
 // Auto-trigger first refresh
@@ -4996,20 +5024,16 @@ function renderECMChart(history) {
 // ════════════════════════════════════════════════════════════════════════════
 //  ANALYTICS TAB (3D-3)
 // ════════════════════════════════════════════════════════════════════════════
-let anCache = null, anLoading = false;
+let analyticsCache = null, anLoading = false;
 let icChartInst = null, perfChartInst = null;
 
 async function loadAnalytics() {
-  if (anCache && (Date.now() - anCache._ts < 300000)) { renderAnalytics(anCache); loadHourlyAccuracy(); return; }
   if (anLoading) return;
   anLoading = true;
   try {
-    const resp = await fetch('/api/analytics');
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
+    const data = await fetchRanged('/api/analytics');
     if (!data.success) throw new Error(data.error || 'No analytics data');
-    data._ts = Date.now();
-    anCache = data;
+    analyticsCache = data;
     renderAnalytics(data);
   } catch (e) {
     console.error('Analytics load error:', e);
@@ -5021,40 +5045,106 @@ async function loadAnalytics() {
 }
 
 function renderAnalytics(data) {
+  renderCorrTable(data);
+  renderIcChart(data);
+
+  // ── Regime ──
+  const reg = data.regime || {};
+  const regEl = document.getElementById('anRegime');
+  regEl.textContent = reg.current || '—';
+  regEl.style.color = reg.current === 'BULL' ? 'var(--positive)' : reg.current === 'BEAR' ? 'var(--negative)' : 'var(--text)';
+  document.getElementById('anRegimeDur').textContent = reg.duration_days ? `${reg.duration_days} days` : '—';
+  document.getElementById('anRegimeSplit').textContent =
+    `${reg.bull_days || 0} / ${reg.neutral_days || 0} / ${reg.bear_days || 0}`;
+  const vol = reg.volatility || {};
+  document.getElementById('anVol').textContent = vol.annualized_pct ? `${vol.annualized_pct}%` : '—';
+  document.getElementById('anVolRegime').textContent = vol.regime || '—';
+
+  renderPerfChart(data);
+
+  // ── Factor Decomposition ──
+  const dec = data.factor_decomposition || {};
+  const fmtDec = v => v !== undefined ? (v > 0 ? '+' : '') + v.toFixed(3) : '—';
+  document.getElementById('anDecompEcm').textContent = fmtDec(dec.ecm_contribution);
+  document.getElementById('anDecompRev').textContent = fmtDec(dec.mf_revenue_part);
+  document.getElementById('anDecompTurn').textContent = fmtDec(dec.mf_turnover_part);
+  document.getElementById('anDecompTotal').textContent = fmtDec(dec.ensemble_score);
+
+  renderHmmChart(data);
+
+  // ── Weight Sensitivity (3F-2) ──
+  const ws = data.weight_sensitivity || [];
+  if (ws.length > 0) {
+    let wsHtml = '';
+    for (const w of ws) {
+      const isCurrent = w.is_current;
+      const rowStyle = isCurrent ? 'font-weight:700;background:rgba(39,174,96,0.08)' : '';
+      wsHtml += `<tr style="${rowStyle}">
+        <td>${(w.ecm_weight * 100).toFixed(0)}%</td>
+        <td>${(w.mf_weight * 100).toFixed(0)}%</td>
+        <td style="font-family:var(--mono)">${w.ic != null ? w.ic.toFixed(4) : '—'}</td>
+        <td style="font-family:var(--mono)">${w.hit_rate ? (w.hit_rate * 100).toFixed(1) + '%' : '—'}</td>
+        <td>${isCurrent ? '✓ Current' : ''}</td>
+      </tr>`;
+    }
+    document.getElementById('weightSensBody').innerHTML = wsHtml;
+  }
+}
+
+// ── Client-side Pearson correlation (mirrors lib/mcx_config.py pearson()) ──
+function pearsonJs(xs, ys) {
+  const pairs = [];
+  for (let i = 0; i < xs.length; i++) {
+    if (xs[i] != null && ys[i] != null) pairs.push([xs[i], ys[i]]);
+  }
+  const n = pairs.length;
+  if (n < 10) return null;
+  const mx = pairs.reduce((a, p) => a + p[0], 0) / n;
+  const my = pairs.reduce((a, p) => a + p[1], 0) / n;
+  let sxy = 0, sxx = 0, syy = 0;
+  pairs.forEach(([x, y]) => { sxy += (x-mx)*(y-my); sxx += (x-mx)**2; syy += (y-my)**2; });
+  return (sxx > 0 && syy > 0) ? sxy / Math.sqrt(sxx * syy) : null;
+}
+
+// ── Correlation Matrix (client-computed from factor_series, range-controlled) ──
+function renderCorrTable(data) {
+  const isDark = document.documentElement.classList.contains('dark');
+  const fs = data.factor_series;
+  if (!fs) return;
+  const keys = ['ecm_z', 'rev_z', 'turn_z', 'position_score'];
+  const sliced = keys.map(k => sliceTailByRange(fs[k], rangeState['corrTable'] || '1Y'));
+  const matrix = keys.map((_, i) => keys.map((_, j) => pearsonJs(sliced[i], sliced[j])));
+
+  const labels = ['ECM Z', 'Rev Z', 'Turn Z', 'Pos Score'];
+  let html = '';
+  for (let i = 0; i < 4; i++) {
+    html += `<tr><td style="font-weight:700">${labels[i]}</td>`;
+    for (let j = 0; j < 4; j++) {
+      const v = matrix[i][j];
+      const bg = v !== null ? corrColor(v, isDark) : 'transparent';
+      html += `<td style="background:${bg};padding:6px 10px">${v !== null ? v.toFixed(2) : '—'}</td>`;
+    }
+    html += '</tr>';
+  }
+  document.getElementById('corrBody').innerHTML = html;
+}
+
+// ── Rolling IC Chart (range-controlled tail slice) ──
+function renderIcChart(data) {
   const isDark = document.documentElement.classList.contains('dark');
   const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
   const txtColor = isDark ? '#888' : '#999';
-
-  // ── Correlation Matrix ──
-  const corr = data.factor_correlation;
-  if (corr && corr.matrix) {
-    const labels = ['ECM Z', 'Rev Z', 'Turn Z', 'Pos Score'];
-    let html = '';
-    for (let i = 0; i < 4; i++) {
-      html += `<tr><td style="font-weight:700">${labels[i]}</td>`;
-      for (let j = 0; j < 4; j++) {
-        const v = corr.matrix[i][j];
-        const bg = v !== null ? corrColor(v, isDark) : 'transparent';
-        html += `<td style="background:${bg};padding:6px 10px">${v !== null ? v.toFixed(2) : '—'}</td>`;
-      }
-      html += '</tr>';
-    }
-    document.getElementById('corrBody').innerHTML = html;
-  }
-
-  // ── Rolling IC Chart ──
-  if (data.rolling_ic && data.rolling_ic.length > 0) {
+  const icData = sliceTailByRange(data.rolling_ic || [], rangeState['icChart'] || '60D');
+  if (icData.length > 0) {
     const canvas = document.getElementById('icChart');
     if (icChartInst) { icChartInst.destroy(); icChartInst = null; }
-    const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
-    const txtColor = isDark ? '#888' : '#999';
     icChartInst = new Chart(canvas.getContext('2d'), {
       type: 'line',
       data: {
-        labels: data.rolling_ic.map(d => d.date.slice(5)),
+        labels: icData.map(d => d.date.slice(5)),
         datasets: [{
           label: 'Ensemble IC',
-          data: data.rolling_ic.map(d => d.ensemble_ic),
+          data: icData.map(d => d.ensemble_ic),
           borderColor: '#27ae60',
           borderWidth: 2,
           pointRadius: 0,
@@ -5072,32 +5162,24 @@ function renderAnalytics(data) {
       },
     });
   }
+}
 
-  // ── Regime ──
-  const reg = data.regime || {};
-  const regEl = document.getElementById('anRegime');
-  regEl.textContent = reg.current || '—';
-  regEl.style.color = reg.current === 'BULL' ? 'var(--positive)' : reg.current === 'BEAR' ? 'var(--negative)' : 'var(--text)';
-  document.getElementById('anRegimeDur').textContent = reg.duration_days ? `${reg.duration_days} days` : '—';
-  document.getElementById('anRegimeSplit').textContent =
-    `${reg.bull_days || 0} / ${reg.neutral_days || 0} / ${reg.bear_days || 0}`;
-  const vol = reg.volatility || {};
-  document.getElementById('anVol').textContent = vol.annualized_pct ? `${vol.annualized_pct}%` : '—';
-  document.getElementById('anVolRegime').textContent = vol.regime || '—';
-
-  // ── Rolling Performance Chart ──
-  if (data.rolling_metrics && data.rolling_metrics.length > 0) {
+// ── Rolling Performance Chart (range-controlled tail slice) ──
+function renderPerfChart(data) {
+  const isDark = document.documentElement.classList.contains('dark');
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const txtColor = isDark ? '#888' : '#999';
+  const perfData = sliceTailByRange(data.rolling_metrics || [], rangeState['perfChart'] || '60D');
+  if (perfData.length > 0) {
     const canvas = document.getElementById('perfChart');
     if (perfChartInst) { perfChartInst.destroy(); perfChartInst = null; }
-    const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
-    const txtColor = isDark ? '#888' : '#999';
     perfChartInst = new Chart(canvas.getContext('2d'), {
       type: 'line',
       data: {
-        labels: data.rolling_metrics.map(m => m.date.slice(5)),
+        labels: perfData.map(m => m.date.slice(5)),
         datasets: [
-          { label: 'Sharpe', data: data.rolling_metrics.map(m => m.sharpe_ratio), borderColor: '#9b59b6', borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: 'y' },
-          { label: 'Win Rate', data: data.rolling_metrics.map(m => m.win_rate * 100), borderColor: '#16a085', borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: 'y1' },
+          { label: 'Sharpe', data: perfData.map(m => m.sharpe_ratio), borderColor: '#9b59b6', borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: 'y' },
+          { label: 'Win Rate', data: perfData.map(m => m.win_rate * 100), borderColor: '#16a085', borderWidth: 2, pointRadius: 0, tension: 0.3, yAxisID: 'y1' },
         ],
       },
       options: {
@@ -5111,16 +5193,13 @@ function renderAnalytics(data) {
       },
     });
   }
+}
 
-  // ── Factor Decomposition ──
-  const dec = data.factor_decomposition || {};
-  const fmtDec = v => v !== undefined ? (v > 0 ? '+' : '') + v.toFixed(3) : '—';
-  document.getElementById('anDecompEcm').textContent = fmtDec(dec.ecm_contribution);
-  document.getElementById('anDecompRev').textContent = fmtDec(dec.mf_revenue_part);
-  document.getElementById('anDecompTurn').textContent = fmtDec(dec.mf_turnover_part);
-  document.getElementById('anDecompTotal').textContent = fmtDec(dec.ensemble_score);
-
-  // ── HMM Regime Detection (3F-1) ──
+// ── HMM Regime Detection chart (range-controlled tail slice; current-state readout is unsliced) ──
+function renderHmmChart(data) {
+  const isDark = document.documentElement.classList.contains('dark');
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const txtColor = isDark ? '#888' : '#999';
   const hmm = data.hmm_regime || {};
   const hmmCur = hmm.current || {};
   const hmmState = hmmCur.state || 'UNKNOWN';
@@ -5132,7 +5211,7 @@ function renderAnalytics(data) {
   document.getElementById('hmmPosVol').textContent = hmmCur.position_vol != null ? hmmCur.position_vol.toFixed(4) : '—';
 
   // HMM history chart
-  const hmmHist = hmm.history || [];
+  const hmmHist = sliceTailByRange(hmm.history || [], rangeState['hmmChart'] || '60D');
   if (hmmHist.length > 0) {
     const canvas = document.getElementById('hmmChart');
     if (window._hmmChartInst) { window._hmmChartInst.destroy(); window._hmmChartInst = null; }
@@ -5171,24 +5250,6 @@ function renderAnalytics(data) {
         },
       },
     });
-  }
-
-  // ── Weight Sensitivity (3F-2) ──
-  const ws = data.weight_sensitivity || [];
-  if (ws.length > 0) {
-    let wsHtml = '';
-    for (const w of ws) {
-      const isCurrent = w.is_current;
-      const rowStyle = isCurrent ? 'font-weight:700;background:rgba(39,174,96,0.08)' : '';
-      wsHtml += `<tr style="${rowStyle}">
-        <td>${(w.ecm_weight * 100).toFixed(0)}%</td>
-        <td>${(w.mf_weight * 100).toFixed(0)}%</td>
-        <td style="font-family:var(--mono)">${w.ic != null ? w.ic.toFixed(4) : '—'}</td>
-        <td style="font-family:var(--mono)">${w.hit_rate ? (w.hit_rate * 100).toFixed(1) + '%' : '—'}</td>
-        <td>${isCurrent ? '✓ Current' : ''}</td>
-      </tr>`;
-    }
-    document.getElementById('weightSensBody').innerHTML = wsHtml;
   }
 }
 
