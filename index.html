@@ -1708,9 +1708,10 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   </button>
   <div class="accordion-panel" id="intraday-panel">
     <!-- Tab selector -->
-    <div style="display:flex;gap:4px;margin-bottom:8px">
+    <div style="display:flex;gap:4px;margin-bottom:8px;align-items:center;flex-wrap:wrap">
       <button class="curve-tab active" id="btnCurveBucket" onclick="switchCurveView('bucket')" style="padding:3px 10px;border:1px solid var(--border);background:var(--accent);color:white;font-family:var(--mono);font-size:10px;cursor:pointer;border-radius:var(--radius)">Bucket Weights</button>
       <button class="curve-tab" id="btnCurveCum" onclick="switchCurveView('cumulative')" style="padding:3px 10px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-family:var(--mono);font-size:10px;cursor:pointer;border-radius:var(--radius)">Cumulative Curve</button>
+      <span id="intradayRange" style="margin-left:auto"></span>
     </div>
     <!-- Bucket view -->
     <div id="curveViewBucket">
@@ -1724,7 +1725,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
     <!-- Stats row -->
     <div id="curveStats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;margin-top:8px;font-family:var(--mono);font-size:10px"></div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:8px;padding:8px;border:1px dashed var(--border)">
-      Session: 09:00–23:30 IST · Static model: evening = 67% · Dynamic data from last 30 trading days
+      Session: 09:00–23:30 IST · Static model: evening = 67% · Weights computed over <span id="intradayRangeLabel">(30 days)</span> of snapshots.
     </div>
   </div>
 </div>
@@ -2530,16 +2531,25 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   <div style="padding:12px">
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
       <div>
-        <h4 style="font-size:11px;font-weight:600;margin:0 0 6px">Revenue Projection Accuracy</h4>
+        <h4 style="font-size:11px;font-weight:600;margin:0 0 6px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <span>Revenue Projection Accuracy <span id="hourlyRevRangeLabel">(quarter)</span></span>
+          <span id="hourlyRevRange"></span>
+        </h4>
         <div style="height:220px"><canvas id="hourlyRevenueChart"></canvas></div>
       </div>
       <div>
-        <h4 style="font-size:11px;font-weight:600;margin:0 0 6px">Signal Stability vs EOD</h4>
+        <h4 style="font-size:11px;font-weight:600;margin:0 0 6px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <span>Signal Stability vs EOD <span id="hourlySigRangeLabel">(quarter)</span></span>
+          <span id="hourlySigRange"></span>
+        </h4>
         <div style="height:220px"><canvas id="hourlySignalChart"></canvas></div>
       </div>
     </div>
     <div style="margin-bottom:12px">
-      <h4 style="font-size:11px;font-weight:600;margin:0 0 6px">Forward Accuracy by Hour</h4>
+      <h4 style="font-size:11px;font-weight:600;margin:0 0 6px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+        <span>Forward Accuracy by Hour <span id="hourlyFwdRangeLabel">(quarter)</span></span>
+        <span id="hourlyFwdRange"></span>
+      </h4>
       <div style="height:200px"><canvas id="hourlyForwardChart"></canvas></div>
     </div>
     <div id="hourlyConvergence" style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);padding:8px;border:1px dashed var(--border)"></div>
@@ -3423,17 +3433,17 @@ function switchCurveView(view) {
 }
 
 async function loadIntradayCurve() {
-  if (curveDataCache) { renderDynamicBucketChart(curveDataCache); return; }
   if (curveLoading) return;
   curveLoading = true;
   try {
-    const resp = await fetch('/api/exchange_dashboard?view=intraday_curve&days=30');
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
+    const data = await fetchRanged('/api/exchange_dashboard?view=intraday_curve&days=' + RANGE_TRADING_DAYS[rangeState['intraday'] || '30D']);
     if (!data.success) throw new Error(data.error);
     curveDataCache = data;
     renderDynamicBucketChart(data);
     renderCurveStats(data);
+    // One fetch feeds both sub-views: refresh cumulative chart too if it's the visible one.
+    const cumEl = document.getElementById('curveViewCumulative');
+    if (cumEl && cumEl.style.display !== 'none') renderCumulativeChart(data);
     document.getElementById('intradayBadge').textContent = `${data.rolling_average.days_used}d dynamic`;
   } catch (e) {
     console.warn('Dynamic curve failed, using static:', e);
@@ -3875,6 +3885,34 @@ makeRangeToggle({
   ranges: ['30D','60D','Q','1Y','2Y','Max'], defaultRange: '60D',
   labelIds: ['sparkRangeLabel'],
   onChange: () => loadHero()
+});
+
+makeRangeToggle({
+  key: 'intraday', containerId: 'intradayRange',
+  ranges: ['30D','60D','Q'], defaultRange: '30D',
+  labelIds: ['intradayRangeLabel'],
+  onChange: () => loadIntradayCurve()
+});
+
+makeRangeToggle({
+  key: 'hourlyRev', containerId: 'hourlyRevRange',
+  ranges: ['30D','60D','Q','Max'], defaultRange: 'Q',
+  labelIds: ['hourlyRevRangeLabel'],
+  onChange: () => fetchRanged(hourlyUrl('hourlyRev')).then(hourlyCheckSuccess).then(d => renderHourlyAccuracy(d)).catch(hourlyLoadFail)
+});
+
+makeRangeToggle({
+  key: 'hourlySig', containerId: 'hourlySigRange',
+  ranges: ['30D','60D','Q','Max'], defaultRange: 'Q',
+  labelIds: ['hourlySigRangeLabel'],
+  onChange: () => fetchRanged(hourlyUrl('hourlySig')).then(hourlyCheckSuccess).then(d => renderHourlySignalChart(d)).catch(hourlyLoadFail)
+});
+
+makeRangeToggle({
+  key: 'hourlyFwd', containerId: 'hourlyFwdRange',
+  ranges: ['30D','60D','Q','Max'], defaultRange: 'Q',
+  labelIds: ['hourlyFwdRangeLabel'],
+  onChange: () => fetchRanged(hourlyUrl('hourlyFwd')).then(hourlyCheckSuccess).then(d => renderHourlyForwardChart(d)).catch(hourlyLoadFail)
 });
 
 loadHero();
@@ -5369,25 +5407,26 @@ function renderBacktest(data) {
 // ════════════════════════════════════════════════════════════════════════════
 //  HOURLY PREDICTOR ACCURACY (Part of Analytics Tab)
 // ════════════════════════════════════════════════════════════════════════════
-let hourlyCache = null, hourlyLoading = false;
 let hourlyRevChartInst = null, hourlySigChartInst = null, hourlyFwdChartInst = null;
 
-async function loadHourlyAccuracy() {
-  if (hourlyCache) { renderHourlyAccuracy(hourlyCache); return; }
-  if (hourlyLoading) return;
-  hourlyLoading = true;
-  try {
-    const resp = await fetch('/api/analytics?section=hourly_accuracy&days=90');
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const data = await resp.json();
-    if (!data.success) throw new Error(data.error || 'No hourly data');
-    hourlyCache = data;
-    renderHourlyAccuracy(data);
-  } catch (e) {
-    console.warn('Hourly accuracy load error:', e);
-    const el = document.getElementById('hourlyConvergence');
-    if (el) el.textContent = 'Hourly accuracy data unavailable — requires sufficient snapshot history.';
-  } finally { hourlyLoading = false; }
+const HOURLY_DAYS = { '30D': 30, '60D': 60, 'Q': 63, 'Max': 180 };
+function hourlyUrl(key) {
+  return '/api/analytics?section=hourly_accuracy&days=' + HOURLY_DAYS[rangeState[key] || 'Q'];
+}
+function hourlyCheckSuccess(d) {
+  if (!d.success) throw new Error(d.error || 'No hourly data');
+  return d;
+}
+function hourlyLoadFail(e) {
+  console.warn('Hourly accuracy load error:', e);
+  const el = document.getElementById('hourlyConvergence');
+  if (el) el.textContent = 'Hourly accuracy data unavailable — requires sufficient snapshot history.';
+}
+
+function loadHourlyAccuracy() {
+  fetchRanged(hourlyUrl('hourlyRev')).then(hourlyCheckSuccess).then(d => renderHourlyAccuracy(d)).catch(hourlyLoadFail);
+  fetchRanged(hourlyUrl('hourlySig')).then(hourlyCheckSuccess).then(d => renderHourlySignalChart(d)).catch(hourlyLoadFail);
+  fetchRanged(hourlyUrl('hourlyFwd')).then(hourlyCheckSuccess).then(d => renderHourlyForwardChart(d)).catch(hourlyLoadFail);
 }
 
 function renderHourlyAccuracy(data) {
@@ -5423,6 +5462,31 @@ function renderHourlyAccuracy(data) {
     });
   }
 
+  // ── Convergence summary ──
+  const conv = data.convergence || {};
+  const convEl = document.getElementById('hourlyConvergence');
+  if (convEl) {
+    let text = '';
+    if (conv.revenue_5pct) text += `Revenue projection stabilizes to <5% error by ${conv.revenue_5pct.label}. `;
+    if (conv.signal_90pct) text += `Signal matches EOD 90%+ by ${conv.signal_90pct.label}. `;
+    // Curve bias
+    const bias = data.curve_bias || [];
+    const overBias = bias.filter(b => b.mean_bias_pct > 2);
+    const underBias = bias.filter(b => b.mean_bias_pct < -2);
+    if (overBias.length) text += `Over-projects at: ${overBias.map(b => b.label).join(', ')}. `;
+    if (underBias.length) text += `Under-projects at: ${underBias.map(b => b.label).join(', ')}. `;
+    const dq = data.data_quality || {};
+    text += `(${dq.days_with_snapshots || 0} days analyzed)`;
+    convEl.textContent = text || 'Insufficient data for convergence analysis.';
+  }
+}
+
+function renderHourlySignalChart(data) {
+  const isDark = document.documentElement.classList.contains('dark');
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const txtColor = isDark ? '#888' : '#999';
+  const monoFont = { family: "'JetBrains Mono'", size: 9 };
+
   // ── Signal Stability Chart ──
   const sigData = data.signal_stability || [];
   if (sigData.length > 0) {
@@ -5448,6 +5512,13 @@ function renderHourlyAccuracy(data) {
       }
     });
   }
+}
+
+function renderHourlyForwardChart(data) {
+  const isDark = document.documentElement.classList.contains('dark');
+  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  const txtColor = isDark ? '#888' : '#999';
+  const monoFont = { family: "'JetBrains Mono'", size: 9 };
 
   // ── Forward Accuracy Chart ──
   const fwdData = data.forward_accuracy || [];
@@ -5477,24 +5548,6 @@ function renderHourlyAccuracy(data) {
         }
       }
     });
-  }
-
-  // ── Convergence summary ──
-  const conv = data.convergence || {};
-  const convEl = document.getElementById('hourlyConvergence');
-  if (convEl) {
-    let text = '';
-    if (conv.revenue_5pct) text += `Revenue projection stabilizes to <5% error by ${conv.revenue_5pct.label}. `;
-    if (conv.signal_90pct) text += `Signal matches EOD 90%+ by ${conv.signal_90pct.label}. `;
-    // Curve bias
-    const bias = data.curve_bias || [];
-    const overBias = bias.filter(b => b.mean_bias_pct > 2);
-    const underBias = bias.filter(b => b.mean_bias_pct < -2);
-    if (overBias.length) text += `Over-projects at: ${overBias.map(b => b.label).join(', ')}. `;
-    if (underBias.length) text += `Under-projects at: ${underBias.map(b => b.label).join(', ')}. `;
-    const dq = data.data_quality || {};
-    text += `(${dq.days_with_snapshots || 0} days analyzed)`;
-    convEl.textContent = text || 'Insufficient data for convergence analysis.';
   }
 }
 
