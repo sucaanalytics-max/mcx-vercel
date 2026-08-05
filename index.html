@@ -2749,7 +2749,10 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 
 <!-- Sector Rotation Chart -->
 <div class="card" style="margin-bottom:20px">
-<h3 style="margin-bottom:12px">Sector Rotation (60-Day Turnover Share)</h3>
+<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+<h3 style="margin:0">Sector Rotation (Turnover Share) <span id="sectorRotRangeLabel">(60 days)</span></h3>
+<span id="sectorRotRange"></span>
+</div>
 <div style="position:relative;height:320px">
 <canvas id="sectorRotationChart"></canvas>
 </div>
@@ -2758,7 +2761,10 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 
 <!-- Commodity Momentum Table -->
 <div class="card" style="margin-bottom:20px">
-<h3 style="margin-bottom:12px">Commodity Momentum (60-Day Rolling)</h3>
+<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+<h3 style="margin:0">Commodity Momentum (Rolling) <span id="cmdMomentumRangeLabel">(60 days)</span></h3>
+<span id="cmdMomentumRange"></span>
+</div>
 <div style="overflow-x:auto">
 <table class="dtable" id="momentumTable">
 <thead>
@@ -4033,6 +4039,20 @@ makeRangeToggle({
   key: 'cmdMonth', containerId: 'cmdMonthRange',
   ranges: ['3M','6M','12M','24M'], defaultRange: '3M',
   onChange: () => { if (cmdDashCache) renderCmdMonthTable(cmdDashCache); }
+});
+
+makeRangeToggle({
+  key: 'sectorRot', containerId: 'sectorRotRange',
+  ranges: ['30D','60D','Q','1Y','2Y'], defaultRange: '60D',
+  labelIds: ['sectorRotRangeLabel'],
+  onChange: () => fetchRanged(commUrl('sectorRot')).then(d => { if (d.success) { commCache = d; renderCommodityToday(d); renderSectorRotation(d); } })
+});
+
+makeRangeToggle({
+  key: 'cmdMomentum', containerId: 'cmdMomentumRange',
+  ranges: ['30D','60D','Q','1Y','2Y'], defaultRange: '60D',
+  labelIds: ['cmdMomentumRangeLabel'],
+  onChange: () => fetchRanged(commUrl('cmdMomentum')).then(d => { if (d.success) { cmdMomentumCache = d; renderCommodityMomentum(d); } })
 });
 
 loadHero();
@@ -5721,24 +5741,28 @@ function renderHourlyForwardChart(data) {
 //  COMMODITY TAB (Phase 3E)
 // ════════════════════════════════════════════════════════════════════════════
 let commCache = null;
+let cmdMomentumCache = null;
 let sectorChart = null;
 
-async function loadCommodity() {
-  if (commCache && (Date.now() - commCache._ts < 300000)) { renderCommodity(commCache); return; }
+function commUrl(key) {
+  return '/api/commodities?view=signals&range=' + encodeURIComponent(rangeState[key] || '60D');
+}
+
+function loadCommodity() {
+  // Rotation chart + today's lineup + top movers all ride the 'sectorRot' fetch
+  // (lineup/movers are latest-date/1-day data, identical across ranges).
   document.getElementById('commAsOf').textContent = 'Loading commodity data…';
-  try {
-    const resp = await fetch('/api/commodities?view=signals');
-    const data = await resp.json();
-    if (data.success) {
-      data._ts = Date.now();
-      commCache = data;
-      renderCommodity(data);
-    } else {
-      document.getElementById('commAsOf').textContent = 'Error: ' + (data.error || 'Unknown');
-    }
-  } catch (e) {
-    document.getElementById('commAsOf').textContent = 'Fetch error: ' + e.message;
-  }
+  fetchRanged(commUrl('sectorRot')).then(data => {
+    if (!data.success) { document.getElementById('commAsOf').textContent = 'Error: ' + (data.error || 'Unknown'); return; }
+    commCache = data;
+    renderCommodityToday(data);
+    renderSectorRotation(data);
+  }).catch(e => { document.getElementById('commAsOf').textContent = 'Fetch error: ' + e.message; });
+
+  // Momentum table has its own independent range/fetch.
+  fetchRanged(commUrl('cmdMomentum')).then(data => {
+    if (data.success) { cmdMomentumCache = data; renderCommodityMomentum(data); }
+  }).catch(e => console.error('Commodity momentum load failed:', e));
 }
 
 function signalBadge(sig) {
@@ -5759,7 +5783,7 @@ function zColor(z) {
   return '';
 }
 
-function renderCommodity(data) {
+function renderCommodityToday(data) {
   // Show the DATA date (not just the live clock) and warn if it is stale, so a
   // frozen signals pipeline can't masquerade as fresh under a current timestamp.
   const dq = data.data_quality || {};
@@ -5812,8 +5836,9 @@ function renderCommodity(data) {
     </tr>`;
   }
   document.getElementById('moversTableBody').innerHTML = movers || '<tr><td colspan="6" style="text-align:center;color:var(--text-secondary)">No movers data</td></tr>';
+}
 
-  // ── Commodity Momentum ──
+function renderCommodityMomentum(data) {
   let momRows = '';
   for (const m of (data.commodity_momentum || [])) {
     momRows += `<tr>
@@ -5826,7 +5851,9 @@ function renderCommodity(data) {
     </tr>`;
   }
   document.getElementById('momentumTableBody').innerHTML = momRows;
+}
 
+function renderSectorRotation(data) {
   // ── Sector Rotation Chart ──
   const rotation = data.sector_rotation || [];
   if (rotation.length > 0) {

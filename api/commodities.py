@@ -234,13 +234,21 @@ def _fetch_all(table, select, limit=20000, where=""):
     return all_rows
 
 
-def generate_commodity_analytics():
+RANGE_DAYS = {"30D": 30, "60D": 60, "Q": 63, "1Y": 252, "2Y": 504}
+DEFAULT_RANGE = "60D"
+
+
+def generate_commodity_analytics(range_key=DEFAULT_RANGE):
+    if range_key not in RANGE_DAYS:
+        range_key = DEFAULT_RANGE
+    window = RANGE_DAYS[range_key]
     ist_now = now_ist()
 
-    # Only the recent window is needed (today's lineup, 60-day rotation/momentum,
+    # Only the recent window is needed (today's lineup, range-sized rotation/momentum,
     # prev-day movers). Filtering by date avoids the old bug where an ascending
     # row-cap returned the OLDEST rows and reported a years-stale "today".
-    cutoff = (ist_now - timedelta(days=150)).strftime("%Y-%m-%d")
+    cal_days = int(window * 1.55) + 25   # trading→calendar buffer (was fixed 150)
+    cutoff = (ist_now - timedelta(days=cal_days)).strftime("%Y-%m-%d")
     signals = _fetch_all(
         "mcx_commodity_signals",
         "trading_date,commodity,commodity_head,"
@@ -288,7 +296,7 @@ def generate_commodity_analytics():
 
     # ── 2. Sector Rotation ──
     dates = sorted(set(s["trading_date"] for s in signals))
-    dates = dates[-60:]
+    dates = dates[-window:]
 
     sector_rotation = []
     for dt in dates:
@@ -314,7 +322,7 @@ def generate_commodity_analytics():
     for c in commodity_names:
         c_rows = [s for s in signals if s["commodity"] == c]
         c_rows.sort(key=lambda x: x["trading_date"])
-        recent = c_rows[-60:]
+        recent = c_rows[-window:]
         composites = [_f(r.get("composite_z")) for r in recent]
         valid = [z for z in composites if z is not None]
         if len(valid) < 10:
@@ -365,6 +373,7 @@ def generate_commodity_analytics():
             "commodities_today": len(today_rows),
             "rotation_days": len(sector_rotation),
             "latest_date": latest_date,
+            "range": range_key,
         },
     }
 
@@ -402,7 +411,8 @@ class handler(BaseHTTPRequestHandler):
             qs = parse_qs(urlparse(self.path).query)
             view = qs.get("view", ["prices"])[0]
             if view == "signals":
-                data = generate_commodity_analytics()
+                range_key = qs.get("range", [DEFAULT_RANGE])[0]
+                data = generate_commodity_analytics(range_key=range_key)
             else:
                 data = get_commodity_prices()
             self.send_json(data)
