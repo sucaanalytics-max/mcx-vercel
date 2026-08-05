@@ -2965,14 +2965,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
     <div class="mom-chart-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
       <span>Revenue Regime: MA10 vs MA45 &amp; 10D/45D Ratio <span id="momRangeLabel">(60 days)</span></span>
       <span style="display:flex;align-items:center;gap:12px;font-family:var(--mono);flex-wrap:wrap">
-        <span id="momRangeChips">
-          <span class="margin-chip" data-range="30D" onclick="setMomRange('30D')">30D</span>
-          <span class="margin-chip active" data-range="60D" onclick="setMomRange('60D')">60D</span>
-          <span class="margin-chip" data-range="Q"   onclick="setMomRange('Q')">Quarter</span>
-          <span class="margin-chip" data-range="1Y"  onclick="setMomRange('1Y')">1Y</span>
-          <span class="margin-chip" data-range="2Y"  onclick="setMomRange('2Y')">2Y</span>
-          <span class="margin-chip" data-range="Max" onclick="setMomRange('Max')">Max</span>
-        </span>
+        <span id="momRegimeRange"></span>
         <span id="momBandsToggle" class="margin-chip" onclick="setMomShowBands(!momShowBands)" title="Toggle &plusmn;1&sigma; / &plusmn;2&sigma; control lines">Bands</span>
       </span>
     </div>
@@ -2984,7 +2977,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 
   <!-- Price + Signal Chart -->
   <div class="mom-chart-wrap">
-    <div class="mom-chart-title">Price &amp; Composite Signal <span id="momPriceRangeLabel">(60 days)</span></div>
+    <div class="mom-chart-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Price &amp; Composite Signal <span id="momPriceRangeLabel">(60 days)</span></span><span id="momPriceRange"></span></div>
     <div id="momPriceStats" class="mom-bands-stats" style="display:none;font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin:-4px 0 8px 0;letter-spacing:0.3px"></div>
     <div style="position:relative;height:300px">
       <canvas id="momPriceChart"></canvas>
@@ -2993,8 +2986,8 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 
   <!-- Signal History Table -->
   <div class="card" style="margin-bottom:20px">
-    <div class="card-title" style="font-family:var(--mono);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);margin-bottom:12px">Signal History (Last 15 Days)</div>
-    <div style="overflow-x:auto">
+    <div class="card-title" style="font-family:var(--mono);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Signal History <span id="momTableRangeLabel">(30 days)</span></span><span id="momTableRange"></span></div>
+    <div style="overflow-x:auto" class="scroll-table-wrap">
       <table class="exd-table" id="momSignalTable">
         <thead>
           <tr>
@@ -3973,6 +3966,27 @@ makeRangeToggle({
   key: 'marginChanges', containerId: 'marginChangesRange',
   ranges: ['30D','60D','Q','1Y','Max'], defaultRange: '60D',
   onChange: () => renderMarginChangesTable()
+});
+
+makeRangeToggle({
+  key: 'momRegime', containerId: 'momRegimeRange',
+  ranges: ['30D','60D','Q','1Y','2Y','Max'], defaultRange: '60D',
+  labelIds: ['momRangeLabel'],
+  onChange: () => { momHideTooltip(); fetchRanged(momUrl('momRegime')).then(d => { renderMomentumHero(d); renderMomRegimeChart(d.history||[]); }); }
+});
+
+makeRangeToggle({
+  key: 'momPrice', containerId: 'momPriceRange',
+  ranges: ['30D','60D','Q','1Y','2Y','Max'], defaultRange: '60D',
+  labelIds: ['momPriceRangeLabel'],
+  onChange: () => { momHideTooltip(); fetchRanged(momUrl('momPrice')).then(d => { if (d.success) renderMomPriceChart(d.history||[]); }); }
+});
+
+makeRangeToggle({
+  key: 'momTable', containerId: 'momTableRange',
+  ranges: ['30D','60D','Q','1Y','2Y','Max'], defaultRange: '30D',
+  labelIds: ['momTableRangeLabel'],
+  onChange: () => fetchRanged(momUrl('momTable')).then(d => { if (d.success) renderMomTable(d.history||[]); })
 });
 
 loadHero();
@@ -6717,48 +6731,25 @@ function updateMarginChart(syms) {
 
 let momRegimeChartInst = null;
 let momPriceChartInst = null;
-let momDataCacheByRange = {};
-let momCurrentRange = '60D';
 let momShowBands = false;
 
-const MOM_RANGE_LABELS = {
-  '30D': '(30 days)',
-  '60D': '(60 days)',
-  'Q':   '(quarter)',
-  '1Y':  '(1 year)',
-  '2Y':  '(2 years)',
-  'Max': '(max history)'
-};
+function momUrl(key) {
+  const r = rangeState[key] || (key === 'momTable' ? '30D' : '60D');
+  return '/api/models?view=momentum&range=' + encodeURIComponent(r);
+}
 
 function loadMomentum() {
-  const r = momCurrentRange;
-  if (momDataCacheByRange[r]) { renderMomentum(momDataCacheByRange[r]); return; }
-  fetch('/api/models?view=momentum&range=' + encodeURIComponent(r))
-    .then(resp => resp.json())
-    .then(d => {
-      if (!d.success) { document.getElementById('momAsOf').textContent = 'Error: ' + (d.error || 'No data'); return; }
-      momDataCacheByRange[r] = d;
-      renderMomentum(d);
-    })
-    .catch(e => { document.getElementById('momAsOf').textContent = 'Fetch error: ' + e.message; });
+  // Hero/KPIs ride the regime-chart fetch (snapshot is identical across ranges)
+  fetchRanged(momUrl('momRegime')).then(d => {
+    if (!d.success) { document.getElementById('momAsOf').textContent = 'Error: ' + (d.error || 'No data'); return; }
+    renderMomentumHero(d);
+    renderMomRegimeChart(d.history || []);
+  }).catch(e => { document.getElementById('momAsOf').textContent = 'Fetch error: ' + e.message; });
+  fetchRanged(momUrl('momPrice')).then(d => { if (d.success) renderMomPriceChart(d.history || []); });
+  fetchRanged(momUrl('momTable')).then(d => { if (d.success) renderMomTable(d.history || []); });
 }
 
-function setMomRange(r) {
-  if (!(r in MOM_RANGE_LABELS)) return;
-  momCurrentRange = r;
-  document.querySelectorAll('#momRangeChips .margin-chip').forEach(function(el) {
-    el.className = el.getAttribute('data-range') === r ? 'margin-chip active' : 'margin-chip';
-  });
-  const label = MOM_RANGE_LABELS[r];
-  const a = document.getElementById('momRangeLabel');
-  const b = document.getElementById('momPriceRangeLabel');
-  if (a) a.textContent = label;
-  if (b) b.textContent = label;
-  if (typeof momHideTooltip === 'function') momHideTooltip();
-  loadMomentum();
-}
-
-function renderMomentum(d) {
+function renderMomentumHero(d) {
   const snap = d.snapshot;
   const hist = d.history || [];
   const stats = d.regime_stats || {};
@@ -6807,13 +6798,6 @@ function renderMomentum(d) {
   document.getElementById('momDailyRange').textContent = snap.close_price && hist.length > 0 && hist[hist.length-1].daily_range != null
     ? '\u20B9' + hist[hist.length-1].daily_range.toFixed(1)
     : '--';
-
-  // Charts
-  renderMomRegimeChart(hist);
-  renderMomPriceChart(hist);
-
-  // Signal table
-  renderMomTable(hist);
 }
 
 function fmtCr(v) {
@@ -6822,8 +6806,8 @@ function fmtCr(v) {
 
 // Long ranges span multiple years \u2014 keep the year in the X-axis label so
 // "03-15" isn't ambiguous between 2024 and 2026.
-function momFmtDateLabel(d) {
-  const longRange = (momCurrentRange === '1Y' || momCurrentRange === '2Y' || momCurrentRange === 'Max');
+function momFmtDateLabel(d, rangeKey) {
+  const longRange = (rangeKey === '1Y' || rangeKey === '2Y' || rangeKey === 'Max');
   return longRange ? d : d.slice(5);
 }
 
@@ -7159,15 +7143,15 @@ function setMomShowBands(on) {
   if (rs && rs.childNodes.length) rs.style.display = momShowBands ? '' : 'none';
   if (ps && ps.childNodes.length) ps.style.display = momShowBands ? '' : 'none';
   momHideTooltip();
-  if (momRegimeChartInst) momRegimeChartInst.update('none');
-  if (momPriceChartInst) momPriceChartInst.update('none');
+  fetchRanged(momUrl('momRegime')).then(d => renderMomRegimeChart(d.history||[]));
+  fetchRanged(momUrl('momPrice')).then(d => renderMomPriceChart(d.history||[]));
 }
 
 function renderMomRegimeChart(hist) {
   const ctx = document.getElementById('momRegimeChart');
   if (momRegimeChartInst) { momRegimeChartInst.destroy(); momRegimeChartInst = null; }
 
-  const labels = hist.map(r => momFmtDateLabel(r.date));
+  const labels = hist.map(r => momFmtDateLabel(r.date, rangeState.momRegime));
   const ma10 = hist.map(r => r.ma10_rev_cr);
   const ma45 = hist.map(r => r.ma45_rev_cr);
   const ratio = hist.map(r => r.ratio_10d_45d);
@@ -7217,7 +7201,7 @@ function renderMomPriceChart(hist) {
   const ctx = document.getElementById('momPriceChart');
   if (momPriceChartInst) { momPriceChartInst.destroy(); momPriceChartInst = null; }
 
-  const labels = hist.map(r => momFmtDateLabel(r.date));
+  const labels = hist.map(r => momFmtDateLabel(r.date, rangeState.momPrice));
   const prices = hist.map(r => r.close_price);
   const signals = hist.map(r => r.composite_signal);
 
@@ -7284,7 +7268,7 @@ function renderMomPriceChart(hist) {
 
 function renderMomTable(hist) {
   const tbody = document.getElementById('momSignalTableBody');
-  const recent = hist.slice(-15).reverse();
+  const recent = hist.slice().reverse();
   tbody.innerHTML = recent.map(r => {
     const sigClass = r.composite_signal || '';
     const regClass = r.regime || '';
