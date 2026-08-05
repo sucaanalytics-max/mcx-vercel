@@ -3780,8 +3780,7 @@ async function doRefresh(silent) {
 async function loadHero() {
   try {
     const days = RANGE_TRADING_DAYS[rangeState['spark'] || '60D'];
-    const resp = await fetch('/api/history?days=' + (days == null ? 0 : days));
-    const data = await resp.json();
+    const data = await fetchRanged('/api/history?days=' + (days == null ? 0 : days));
     renderHero(data);
   } catch(e) {
     document.getElementById('heroMAVal').textContent = '—';
@@ -6151,7 +6150,6 @@ function renderQtrTable(data) {
 let exdCache = null, exdLoading = false, exdTrendChart = null;
 
 async function loadExchange() {
-  if (exdCache) { renderExchange(exdCache); return; }
   if (exdLoading) return;
   exdLoading = true;
   document.getElementById('exdHeroContent').innerHTML = '<div style="text-align:center;padding:2rem;opacity:0.5">Loading exchange data...</div>';
@@ -7247,8 +7245,8 @@ function setMomShowBands(on) {
   if (rs && rs.childNodes.length) rs.style.display = momShowBands ? '' : 'none';
   if (ps && ps.childNodes.length) ps.style.display = momShowBands ? '' : 'none';
   momHideTooltip();
-  fetchRanged(momUrl('momRegime')).then(d => renderMomRegimeChart(d.history||[]));
-  fetchRanged(momUrl('momPrice')).then(d => renderMomPriceChart(d.history||[]));
+  fetchRanged(momUrl('momRegime')).then(d => { if (d.success) renderMomRegimeChart(d.history||[]); });
+  fetchRanged(momUrl('momPrice')).then(d => { if (d.success) renderMomPriceChart(d.history||[]); });
 }
 
 function renderMomRegimeChart(hist) {
