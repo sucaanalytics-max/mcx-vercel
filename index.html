@@ -6492,6 +6492,7 @@ function renderCmdDashboard(data) {
 //  MARGINS TAB
 // ════════════════════════════════════════════════════════════════════════════
 var marginCache = null;
+var marginCacheTs = 0;
 var marginHistChart = null;
 var marginHistData = null; // stored for chart re-renders on commodity selection change
 
@@ -6502,12 +6503,12 @@ var MARGIN_COLORS = [
 ];
 
 function loadMargins() {
-  if (marginCache) { renderMargins(marginCache); return; }
+  if (marginCache && (Date.now() - marginCacheTs < 300000)) { renderMargins(marginCache); return; }
   document.getElementById('marginAsOf').textContent = 'Loading…';
   fetch('/api/commodity_dashboard?view=margins')
     .then(function(r) { return r.json(); })
     .then(function(d) {
-      if (d.success) { marginCache = d; renderMargins(d); }
+      if (d.success) { marginCache = d; marginCacheTs = Date.now(); renderMargins(d); }
       else { document.getElementById('marginAsOf').textContent = d.error || 'No data'; }
     })
     .catch(function(e) { document.getElementById('marginAsOf').textContent = 'Error: ' + e; });
@@ -7303,6 +7304,7 @@ function renderMomTable(hist) {
 //  OI PARTICIPANTS — Participant Category Analytics (Enhanced)
 // ════════════════════════════════════════════════════════════════════════════
 var oipCache = null;
+var oipCacheTs = 0;
 var oipHeroChartInst = null;
 var oipGrowthChartInst = null;
 var oipHedgerChartInst = null;
@@ -7319,13 +7321,14 @@ var OIP_COLORS = [
 ];
 
 function loadOIParticipants() {
-  if (oipCache) { oipRenderAll(); return; }
+  if (oipCache && (Date.now() - oipCacheTs < 600000)) { oipRenderAll(); return; }
   document.getElementById('oipAsOf').textContent = 'Loading...';
   fetch('/api/commodity_dashboard?view=oi_participants')
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.success) {
         oipCache = d;
+        oipCacheTs = Date.now();
         oipInitControls(d);
         oipRenderAll();
       } else { document.getElementById('oipAsOf').textContent = d.error || 'No data'; }
