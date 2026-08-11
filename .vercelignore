@@ -1,2 +1,7 @@
 _disabled/
 scripts/
+logs/
+trading/
+.claude/
+.superpowers/
+.DS_Store
