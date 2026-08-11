@@ -1,8 +1,8 @@
 """
-/api/analytics — Factor Correlation, Rolling IC, Regime Detection, Performance Metrics
+/api/analytics — Factor Series, Rolling IC, Regime Detection, Performance Metrics
 
 Returns:
-  - factor_correlation: 4×4 Pearson matrix (ecm_z, rev_z, turn_z, position_score)
+  - factor_series: raw z-score series (ecm_z, rev_z, turn_z, position_score) — client computes the correlation matrix
   - rolling_ic: Information Coefficient (signal vs forward 5d return)
   - regime: current bull/bear/neutral + volatility regime
   - rolling_metrics: 60-day Sharpe, win rate, profit factor
@@ -54,22 +54,6 @@ def generate_analytics():
             price_date_idx[p["trading_date"]] = len(price_dates)
             price_map[p["trading_date"]] = c
             price_dates.append(p["trading_date"])
-
-    # ── 1. Factor Correlation Matrix (last 120 days) ──
-    recent = signals[-120:]
-    ecm_zs = [_f(r.get("ecm_spread_zscore")) for r in recent]
-    rev_zs = [_f(r.get("mf_revenue_z")) for r in recent]
-    turn_zs = [_f(r.get("mf_turnover_z")) for r in recent]
-    pos_scores = [_f(r.get("position_score")) for r in recent]
-
-    factors = [ecm_zs, rev_zs, turn_zs, pos_scores]
-    factor_names = ["ecm_z", "rev_z", "turn_z", "position_score"]
-    corr_matrix = []
-    for i in range(4):
-        row = []
-        for j in range(4):
-            row.append(_pearson(factors[i], factors[j]))
-        corr_matrix.append(row)
 
     # ── 2. Rolling IC (60-day window, forward 5d return) ──
     # Build forward 5d returns for each signal date
@@ -284,11 +268,6 @@ def generate_analytics():
     return {
         "success": True,
         "as_of": ist_now.strftime("%Y-%m-%d %H:%M IST"),
-        "factor_correlation": {
-            "labels": factor_names,
-            "matrix": corr_matrix,
-            "window": min(120, len(recent)),
-        },
         "factor_series": {
             "dates": [s["trading_date"] for s in signals],
             "ecm_z": [_f(s.get("ecm_spread_zscore")) for s in signals],

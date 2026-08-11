@@ -259,7 +259,7 @@ def generate_commodity_dashboard(range_key=DEFAULT_RANGE):
             "total": round(_avg([d["total"] for d in q_entries]), 4),
         })
 
-    # ── Step 6: Monthly breakdown (last 3 months) ──
+    # ── Step 6: Monthly breakdown (last 24 months) ──
     m_groups = defaultdict(list)
     for d in daily_data:
         m_groups[_month_key(d["date"])].append(d)

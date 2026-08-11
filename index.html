@@ -3249,7 +3249,14 @@ function makeRangeToggle(cfg) {
       el.querySelectorAll('.margin-chip').forEach(c =>
         c.className = c.getAttribute('data-range') === r ? 'margin-chip active' : 'margin-chip');
       updateRangeLabels(cfg, r);
-      cfg.onChange(r);
+      try {
+        const ret = cfg.onChange(r);
+        if (ret && typeof ret.catch === 'function') {
+          ret.catch(e => console.warn('[range] ' + cfg.key + ' update failed:', e));
+        }
+      } catch (e) {
+        console.warn('[range] ' + cfg.key + ' update failed:', e);
+      }
     };
   });
   updateRangeLabels(cfg, initial);
@@ -3959,7 +3966,7 @@ makeRangeToggle({
 
 makeRangeToggle({
   key: 'marginHist', containerId: 'marginHistRange',
-  ranges: ['30D','60D','Q','1Y','2Y','Max'], defaultRange: '60D',
+  ranges: ['30D','60D','Q','1Y','Max'], defaultRange: '60D',
   labelIds: ['marginHistRangeLabel'],
   onChange: () => updateMarginChart(Object.keys(marginSelectedSymbols))
 });
@@ -3974,14 +3981,14 @@ makeRangeToggle({
   key: 'momRegime', containerId: 'momRegimeRange',
   ranges: ['30D','60D','Q','1Y','2Y','Max'], defaultRange: '60D',
   labelIds: ['momRangeLabel'],
-  onChange: () => { momHideTooltip(); fetchRanged(momUrl('momRegime')).then(d => { if (d.success) { renderMomentumHero(d); renderMomRegimeChart(d.history||[]); } }); }
+  onChange: () => { momHideTooltip(); return fetchRanged(momUrl('momRegime')).then(d => { if (d.success) { renderMomentumHero(d); renderMomRegimeChart(d.history||[]); } }); }
 });
 
 makeRangeToggle({
   key: 'momPrice', containerId: 'momPriceRange',
   ranges: ['30D','60D','Q','1Y','2Y','Max'], defaultRange: '60D',
   labelIds: ['momPriceRangeLabel'],
-  onChange: () => { momHideTooltip(); fetchRanged(momUrl('momPrice')).then(d => { if (d.success) renderMomPriceChart(d.history||[]); }); }
+  onChange: () => { momHideTooltip(); return fetchRanged(momUrl('momPrice')).then(d => { if (d.success) renderMomPriceChart(d.history||[]); }); }
 });
 
 makeRangeToggle({
