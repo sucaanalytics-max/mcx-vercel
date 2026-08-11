@@ -582,6 +582,24 @@ def refresh_oi_participants_local():
         print(f"  ✗ OI participants refresh failed: {e}")
 
 
+def _watchful_sleep(seconds, slack=600):
+    """Sleep, then detect system-sleep gaps. caffeinate -is cannot block
+    lid-close sleep on battery: observed Jul 27–30 2026, one frozen-but-alive
+    process spanned 4 days, EOD capture never fired, and launchd never
+    respawned because the process never exited. If wall clock advanced more
+    than `slack` seconds past the requested sleep, the Mac slept — exit(1) so
+    launchd KeepAlive relaunches a clean process whose startup catch-up
+    (catchup_missing + margin/OI refresh) self-heals the missed window."""
+    before = time.time()
+    time.sleep(seconds)
+    drift = time.time() - before - seconds
+    if drift > slack:
+        print(f"\n*** SYSTEM SLEEP DETECTED: woke {drift/60:.0f} min late from a "
+              f"{seconds//60}-min sleep — exit(1) for launchd to relaunch. ***")
+        send_heartbeat("error", error=f"system-sleep watchdog: {drift/60:.0f} min gap")
+        sys.exit(1)
+
+
 def run_loop():
     """Run snapshots every 15 minutes until trading session ends.
     After session close, captures authoritative EOD record for mcx_daily_revenue."""
@@ -606,7 +624,7 @@ def run_loop():
         if current_min < SESSION_START - 30:
             wait = (SESSION_START - 30 - current_min) * 60
             print(f"{t.strftime('%H:%M IST')} — Waiting {wait//60} min until pre-market...")
-            time.sleep(min(wait, LOOP_INTERVAL))
+            _watchful_sleep(min(wait, LOOP_INTERVAL))
             continue
 
         try:
@@ -653,7 +671,7 @@ def run_loop():
         # in minutes and the watchdog can trip quickly, instead of dead cycles.
         sleep_s = 120 if fail_streak > 0 else LOOP_INTERVAL
         print(f"  Next snapshot in {sleep_s//60} min...")
-        time.sleep(sleep_s)
+        _watchful_sleep(sleep_s)
 
     print("MCX Relay finished.")
 

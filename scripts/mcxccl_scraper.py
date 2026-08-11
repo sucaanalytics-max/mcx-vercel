@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 """
-MCXCCL Daily Margin Scraper — Backfill historical margin data via Playwright.
+MCXCCL Daily Margin Scraper — Backfill historical margin data.
 
-Scrapes https://www.mcxccl.com/risk-management/daily-margin using a real
-browser (headed Playwright/Chromium) to bypass Akamai bot protection.
-Calls the AJAX endpoint /backpage.aspx/GetDailyMargin directly and parses
-the JSON response. Upserts to mcx_margin_daily in Supabase.
+MCXCCL migrated to Sitefinity (~Jun 2026): the old browser-driven
+/backpage.aspx/GetDailyMargin POST (page JS `GetData`/`OnSucessDM`) is gone.
+The replacement is a plain XHR the page's RiskManagement.js makes:
+
+    GET https://www.mcxccl.com/DailyMargin/GetDailyMargin?fromDate=dd/mm/yyyy
+    → {"Data": [{fileID, instrumentID, symbol, expiryDate ("31JUL2026"),
+                 initialMargin, tenderMargin, totalMargin, additionalLongMargin,
+                 additionalShortMargin, specialLongMargin, specialShortMargin,
+                 elmLong, elmShort, deliveryMargin, ...}, ...]}
+
+curl_cffi with Chrome TLS impersonation passes Akamai — no Playwright needed.
+Upserts FUTCOM rows to mcx_margin_daily in Supabase.
 
 Usage:
   python3 scripts/mcxccl_scraper.py                         # weekly from 2024-01 to today
@@ -13,7 +21,7 @@ Usage:
   python3 scripts/mcxccl_scraper.py --frequency monthly     # monthly sampling
   python3 scripts/mcxccl_scraper.py --dry-run               # parse only, no upsert
 
-Requires: pip install playwright && playwright install chromium
+Requires: curl_cffi (use /opt/homebrew/bin/python3)
 """
 import sys, os, json, argparse, time, urllib.request, urllib.error
 from datetime import datetime, date, timedelta
@@ -77,42 +85,27 @@ def generate_dates(start, end, frequency="weekly"):
     return sorted(dates)
 
 
-def parse_dotnet_date(dotnet_str):
-    """Parse .NET /Date(1704652200000)/ to YYYY-MM-DD."""
-    if not dotnet_str or "/Date(" not in dotnet_str:
-        return None
-    try:
-        ms = int(dotnet_str.split("(")[1].split(")")[0])
-        return datetime.utcfromtimestamp(ms / 1000).strftime("%Y-%m-%d")
-    except (ValueError, IndexError):
-        return None
-
-
-def parse_ajax_data(ajax_json, snapshot_date):
-    """Parse AJAX JSON response into list of margin row dicts for Supabase."""
+def parse_ajax_data(data, snapshot_date):
+    """Parse GetDailyMargin JSON (dict) into list of margin row dicts for Supabase."""
     rows = []
-    data = json.loads(ajax_json)
-    records = data.get("d", {}).get("Data", [])
+    records = data.get("Data") or []
 
     for r in records:
-        file_id = r.get("FileID")
-        if file_id != 1:  # 1 = FUTCOM
+        if r.get("fileID") != 1:  # 1 = FUTCOM
             continue
 
-        symbol = (r.get("Symbol") or "").strip()
+        symbol = (r.get("symbol") or "").strip()
         if not symbol:
             continue
 
-        # Parse expiry from DisplayDate format (e.g. "31JAN2024") or .NET date
-        expiry_display = (r.get("DisplayExpiryDate") or "").strip()
+        # expiryDate is "31JUL2026" (DDMMMYYYY, case-insensitive for strptime)
+        expiry = None
+        expiry_display = (r.get("expiryDate") or "").strip()
         if expiry_display:
             try:
-                # Parse DDMMMYYYY
                 expiry = datetime.strptime(expiry_display, "%d%b%Y").strftime("%Y-%m-%d")
             except ValueError:
-                expiry = parse_dotnet_date(r.get("ExpiryDate"))
-        else:
-            expiry = parse_dotnet_date(r.get("ExpiryDate"))
+                pass
 
         def _num(val):
             try:
@@ -121,30 +114,21 @@ def parse_ajax_data(ajax_json, snapshot_date):
             except (ValueError, TypeError):
                 return None
 
-        initial = _num(r.get("InitialMargin"))
-        tender = _num(r.get("TenderMargin"))
-        add_long = _num(r.get("AdditionalLongMargin"))
-        add_short = _num(r.get("AdditionalShortMargin"))
-        spec_long = _num(r.get("SpecialLongMargin"))
-        spec_short = _num(r.get("SpecialShortMargin"))
-        elm = _num(r.get("ELM"))
-        delivery = _num(r.get("DeliveryMargin"))
-
         rows.append({
             "snapshot_date": snapshot_date,
             "symbol": symbol,
             "instrument": "FUTCOM",
             "expiry": expiry,
-            "initial_margin_pct": initial,
-            "tender_margin_pct": tender,
-            "total_margin_pct": initial,  # initial == total per SPAN data
-            "additional_long_pct": add_long,
-            "additional_short_pct": add_short,
-            "special_long_pct": spec_long,
-            "special_short_pct": spec_short,
-            "elm_long_pct": elm,
-            "elm_short_pct": elm,
-            "delivery_margin_pct": delivery,
+            "initial_margin_pct": _num(r.get("initialMargin")),
+            "tender_margin_pct": _num(r.get("tenderMargin")),
+            "total_margin_pct": _num(r.get("totalMargin")),
+            "additional_long_pct": _num(r.get("additionalLongMargin")),
+            "additional_short_pct": _num(r.get("additionalShortMargin")),
+            "special_long_pct": _num(r.get("specialLongMargin")),
+            "special_short_pct": _num(r.get("specialShortMargin")),
+            "elm_long_pct": _num(r.get("elmLong")),
+            "elm_short_pct": _num(r.get("elmShort")),
+            "delivery_margin_pct": _num(r.get("deliveryMargin")),
             "source": "mcxccl_daily",
         })
 
@@ -178,32 +162,37 @@ def sb_upsert(table, rows):
     return errors
 
 
-def scrape_date(page, target_date):
-    """Scrape margin data for a single date via AJAX call. Returns (rows, record_count)."""
-    date_yyyymmdd = target_date.strftime("%Y%m%d")
+def make_session():
+    """curl_cffi session with Chrome TLS impersonation, warmed on the margin page."""
+    from curl_cffi import requests as cfreq
+    session = cfreq.Session(impersonate="chrome142")
+    resp = session.get(MCXCCL_URL, timeout=30)
+    resp.raise_for_status()
+    return session
 
-    # Call the AJAX endpoint directly from browser context
-    with page.expect_response("**/backpage.aspx/GetDailyMargin", timeout=15000) as resp_info:
-        page.evaluate(f"""
-            GetData("/backpage.aspx/GetDailyMargin",
-                    '{{"Date":"{date_yyyymmdd}"}}',
-                    OnSucessDM, OnFailedDM);
-        """)
 
-    response = resp_info.value
-    if response.status != 200:
-        return None, 0
+def scrape_date(session, target_date):
+    """Fetch margin data for a single date via GetDailyMargin. Returns (rows, record_count)."""
+    resp = session.get(
+        "https://www.mcxccl.com/DailyMargin/GetDailyMargin",
+        params={"fromDate": target_date.strftime("%d/%m/%Y")},
+        headers={
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": MCXCCL_URL,
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    if "json" not in (resp.headers.get("content-type") or ""):
+        # Akamai challenge / HTML error page served with HTTP 200
+        raise RuntimeError(f"non-JSON response: {resp.text[:120]!r}")
 
-    ajax_body = response.text()
-    if not ajax_body or len(ajax_body) < 50:
-        return None, 0
-
-    # Parse the JSON response
-    data = json.loads(ajax_body)
-    total_count = data.get("d", {}).get("Summary", {}).get("Count", 0)
+    data = resp.json()
+    total_count = len(data.get("Data") or [])
 
     snapshot_str = target_date.strftime("%Y-%m-%d")
-    rows = parse_ajax_data(ajax_body, snapshot_str)
+    rows = parse_ajax_data(data, snapshot_str)
 
     return rows, total_count
 
@@ -228,77 +217,54 @@ def main():
     dates = generate_dates(start, end, args.frequency)
     print(f"Target: {len(dates)} dates from {dates[0]} to {dates[-1]} ({args.frequency})")
 
-    from playwright.sync_api import sync_playwright
-
     total_rows = 0
     total_errors = []
     dates_with_data = 0
     dates_no_data = 0
 
-    with sync_playwright() as p:
-        # Headed mode required — headless gets blocked by Akamai
-        browser = p.chromium.launch(
-            headless=False,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                       "AppleWebKit/537.36 (KHTML, like Gecko) "
-                       "Chrome/131.0.0.0 Safari/537.36",
-        )
-        page = context.new_page()
+    print(f"Warming up session on {MCXCCL_URL}...")
+    session = make_session()
+    print("Session ready.\n")
 
-        print(f"Navigating to {MCXCCL_URL}...")
-        page.goto(MCXCCL_URL, wait_until="networkidle", timeout=30000)
+    for i, target_date in enumerate(dates):
+        label = target_date.strftime("%Y-%m-%d (%a)")
+        print(f"[{i+1}/{len(dates)}] {label}...", end=" ", flush=True)
 
-        title = page.title()
-        if "Access Denied" in title:
-            print(f"ERROR: Akamai blocked access. Page title: {title}")
-            browser.close()
-            return
-        print(f"Page loaded: {title}\n")
-
-        for i, target_date in enumerate(dates):
-            label = target_date.strftime("%Y-%m-%d (%a)")
-            print(f"[{i+1}/{len(dates)}] {label}...", end=" ", flush=True)
-
+        try:
+            rows, record_count = scrape_date(session, target_date)
+        except Exception as e:
+            err_msg = str(e)[:100]
+            print(f"ERROR: {err_msg}")
+            total_errors.append(f"{target_date}: {err_msg}")
+            # Rebuild session on error (expired Akamai cookies etc.)
             try:
-                rows, record_count = scrape_date(page, target_date)
-            except Exception as e:
-                err_msg = str(e)[:100]
-                print(f"ERROR: {err_msg}")
-                total_errors.append(f"{target_date}: {err_msg}")
-                # Reload page on error
-                try:
-                    page.goto(MCXCCL_URL, wait_until="networkidle", timeout=30000)
-                except Exception:
-                    pass
-                time.sleep(args.delay)
-                continue
-
-            if not rows:
-                print(f"no data (total={record_count})")
-                dates_no_data += 1
-                time.sleep(args.delay)
-                continue
-
-            print(f"{len(rows)} FUTCOM rows (of {record_count} total)", end="")
-
-            if not args.dry_run:
-                errors = sb_upsert("mcx_margin_daily", rows)
-                if errors:
-                    print(f" — {len(errors)} errors!")
-                    total_errors.extend(errors)
-                else:
-                    print(" — upserted OK")
-            else:
-                print(" — dry run")
-
-            total_rows += len(rows)
-            dates_with_data += 1
+                session = make_session()
+            except Exception:
+                pass
             time.sleep(args.delay)
+            continue
 
-        browser.close()
+        if not rows:
+            print(f"no data (total={record_count})")
+            dates_no_data += 1
+            time.sleep(args.delay)
+            continue
+
+        print(f"{len(rows)} FUTCOM rows (of {record_count} total)", end="")
+
+        if not args.dry_run:
+            errors = sb_upsert("mcx_margin_daily", rows)
+            if errors:
+                print(f" — {len(errors)} errors!")
+                total_errors.extend(errors)
+            else:
+                print(" — upserted OK")
+        else:
+            print(" — dry run")
+
+        total_rows += len(rows)
+        dates_with_data += 1
+        time.sleep(args.delay)
 
     print(f"\n{'='*50}")
     print(f"Dates scraped: {dates_with_data} with data, {dates_no_data} no data")

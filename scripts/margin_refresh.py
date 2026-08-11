@@ -41,7 +41,7 @@ def show_gaps(lookback_days=30):
 
 
 def backfill_mcxccl(target_dates):
-    """Backfill specific dates via MCXCCL Playwright scraper."""
+    """Backfill specific dates via the MCXCCL GetDailyMargin API (curl_cffi)."""
     if not target_dates:
         print("No dates to backfill.")
         return
@@ -56,77 +56,53 @@ def backfill_mcxccl(target_dates):
         print("All dates already have data.")
         return
 
-    print(f"Backfilling {len(to_scrape)} dates via MCXCCL scraper...")
-    print("(Requires Playwright + Chromium — launching browser)\n")
+    print(f"Backfilling {len(to_scrape)} dates via MCXCCL GetDailyMargin API...\n")
 
     try:
-        from scripts.mcxccl_scraper import scrape_date, MCXCCL_URL
-        from playwright.sync_api import sync_playwright
+        from scripts.mcxccl_scraper import scrape_date, make_session
     except ImportError as e:
         print(f"ERROR: {e}")
-        print("Install with: pip install playwright && playwright install chromium")
+        print("Requires curl_cffi — run under /opt/homebrew/bin/python3")
         return
 
     total_rows = 0
     total_errors = []
     dates_ok = 0
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=False,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                       "AppleWebKit/537.36 (KHTML, like Gecko) "
-                       "Chrome/131.0.0.0 Safari/537.36",
-        )
-        page = context.new_page()
+    session = make_session()
 
-        print(f"Navigating to {MCXCCL_URL}...")
-        page.goto(MCXCCL_URL, wait_until="networkidle", timeout=30000)
+    import time
+    for i, ds in enumerate(sorted(to_scrape)):
+        target = datetime.strptime(ds, "%Y-%m-%d").date()
+        print(f"[{i+1}/{len(to_scrape)}] {ds}...", end=" ", flush=True)
 
-        title = page.title()
-        if "Access Denied" in title:
-            print(f"ERROR: Akamai blocked access. Title: {title}")
-            browser.close()
-            return
-        print(f"Page loaded: {title}\n")
-
-        import time
-        for i, ds in enumerate(sorted(to_scrape)):
-            target = datetime.strptime(ds, "%Y-%m-%d").date()
-            print(f"[{i+1}/{len(to_scrape)}] {ds}...", end=" ", flush=True)
-
+        try:
+            rows, count = scrape_date(session, target)
+        except Exception as e:
+            print(f"ERROR: {str(e)[:100]}")
+            total_errors.append(f"{ds}: {str(e)[:100]}")
             try:
-                rows, count = scrape_date(page, target)
-            except Exception as e:
-                print(f"ERROR: {str(e)[:100]}")
-                total_errors.append(f"{ds}: {str(e)[:100]}")
-                try:
-                    page.goto(MCXCCL_URL, wait_until="networkidle", timeout=30000)
-                except Exception:
-                    pass
-                time.sleep(2)
-                continue
-
-            if not rows:
-                print(f"no data (count={count})")
-                time.sleep(2)
-                continue
-
-            errors = sb_upsert("mcx_margin_daily", rows)
-            if errors:
-                print(f"{len(rows)} rows — {len(errors)} upsert errors!")
-                total_errors.extend(errors)
-            else:
-                print(f"{len(rows)} rows — OK")
-                dates_ok += 1
-
-            total_rows += len(rows)
+                session = make_session()
+            except Exception:
+                pass
             time.sleep(2)
+            continue
 
-        browser.close()
+        if not rows:
+            print(f"no data (count={count})")
+            time.sleep(2)
+            continue
+
+        errors = sb_upsert("mcx_margin_daily", rows)
+        if errors:
+            print(f"{len(rows)} rows — {len(errors)} upsert errors!")
+            total_errors.extend(errors)
+        else:
+            print(f"{len(rows)} rows — OK")
+            dates_ok += 1
+
+        total_rows += len(rows)
+        time.sleep(2)
 
     print(f"\nDone: {dates_ok} dates backfilled, {total_rows} rows total")
     if total_errors:
