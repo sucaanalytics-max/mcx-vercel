@@ -26,6 +26,7 @@ from curl_cffi import requests as cfreq
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 import concurrent.futures as _cf
+import threading
 
 # Hard wall-clock guard for curl_cffi calls — libcurl's own timeout has been
 # observed to hang for hours when DNS or a half-open socket stalls. Abandoned
@@ -600,16 +601,48 @@ def _watchful_sleep(seconds, slack=600):
         sys.exit(1)
 
 
+# ── Stall watchdog ───────────────────────────────────────────────────────────
+# The failure-watchdog (consecutive exceptions) can't catch a SILENT hang: a
+# leaked libcurl thread exhausts _NET_POOL and the next _hard_call blocks forever
+# with NO exception raised, so the loop freezes mid-session (observed: 08-13 froze
+# at 104 min, 08-18 at 17 min — a full day of no snapshots). This independent
+# daemon thread hard-exits the process if the loop makes no progress for
+# STALL_LIMIT, so launchd relaunches a clean process with a fresh pool.
+_last_progress = time.time()
+STALL_LIMIT = 1500  # 25 min with no loop progress -> assume frozen -> hard-exit
+
+def _mark_progress():
+    global _last_progress
+    _last_progress = time.time()
+
+def _start_stall_watchdog():
+    def _watch():
+        while True:
+            time.sleep(60)
+            age = time.time() - _last_progress
+            if age > STALL_LIMIT:
+                # os._exit (not sys.exit): a wedged _hard_call thread can swallow
+                # SystemExit; os._exit is unconditional. launchd KeepAlive then
+                # relaunches a clean process; startup catch-up self-heals the gap.
+                print(f"\n*** STALL WATCHDOG: no loop progress for {age/60:.0f} min "
+                      f"(>{STALL_LIMIT//60} min) — network pool likely frozen. "
+                      f"os._exit(1) for launchd to relaunch. ***", flush=True)
+                os._exit(1)
+    threading.Thread(target=_watch, daemon=True, name="stall-watchdog").start()
+
+
 def run_loop():
     """Run snapshots every 15 minutes until trading session ends.
     After session close, captures authoritative EOD record for mcx_daily_revenue."""
     print(f"MCX Relay — loop mode (every {LOOP_INTERVAL//60} min)")
     print(f"Trading hours: 09:00–23:30 IST")
+    _start_stall_watchdog()
 
     fail_streak = 0
     MAX_CONSEC_FAIL = 4  # back-to-back failures before we exit for launchd to relaunch
 
     while True:
+        _mark_progress()  # reset the stall-watchdog each iteration
         t = now_ist()
         current_min = t.hour * 60 + t.minute
 
