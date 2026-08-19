@@ -3693,7 +3693,23 @@ function updateSnapshotFromAPI(d) {
 
   // ── Live pill ────────────────────────────────────────────────────────
   document.getElementById('livePill').textContent = isLive ? '● LIVE' : '● FINAL';
-  document.getElementById('refreshMeta').textContent = new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit'});
+  // Top-right meta: show the SNAPSHOT'S OWN timestamp (the timeframe of the data
+  // on screen), converted to IST regardless of viewer timezone — not the client
+  // clock. This tells viewers how fresh the data is (and surfaces staleness).
+  {
+    const _meta = document.getElementById('refreshMeta');
+    if (d.timestamp) {
+      const _t = new Date(d.timestamp);
+      const _tz = { timeZone: 'Asia/Kolkata' };
+      const _hhmm = _t.toLocaleTimeString('en-GB', { ..._tz, hour: '2-digit', minute: '2-digit' });
+      const _day = _t.toLocaleDateString('en-GB', { ..._tz, day: '2-digit', month: 'short' });
+      const _today = new Date().toLocaleDateString('en-GB', { ..._tz, day: '2-digit', month: 'short' });
+      _meta.textContent = 'as of ' + _hhmm + ' IST' + (_day === _today ? '' : ' · ' + _day);
+      _meta.title = 'Data as of the last snapshot — ' + _t.toLocaleString('en-GB', _tz);
+    } else {
+      _meta.textContent = '—';
+    }
+  }
 
   // ── Tables & charts ──────────────────────────────────────────────────
   if (d.top_futures && d.top_futures.length) {
