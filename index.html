@@ -2889,6 +2889,10 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
     <div class="exd-4up-grid" id="exdWeekGrid"></div>
   </div>
   <div class="card">
+    <div class="card-title">Trailing Averages</div>
+    <div class="exd-4up-grid" id="exdTrailGrid"></div>
+  </div>
+  <div class="card">
     <div class="card-title">Day-of-Week Analysis</div>
     <div style="overflow-x:auto"><table class="exd-table" id="exdDowTable"></table></div>
   </div>
@@ -6362,6 +6366,12 @@ function renderExchange(data) {
     chips: [{prefix:'wow', label:'WoW'}, {prefix:'wo10w', label:'Wo10W'}],
     maxRows: 3
   });
+  renderExd4Up('exdTrailGrid', data.trailing || [], {
+    periodKey: 'label',
+    chips: [{prefix:'chg', label:'vs Prior'}],
+    maxRows: 4,
+    chipsAllRows: true
+  });
 
   // Day-of-Week
   const dowData = data.day_of_week || [];
@@ -6491,7 +6501,7 @@ function renderExd4Up(containerId, rows, opts) {
       html += '<div class="exd-mini-row' + rowCls + '">';
       html += '<span class="exd-mini-row-label">' + (row[periodKey] != null ? row[periodKey] : '') + '</span>';
       html += '<span class="exd-mini-row-val">' + exdFmt(row[m.valKey]) + '</span>';
-      if (i === 0) {
+      if (i === 0 || opts.chipsAllRows) {
         for (const c of chips) {
           const chgKey = c.prefix + '_' + m.stem;
           html += _exdChgInline(row[chgKey]);

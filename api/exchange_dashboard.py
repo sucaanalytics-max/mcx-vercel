@@ -305,6 +305,21 @@ def generate_exchange_dashboard(today=None):
     if s_last50:
         weekly.append({**s_last50, "label": "Last 50 Trading Days"})
 
+    # ── 4b. Trailing averages (last N trading days vs the prior N) ───────
+    trailing = []
+    for n in (5, 10, 20, 30):
+        cur = _group_stats(data[-n:]) if len(data) >= n else None
+        if not cur:
+            continue
+        entry = {**cur, "label": f"Last {n} Trading Days"}
+        prev = _group_stats(data[-2 * n:-n]) if len(data) >= 2 * n else None
+        if prev:
+            entry["chg_fut"] = _pct_change(cur["avg_fut"], prev["avg_fut"])
+            entry["chg_opt"] = _pct_change(cur["avg_opt"], prev["avg_opt"])
+            entry["chg_total"] = _pct_change(cur["avg_total"], prev["avg_total"])
+            entry["chg_of"] = _pct_change(cur["of_ratio"], prev["of_ratio"]) if cur["of_ratio"] and prev.get("of_ratio") else None
+        trailing.append(entry)
+
     # ── 5. Day-of-Week ────────────────────────────────────────────────────
     dow_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
     dow_groups = defaultdict(list)
@@ -400,6 +415,7 @@ def generate_exchange_dashboard(today=None):
         "quarterly": quarterly,
         "monthly": monthly,
         "weekly": weekly,
+        "trailing": trailing,
         "day_of_week": day_of_week,
         "quarter_dow": quarter_dow,
         "daily_trend": daily_trend,
