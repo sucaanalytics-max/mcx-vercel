@@ -2775,6 +2775,28 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
 </div>
 </div>
 
+<!-- iCOMDEX Index Levels (BULLDEX & siblings) -->
+<h2 style="margin-top:32px;margin-bottom:16px">iCOMDEX Indices</h2>
+<div class="card" style="margin-bottom:20px">
+<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+<h3 style="margin:0">Index Levels (rebased to 100) <span id="icomdexRangeLabel">(60 days)</span></h3>
+<span id="icomdexRange"></span>
+</div>
+<p id="icomdexAsOf" style="font-size:11px;color:var(--text-secondary);margin-bottom:8px">Loading…</p>
+<div style="position:relative;height:320px">
+<canvas id="icomdexChart"></canvas>
+</div>
+<p style="font-size:10px;color:var(--text-secondary);margin-top:6px">MCX iCOMDEX index values, published T+1 by MCX. BULLDEX = Bullion index (≈70% gold / 30% silver). Chart shows headline sector indices rebased to 100 at range start; table lists all published indices.</p>
+<div style="overflow-x:auto;margin-top:12px">
+<table class="dtable" id="icomdexTable">
+<thead>
+<tr><th>Index</th><th>Close</th><th>1-Day %</th><th>Range %</th><th>Date</th></tr>
+</thead>
+<tbody id="icomdexTableBody"></tbody>
+</table>
+</div>
+</div>
+
 </div>
 </div><!-- /tabCommodity -->
 <!-- ═══ QUARTERLY P&L TAB ═════════════════════════════════════════════════ -->
@@ -4077,6 +4099,13 @@ makeRangeToggle({
   onChange: () => fetchRanged(commUrl('cmdMomentum')).then(d => { if (d.success) { cmdMomentumCache = d; renderCommodityMomentum(d); } })
 });
 
+makeRangeToggle({
+  key: 'icomdex', containerId: 'icomdexRange',
+  ranges: ['30D','60D','Q','1Y','2Y'], defaultRange: '60D',
+  labelIds: ['icomdexRangeLabel'],
+  onChange: () => loadIcomdex()
+});
+
 loadHero();
 
 // Auto-trigger first refresh
@@ -4097,7 +4126,7 @@ function switchTab(tabId) {
   if (tabId === 'tabValuation') loadValuation();
   if (tabId === 'tabAnalytics') loadAnalytics();
   if (tabId === 'tabBacktest') loadBacktest();
-  if (tabId === 'tabCommodity') { loadCommodity(); loadCmdDashboard(); }
+  if (tabId === 'tabCommodity') { loadCommodity(); loadCmdDashboard(); loadIcomdex(); }
   if (tabId === 'tabQuarterly') loadQuarterly();
   if (tabId === 'tabExchange') { loadExchange(); }
   if (tabId === 'tabMargins') loadMargins();
@@ -5873,6 +5902,96 @@ function renderCommodityMomentum(data) {
     </tr>`;
   }
   document.getElementById('momentumTableBody').innerHTML = momRows;
+}
+
+// ── iCOMDEX Index Levels (BULLDEX & siblings) ──────────────────────────────
+// Index VALUES from mcx_icomdex_daily (published T+1). The BULLDEX futures
+// contract is dormant (zero volume since Jun 2026) — the index level is the
+// live series. Chart colors match the sector-rotation palette.
+var icomdexChartInst = null;
+var ICOMDEX_CHART_CODES = ['MCXBULLDEX', 'MCXMETLDEX', 'MCXENRGDEX', 'MCXCOMPDEX'];
+var ICOMDEX_COLORS = {
+  MCXBULLDEX: '#f39c12', MCXMETLDEX: '#3498db',
+  MCXENRGDEX: '#e74c3c', MCXCOMPDEX: '#9b59b6',
+};
+
+function icomdexUrl() {
+  return '/api/commodities?view=icomdex&range=' + encodeURIComponent(rangeState['icomdex'] || '60D');
+}
+
+function loadIcomdex() {
+  document.getElementById('icomdexAsOf').textContent = 'Loading iCOMDEX data…';
+  fetchRanged(icomdexUrl()).then(function(d) {
+    if (!d.success) { document.getElementById('icomdexAsOf').textContent = d.error || 'No iCOMDEX data'; return; }
+    renderIcomdex(d);
+  }).catch(function(e) { document.getElementById('icomdexAsOf').textContent = 'Fetch error: ' + e.message; });
+}
+
+function renderIcomdex(data) {
+  var dq = data.data_quality || {};
+  document.getElementById('icomdexAsOf').textContent =
+    'Levels as of ' + (dq.latest_date || '—') + '  ·  refreshed ' + data.as_of;
+
+  // ── Latest table (all published indices) ──
+  var rows = '';
+  (data.latest || []).forEach(function(x) {
+    var chg = x.change_pct, rchg = x.range_change_pct;
+    var cs = chg > 0 ? 'color:#27ae60' : chg < 0 ? 'color:#e74c3c' : '';
+    var rs = rchg > 0 ? 'color:#27ae60' : rchg < 0 ? 'color:#e74c3c' : '';
+    var hl = x.code === 'MCXBULLDEX' ? 'font-weight:700' : 'font-weight:600';
+    rows += '<tr>' +
+      '<td style="' + hl + '">' + x.code + ' <span style="color:var(--text-secondary);font-weight:400">' + (x.name || '') + '</span></td>' +
+      '<td style="text-align:right">' + (x.close != null ? x.close.toLocaleString(undefined, {maximumFractionDigits: 2}) : '—') + '</td>' +
+      '<td style="text-align:right;' + cs + '">' + (chg != null ? (chg > 0 ? '+' : '') + chg.toFixed(2) + '%' : '—') + '</td>' +
+      '<td style="text-align:right;' + rs + '">' + (rchg != null ? (rchg > 0 ? '+' : '') + rchg.toFixed(2) + '%' : '—') + '</td>' +
+      '<td>' + (x.date || '—') + '</td></tr>';
+  });
+  document.getElementById('icomdexTableBody').innerHTML =
+    rows || '<tr><td colspan="5" style="text-align:center;color:var(--text-secondary)">No index data</td></tr>';
+
+  // ── Rebased line chart (headline sector indices) ──
+  var s = data.series || {};
+  var dates = s.dates || [];
+  var ctx = document.getElementById('icomdexChart');
+  if (!ctx || !dates.length) return;
+  var isDark = document.documentElement.classList.contains('dark');
+  var gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  var txtColor = isDark ? '#888' : '#999';
+  var labels = dates.map(function(dt) { var d = new Date(dt); return d.getDate() + ' ' + d.toLocaleString('en', {month:'short'}); });
+
+  var datasets = [];
+  ICOMDEX_CHART_CODES.forEach(function(code) {
+    var col = s[code];
+    if (!col) return;
+    var base = null;
+    for (var i = 0; i < col.length; i++) { if (col[i] != null && col[i] > 0) { base = col[i]; break; } }
+    if (!base) return;
+    datasets.push({
+      label: code.replace('MCX', ''),
+      data: col.map(function(v) { return v != null ? +(v / base * 100).toFixed(2) : null; }),
+      borderColor: ICOMDEX_COLORS[code] || '#6b7280',
+      backgroundColor: 'transparent',
+      borderWidth: code === 'MCXBULLDEX' ? 2.5 : 1.2,
+      pointRadius: 0,
+      spanGaps: true,
+      tension: 0.15
+    });
+  });
+
+  if (icomdexChartInst) icomdexChartInst.destroy();
+  icomdexChartInst = new Chart(ctx, {
+    type: 'line',
+    data: { labels: labels, datasets: datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { labels: { color: txtColor, font: {size: 10} } } },
+      scales: {
+        x: { ticks: { color: txtColor, font: {size: 9}, maxRotation: 45, maxTicksLimit: 15 }, grid: { display: false } },
+        y: { title: { display: true, text: 'Rebased (start = 100)', color: txtColor }, ticks: { color: txtColor }, grid: { color: gridColor } }
+      }
+    }
+  });
 }
 
 function renderSectorRotation(data) {

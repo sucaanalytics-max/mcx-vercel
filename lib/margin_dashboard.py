@@ -22,8 +22,10 @@ MARGIN_COMMODITY_MAP = {
     "LEADMINI": "LEAD", "ZINCMINI": "ZINC", "ALUMINI": "ALUMINIUM",
 }
 
-# Commodities we care about (main contracts only, skip index/mini variants)
-MAIN_INSTRUMENTS = {"FUTCOM"}
+# Main contracts plus index futures (BULLDEX/METLDEX SPAN margins are the only
+# live per-index data MCX still publishes); mini variants stay excluded via
+# MARGIN_COMMODITY_MAP below.
+MAIN_INSTRUMENTS = {"FUTCOM", "FUTIDX"}
 
 
 def generate_margin_dashboard():
@@ -43,7 +45,7 @@ def generate_margin_dashboard():
         "additional_long_pct,additional_short_pct,"
         "special_long_pct,special_short_pct,"
         "elm_long_pct,elm_short_pct,delivery_margin_pct"
-        "&instrument=eq.FUTCOM"
+        "&instrument=in.(FUTCOM,FUTIDX)"
         "&order=snapshot_date.desc,expiry.asc.nullslast",
         max_rows=20000,
     )
@@ -58,7 +60,7 @@ def generate_margin_dashboard():
     if not rows:
         return {"success": False, "error": "No margin data after sentinel date filter."}
 
-    # ── Group by (snapshot_date, symbol) — take FUTCOM only, pick nearest expiry ──
+    # ── Group by (snapshot_date, symbol) — MAIN_INSTRUMENTS only, pick nearest expiry ──
     # For each date+symbol, keep one representative row (nearest expiry)
     keyed = {}  # (date, symbol) → row
     for r in rows:

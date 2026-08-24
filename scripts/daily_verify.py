@@ -99,34 +99,41 @@ def backfill_from_historical(date_iso):
         return None
 
 
-def run_bhav_refresh(date_iso):
-    """Run bhav_refresh for commodity-level data."""
+def _homebrew_python():
+    """Interpreter with curl_cffi. The homebrew python is required — launchd
+    plists may pin /usr/bin/python3 (Python 3.9, no third-party packages)."""
+    import shutil
+    candidate_pys = [
+        "/opt/homebrew/bin/python3",
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        shutil.which("python3.14"),
+        shutil.which("python3"),
+        sys.executable,
+    ]
+    return next((p for p in candidate_pys if p and os.path.exists(p)), sys.executable)
+
+
+def _run_script(script_name, args, timeout=60):
+    """Run a scripts/*.py helper under the homebrew interpreter."""
     try:
-        import subprocess, shutil
+        import subprocess
         project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        # bhav_refresh imports curl_cffi, which is only present in the homebrew
-        # interpreter. Prefer it explicitly so this works under launchd plists
-        # that pin /usr/bin/python3 (Python 3.9, no third-party packages).
-        candidate_pys = [
-            "/opt/homebrew/bin/python3",
-            "/opt/homebrew/opt/python@3.14/bin/python3.14",
-            shutil.which("python3.14"),
-            shutil.which("python3"),
-            sys.executable,
-        ]
-        py = next((p for p in candidate_pys if p and os.path.exists(p)), sys.executable)
         result = subprocess.run(
-            [py, os.path.join(project_dir, "scripts", "bhav_refresh.py"), date_iso],
-            capture_output=True, text=True, timeout=60, cwd=project_dir,
+            [_homebrew_python(), os.path.join(project_dir, "scripts", script_name), *args],
+            capture_output=True, text=True, timeout=timeout, cwd=project_dir,
         )
         if result.returncode == 0:
             return True
-        else:
-            print(f"  bhav_refresh error: {result.stderr[:200]}")
-            return False
-    except Exception as e:
-        print(f"  bhav_refresh failed: {e}")
+        print(f"  {script_name} error: {result.stderr[:200] or result.stdout[-200:]}")
         return False
+    except Exception as e:
+        print(f"  {script_name} failed: {e}")
+        return False
+
+
+def run_bhav_refresh(date_iso):
+    """Run bhav_refresh for commodity-level data."""
+    return _run_script("bhav_refresh.py", [date_iso])
 
 
 # ── Main Verification ────────────────────────────────────────────────────────
@@ -262,6 +269,15 @@ def main():
         days -= 1
         if days <= 0:
             break
+
+    # 4. iCOMDEX index levels (BULLDEX & siblings) — trailing-week self-heal.
+    # Data publishes T+1, so the 07:00 run picks up yesterday. Soft-fail:
+    # the freshness scanner alerts if mcx_icomdex_daily actually goes stale.
+    print("\niCOMDEX index refresh (trailing week)...")
+    if _run_script("icomdex_refresh.py", [], timeout=120):
+        print("  icomdex_refresh OK")
+    else:
+        print("  icomdex_refresh FAILED (non-fatal; freshness scanner will flag if stale)")
 
     print("\n" + "=" * 70)
     if all_ok:

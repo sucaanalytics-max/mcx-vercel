@@ -378,6 +378,89 @@ def generate_commodity_analytics(range_key=DEFAULT_RANGE):
     }
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  iCOMDEX Index Levels (BULLDEX & siblings) — ?view=icomdex
+#  Source: mcx_icomdex_daily, populated locally by scripts/icomdex_refresh.py.
+#  The BULLDEX futures contract is dormant (zero volume since Jun 2026); the
+#  index VALUE is the live series, published T+1 by MCX.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Display order: headline sector indices first (BULLDEX is the one users ask
+# for), then single-commodity indices alphabetically.
+ICOMDEX_ORDER = ["MCXBULLDEX", "MCXMETLDEX", "MCXENRGDEX", "MCXCOMPDEX"]
+
+
+def generate_icomdex(range_key=DEFAULT_RANGE):
+    if range_key not in RANGE_DAYS:
+        range_key = DEFAULT_RANGE
+    window = RANGE_DAYS[range_key]
+    ist_now = now_ist()
+
+    cal_days = int(window * 1.55) + 25   # trading→calendar buffer (as in signals view)
+    cutoff = (ist_now - timedelta(days=cal_days)).strftime("%Y-%m-%d")
+    try:
+        rows = _fetch_all(
+            "mcx_icomdex_daily",
+            "trading_date,index_code,index_name,close,change_pct",
+            where=f"&trading_date=gte.{cutoff}",
+        )
+    except Exception:
+        rows = None   # table missing (PGRST205) or transient DB error
+    if not rows:
+        return {"success": False,
+                "error": "No iCOMDEX data yet. Create the table "
+                         "(scripts/sql/create_icomdex_table.sql), then run "
+                         "scripts/icomdex_refresh.py locally."}
+
+    by_code = {}
+    for r in rows:
+        by_code.setdefault(r["index_code"], []).append(r)   # already date-asc
+
+    codes = sorted(by_code.keys(),
+                   key=lambda c: (ICOMDEX_ORDER.index(c) if c in ICOMDEX_ORDER else 99, c))
+
+    # Union of trading dates, trimmed to the requested window
+    dates = sorted(set(r["trading_date"] for r in rows))[-window:]
+    date_idx = {d: i for i, d in enumerate(dates)}
+
+    series = {"dates": dates}
+    latest = []
+    for code in codes:
+        c_rows = [r for r in by_code[code] if r["trading_date"] in date_idx]
+        col = [None] * len(dates)
+        for r in c_rows:
+            col[date_idx[r["trading_date"]]] = _f(r.get("close"))
+        series[code] = col
+        if not c_rows:
+            continue
+        last = c_rows[-1]
+        first_close = next((_f(r.get("close")) for r in c_rows if _f(r.get("close"))), None)
+        last_close = _f(last.get("close"))
+        range_chg = (round((last_close / first_close - 1) * 100, 2)
+                     if first_close and last_close else None)
+        latest.append({
+            "code": code,
+            "name": last.get("index_name") or code,
+            "date": last["trading_date"],
+            "close": last_close,
+            "change_pct": _f(last.get("change_pct")),
+            "range_change_pct": range_chg,
+        })
+
+    return {
+        "success": True,
+        "as_of": ist_now.strftime("%Y-%m-%d %H:%M IST"),
+        "latest": latest,
+        "series": series,
+        "data_quality": {
+            "rows": len(rows),
+            "indices": len(codes),
+            "latest_date": dates[-1] if dates else None,
+            "range": range_key,
+        },
+    }
+
+
 class handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
@@ -413,6 +496,9 @@ class handler(BaseHTTPRequestHandler):
             if view == "signals":
                 range_key = qs.get("range", [DEFAULT_RANGE])[0]
                 data = generate_commodity_analytics(range_key=range_key)
+            elif view == "icomdex":
+                range_key = qs.get("range", [DEFAULT_RANGE])[0]
+                data = generate_icomdex(range_key=range_key)
             else:
                 data = get_commodity_prices()
             self.send_json(data)
