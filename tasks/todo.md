@@ -29,13 +29,21 @@ Design: Option A (iCOMDEX index-level panel on Commodities tab) + Option B
 - [x] 9. Freshness manifest 'icomdex' domain (grace 2, T+1 publication) +
       commodity-updater.md step 3.
 - [x] 10. tasks/ added to .vercelignore (todo must not deploy).
-- [ ] 11. Commit scoped files, push → Vercel deploy, verify live.
+- [x] 11. Committed (19e8c85), pushed, Vercel deploy READY, verified live.
 
-## Review
+## Review (2026-08-24)
 
-- Margins (Option B) works immediately on deploy — data was already in Supabase.
-- iCOMDEX panel (Option A) shows a graceful "No iCOMDEX data yet" note until the
-  one-time SQL is pasted; then backfill + daily_verify keep it fresh (T+1).
+- DEPLOYED + VERIFIED in production (browser walk, zero console errors):
+  - Margins (Option B) live now: MCXBULLDEX 8.68% / MCXMETLDEX 5.0% in
+    /api/commodity_dashboard?view=margins.
+  - iCOMDEX card renders on Commodities tab with graceful "No iCOMDEX data yet"
+    note; existing lineup/signals unaffected (9 commodities render).
+- REMAINING (single human step): paste scripts/sql/create_icomdex_table.sql in
+  the Supabase SQL editor (project avqwpebveqetwwzkmtux — not reachable from
+  the connected Supabase MCP account; no service key/CLI/psql on this machine).
+  Then backfill: /opt/homebrew/bin/python3 scripts/icomdex_refresh.py --backfill 2015-12-31 today
+  After that the panel self-maintains via daily_verify 07:00 (T+1 publication)
+  and the freshness agent's 'icomdex' domain.
 - Existing views regression-checked: ?view=signals still success:true.
 - Not bundled (pre-existing dirty state): .gitignore housekeeping edit,
   untracked CLAUDE.md, untracked trading/.
