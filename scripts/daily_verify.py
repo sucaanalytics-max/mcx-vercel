@@ -279,6 +279,16 @@ def main():
     else:
         print("  icomdex_refresh FAILED (non-fatal; freshness scanner will flag if stale)")
 
+    # 5. Commodity prices (WTI/NatGas/USDINR via yfinance) — nothing else
+    # schedules this, so it only stays fresh through this run. 07:00 IST is
+    # past the US close (~02:30 IST), so each morning picks up the completed
+    # session. Soft-fail like iCOMDEX.
+    print("\nCommodity price refresh (yfinance)...")
+    if _run_script("commodity_price_refresh.py", [], timeout=120):
+        print("  commodity_price_refresh OK")
+    else:
+        print("  commodity_price_refresh FAILED (non-fatal; freshness scanner will flag if stale)")
+
     print("\n" + "=" * 70)
     if all_ok:
         print("All checks passed.")
