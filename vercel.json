@@ -105,10 +105,6 @@
       "schedule": "20 14 * * 1-5"
     },
     {
-      "path": "/api/cron?job=margins&mode=recent",
-      "schedule": "30 20 * * *"
-    },
-    {
       "path": "/api/cron?job=momentum&mode=recent",
       "schedule": "10 14 * * 1-5"
     },

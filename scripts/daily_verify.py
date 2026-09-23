@@ -289,6 +289,19 @@ def main():
     else:
         print("  commodity_price_refresh FAILED (non-fatal; freshness scanner will flag if stale)")
 
+    # 5b. Margins. The Vercel cron for this could never work: it downloads a
+    # Sharekhan XLS that never completes from datacenter IPs (60s timeout ->
+    # HTTP 500 nightly, and zero rows ever written in its 20:xx UTC window).
+    # It has been removed from vercel.json; the relay covers same-day margins
+    # from Sharekhan but that file is intermittently stale, which is why gaps
+    # kept needing hand-backfilling. Fill them here from the MCXCCL API, which
+    # works locally. Soft-fail like the blocks above.
+    print("\nMargin refresh (MCXCCL backfill, trailing 3 days)...")
+    if _run_script("margin_refresh.py", ["--backfill", "3"], timeout=180):
+        print("  margin_refresh OK")
+    else:
+        print("  margin_refresh FAILED (non-fatal; freshness scanner will flag if stale)")
+
     # 6. Derived signal tables (models / momentum / commodity_signals).
     # The Vercel crons that own these fire at 14:10-14:20 UTC, but mcx_valuation
     # for the same session is not written until ~20:27 UTC — so those runs can
