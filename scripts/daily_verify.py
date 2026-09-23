@@ -289,6 +289,22 @@ def main():
     else:
         print("  commodity_price_refresh FAILED (non-fatal; freshness scanner will flag if stale)")
 
+    # 6. Derived signal tables (models / momentum / commodity_signals).
+    # The Vercel crons that own these fire at 14:10-14:20 UTC, but mcx_valuation
+    # for the same session is not written until ~20:27 UTC — so those runs can
+    # only ever see the PREVIOUS session and the tables sit one day behind from
+    # ~02:00 IST until ~19:45 IST daily. By 07:00 IST every input is present
+    # (valuation 01:57 IST, revenue 23:30 IST, commodity_daily backfilled above),
+    # so recomputing here closes that window. Order matters: models/momentum
+    # depend on valuation, commodity_signals on the bhav backfill above.
+    # Idempotent upserts, soft-fail like the blocks above.
+    print("\nDerived signal refresh (models / momentum / commodity_signals)...")
+    for _job in ("models", "momentum", "commodity_signals"):
+        if _run_script("run_cron.py", [_job, "recent"], timeout=180):
+            print(f"  {_job} OK")
+        else:
+            print(f"  {_job} FAILED (non-fatal; freshness scanner will flag if stale)")
+
     print("\n" + "=" * 70)
     if all_ok:
         print("All checks passed.")
