@@ -51,6 +51,17 @@ QUARTERLY_ACTUALS = [
     {"quarter": "Q4 FY26", "label": "Mar 2026", "fy": "FY26", "q_num": 4,
      "start": "2026-01-01", "end": "2026-03-31",
      "revenue_cr": 889, "expenses_cr": 224, "pat_cr": 530},
+    # Q1 FY27 reported 04 Aug 2026 (Screener.in consolidated; corroborated with
+    # Business Standard/Capital Market, Trendlyne, MarketsMojo and the filing via
+    # ScanX — all six agree exactly). Revenue +88% YoY, PAT +103% YoY.
+    # revenue_cr is revenue from OPERATIONS (702), not total income (751.79).
+    # expenses_cr uses the same Screener basis as the rows above, i.e. EXCLUDING
+    # depreciation: filed total expenses 228.88 = 208.02 + 20.86 depreciation.
+    # pat_cr is CONSOLIDATED (413.44); standalone was 327.32 — the ~86 Cr gap is
+    # the clearing-corporation subsidiary. No exceptional/extraordinary items.
+    {"quarter": "Q1 FY27", "label": "Jun 2026", "fy": "FY27", "q_num": 1,
+     "start": "2026-04-01", "end": "2026-06-30",
+     "revenue_cr": 702, "expenses_cr": 208, "pat_cr": 413},
 ]
 
 Q4_EXPENSE_ADJ_CR = 15
