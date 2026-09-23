@@ -84,3 +84,21 @@ Scope: "verify and update all tabs and all data" (all 10 tabs, 16 endpoints,
   would be to move the signal crons after the valuation write; not done because
   the deployed state is not the repo state. daily_verify now covers the gap.
 - Q2 FY27 reportable mid-to-late Oct 2026.
+
+## Cron reconciliation — 2026-09-23 (follow-up)
+- [x] Checked deployed vs committed vercel.json via Vercel API: **no drift**
+      (the earlier drift hypothesis was wrong; deployed == committed).
+- [x] **Margins cron was dead and is removed.** Prod logs: `GET /api/cron 500
+      Vercel Runtime Timeout Error: Task timed out after 60 seconds` at 20:30
+      UTC. Sharekhan's XLS never completes from datacenter IPs (0.4s locally).
+      Zero rows ever created in the 20:xx UTC window across all history.
+      → daily_verify now runs margin_refresh.py --backfill 3. Commit 9842644.
+- [x] Signal cron times left as-is: daily_verify's 07:00 recompute (f4b1f55)
+      already makes tabs current before the IST workday; moving the 14:xx
+      Vercel crons would only gain freshness at ~02:15 IST and would depend on
+      the unidentified 20:27 valuation writer being reliable. Not worth it.
+- [ ] OPEN: who writes mcx_valuation at 20:27:10 UTC daily? Not Vercel (no
+      /api/cron hit at that minute), not launchd/crontab/system daemon, no
+      GitHub Actions, no duplicate Vercel project. Reliable ~16/18 days and the
+      14:00 UTC cron catches up when it misses. Candidates: Supabase pg_cron,
+      a Supabase Edge Function, or another machine. Harmless but unexplained.
