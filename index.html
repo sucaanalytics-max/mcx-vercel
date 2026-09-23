@@ -6112,7 +6112,16 @@ function renderQuarterly(data) {
   // FY card
   const fyCard = document.getElementById('qtrFyCard');
   fyCard.style.display = 'block';
-  document.getElementById('qtrFyTitle').textContent = fy.fy + (fy.is_complete ? ' Full Year (Actual)' : ' Full Year Projection');
+  // The backend folds in ONLY the current quarter's projection, never future
+  // ones — so mid-FY this total covers fewer than 4 quarters. Label it honestly
+  // rather than calling a 2-of-4-quarter subtotal a "Full Year Projection".
+  const nQ = (fy.quarters_actual ? fy.quarters_actual.length : 0)
+           + ((fy.projected_quarter || fy.q4_projected) ? 1 : 0);
+  const isPartial = !fy.is_complete && nQ < 4;
+  const scope = isPartial ? nQ + 'Q' : 'FY';
+  document.getElementById('qtrFyTitle').textContent = fy.fy + (fy.is_complete
+    ? ' Full Year (Actual)'
+    : (isPartial ? ' \u2014 ' + nQ + ' of 4 Quarters (Partial)' : ' Full Year Projection'));
   const qParts = fy.quarters_actual.map(q => `<span>${q.quarter}: ${fmt(q.pat_cr)} Cr</span>`).join(' + ');
   const projQ = fy.projected_quarter || fy.q4_projected;
   const projPart = projQ
@@ -6120,9 +6129,9 @@ function renderQuarterly(data) {
     : ` &middot; <strong>final</strong>`;
   document.getElementById('qtrFyContent').innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:0.8rem">
-      <div><div style="font-size:0.75rem;color:var(--muted)">FY Revenue</div><div style="font-size:1.3rem;font-weight:700">${fmt(fy.fy_revenue_cr)} Cr</div></div>
-      <div><div style="font-size:0.75rem;color:var(--muted)">FY PAT</div><div style="font-size:1.3rem;font-weight:700;color:var(--success)">${fmt(fy.fy_pat_cr)} Cr</div></div>
-      <div><div style="font-size:0.75rem;color:var(--muted)">FY EPS</div><div style="font-size:1.3rem;font-weight:700">${fmt(fy.fy_eps)}</div></div>
+      <div><div style="font-size:0.75rem;color:var(--muted)">${scope} Revenue</div><div style="font-size:1.3rem;font-weight:700">${fmt(fy.fy_revenue_cr)} Cr</div></div>
+      <div><div style="font-size:0.75rem;color:var(--muted)">${scope} PAT</div><div style="font-size:1.3rem;font-weight:700;color:var(--success)">${fmt(fy.fy_pat_cr)} Cr</div></div>
+      <div><div style="font-size:0.75rem;color:var(--muted)">${scope} EPS</div><div style="font-size:1.3rem;font-weight:700">${fmt(fy.fy_eps)}</div></div>
     </div>
     <div style="font-size:0.78rem;color:var(--muted)">${qParts}${projPart}</div>
   `;
