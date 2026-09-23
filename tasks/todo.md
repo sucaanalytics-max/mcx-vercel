@@ -47,3 +47,40 @@ Design: Option A (iCOMDEX index-level panel on Commodities tab) + Option B
 - Existing views regression-checked: ?view=signals still success:true.
 - Not bundled (pre-existing dirty state): .gitignore housekeeping edit,
   untracked CLAUDE.md, untracked trading/.
+
+---
+
+# Full dashboard verification — 2026-09-23
+
+Scope: "verify and update all tabs and all data" (all 10 tabs, 16 endpoints,
+12 freshness domains).
+
+## Done
+- [x] Swept all 16 API endpoints; all HTTP 200, no regressions.
+- [x] **Signals cron-phase bug (root cause + fix).** models/momentum/
+      commodity_signals Vercel crons fire 14:10-14:20 UTC but mcx_valuation
+      lands ~20:27 UTC, so those runs can only ever see the PREVIOUS session —
+      Forecast/Momentum/Analytics/Commodities-signals read one day stale from
+      ~02:00 to ~19:45 IST daily. Recomputed to 09-22; daily_verify's 07:00 run
+      now does it every morning. → f4b1f55
+- [x] Margins backfilled: real hole at 09-21, plus 09-23 (330 rows).
+- [x] **Q1 FY27 actuals added** (702 / 208 / 413 consolidated, 6 sources,
+      cross-checked against our own tape at 92.0% txn-fee ratio vs the
+      90.0-91.2% band of prior quarters). → ca0a36a
+- [x] **Partial-FY labelling bug** surfaced by the above: card called a
+      2-of-4-quarter subtotal a "Full Year Projection" (FY27 EPS 33.54 next to
+      FY26's 52.30, reading as a collapse). Now "FY27 — 2 of 4 Quarters
+      (Partial)" with NQ-scoped tiles. No computation changed. → 2c07e7d
+- [x] freshness_scan: 12/12 OK (was 11/12).
+
+## Not issues (verified, do not "fix")
+- /api/backtest 404s by design; loadBacktest() guards on content-type.
+- /api/mcxprice has no date fields (live price snapshot) — not staleness.
+- OI at 09-21 is MCX's own publication lag; stored history has no holes.
+
+## Known / deferred
+- Deployed Vercel cron config has DRIFTED from committed vercel.json
+  (something hits valuation ~20:27 UTC that isn't in the file). Structural fix
+  would be to move the signal crons after the valuation write; not done because
+  the deployed state is not the repo state. daily_verify now covers the gap.
+- Q2 FY27 reportable mid-to-late Oct 2026.
