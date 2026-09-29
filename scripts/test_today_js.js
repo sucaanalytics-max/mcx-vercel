@@ -48,6 +48,11 @@ check('no upper bound when projections have run 95% or more too low', M.likelyRa
 check('no range without measured percentiles', M.likelyRange(15, null, 20), null);
 const fb = M.finalBand(-24.5, 40.9);
 check('final landed 29% below to 32% above the projection', [Math.round(fb.below), Math.round(fb.above)], [29, 32]);
+check('range text', M.rangePct(-fb.below, fb.above), '−29% to +32%');
+check('early in the day both ends can be below the projection', M.rangePct(-60.2, -10.6), '−60% to −11%');
+check('in words, straddling', M.bandWords(fb), 'between 29% below and 32% above');
+check('in words, all below', M.bandWords({ below: 60.2, above: -10.6 }), 'between 60% and 11% below');
+check('in words, all above', M.bandWords({ below: -3, above: 12 }), 'between 3% and 12% above');
 
 // Headline: claims only what the whole range supports
 const avgs = [10, 11, 12, 13, 11.5, 10.5].map((value, i) => ({ key: ['d5', 'd10', 'd20', 'd45', 'qtd', 'fytd'][i], value }));

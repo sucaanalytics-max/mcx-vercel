@@ -26,11 +26,11 @@
     { id: 'sig-ens', path: '/signals/ensemble', section: 'signals', title: 'Model ensemble', pages: ['pageSigEnsemble'],
       mount: () => MCX.signals.ensemble.mount() },
     { id: 'lab-diag', path: '/lab/diagnostics', section: 'lab', title: 'Diagnostics', pages: ['tabAnalytics'], legacy: 'tabAnalytics',
-      mount: () => loadAnalytics() },
+      mount: () => MCX.lab.diagnostics.mount() },
     { id: 'lab-pos', path: '/lab/positioning', section: 'lab', title: 'Positioning', pages: ['tabOIP'], legacy: 'tabOIP',
-      mount: () => loadOIParticipants() },
+      mount: () => MCX.lab.positioning.mount() },
     { id: 'lab-mar', path: '/lab/margins', section: 'lab', title: 'Margins', pages: ['tabMargins'], legacy: 'tabMargins',
-      mount: () => loadMargins() },
+      mount: () => MCX.lab.margins.mount() },
   ];
   const LEGACY = {};
   ROUTES.forEach(r => { MCX.router.register(r); if (r.legacy) LEGACY[r.legacy] = r.path; });

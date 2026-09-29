@@ -51,6 +51,17 @@
     return { below: (1 - 1 / (1 + q90pct / 100)) * 100, above: q10pct > -95 ? (1 / (1 + q10pct / 100) - 1) * 100 : null };
   }
 
+  // A signed range, "−22% to +31%": both ends can fall on one side of zero early in the day
+  const sg = v => `${v > 0.5 ? '+' : v < -0.5 ? '−' : ''}${num(Math.abs(v), 0)}%`;
+  const rangePct = (lo, hi) => `${sg(lo)} to ${sg(hi)}`;
+  // The same band in words, relative to the projection
+  function bandWords(b) {
+    const lo = -b.below, hi = b.above, n = v => num(Math.abs(v), 0);
+    if (hi <= 0) return `between ${n(lo)}% and ${n(hi)}% below`;
+    if (lo >= 0) return `between ${n(lo)}% and ${n(hi)}% above`;
+    return `between ${n(lo)}% below and ${n(hi)}% above`;
+  }
+
   const mean = xs => xs.reduce((a, b) => a + b, 0) / xs.length;
   const rankOf = (v, vals) => 1 + vals.filter(x => x > v).length;
   const pct = (a, b) => (a / b - 1) * 100;
@@ -170,7 +181,7 @@
     return rows.map((r, i) => { sum += r.total; if (i >= n) sum -= rows[i - n].total; return i >= n - 1 ? sum / n : null; });
   }
 
-  MCX.todayModel = { sessionState, gridAt, likelyRange, finalBand, headlineLive, bookedNote, vsAvg, ladderTakeaway,
+  MCX.todayModel = { sessionState, gridAt, likelyRange, finalBand, rangePct, bandWords, headlineLive, bookedNote, vsAvg, ladderTakeaway,
                      vsPrev45, rankText, takeaway, change, spread, niceTicks, rolling };
   if (window.MCX_TEST) return;
 
@@ -439,20 +450,20 @@
     const f = frame(w, h, top, [52, compact ? 10 : 16, 18, 30], bot);
     const X = m => f.pl + f.iw * m / 870, Y = v => f.y(Math.max(bot, Math.min(top, v)));
     const s = [svgOpen(w, h, 'Where the final landed relative to the projection made at each time of day, on 8 of 10 past days: '
-      + pts.map(p => `${p.time} ${num(p.lo, 0)}% to +${num(p.hi, 0)}%`).join(', '))];
+      + pts.map(p => `${p.time} ${rangePct(p.lo, p.hi)}`).join(', '))];
     s.push(MCX.svg.grid(f, niceTicks(top, compact ? 4 : 6, bot), v => (v > 0 ? '+' : '') + num(v, 0) + '%'));
     const zero = f.y(0);
     s.push(`<line x1="${f.pl}" x2="${f.w - f.pr}" y1="${zero.toFixed(1)}" y2="${zero.toFixed(1)}" class="c-axis"/>`);
     const up = pts.map(p => `${X(p.min).toFixed(1)},${Y(p.hi).toFixed(1)}`), dn = pts.map(p => `${X(p.min).toFixed(1)},${Y(p.lo).toFixed(1)}`).reverse();
     s.push(`<path d="M${up.join('L')}L${dn.join('L')}Z" class="c-band"/>`);
     s.push(`<path d="M${pts.map(p => `${X(p.min).toFixed(1)},${Y(p.med).toFixed(1)}`).join('L')}" class="c-line"/>`);
-    pts.forEach(p => s.push(`<g><title>${p.time}: final ${num(p.lo, 0)}% to +${num(p.hi, 0)}% of the projection; median ${p.med >= 0 ? '+' : ''}${num(p.med, 0)}% (${p.n} days)</title>`
+    pts.forEach(p => s.push(`<g><title>${p.time}: final ${rangePct(p.lo, p.hi)} of the projection; median ${sg(p.med)} (${p.n} days)</title>`
       + `<rect x="${(X(p.min) - 6).toFixed(1)}" y="${Y(p.hi).toFixed(1)}" width="12" height="${(Y(p.lo) - Y(p.hi)).toFixed(1)}" fill="transparent"/></g>`));
     if (nowMin !== null && nowBand && nowMin >= pts[0].min) {
       const xn = X(nowMin);
       s.push(`<line x1="${xn.toFixed(1)}" x2="${xn.toFixed(1)}" y1="${f.pt - 6}" y2="${(f.h - f.pb).toFixed(1)}" class="c-now"/>`);
       const right = xn < f.w - f.pr - 150;
-      s.push(txt(xn + (right ? 8 : -8), f.pt + 8, 'c-label', `Now: −${num(nowBand.below, 0)}% to +${num(nowBand.above, 0)}%`, right ? null : 'end', true));
+      s.push(txt(xn + (right ? 8 : -8), f.pt + 8, 'c-label', `Now: ${rangePct(-nowBand.below, nowBand.above)}`, right ? null : 'end', true));
     }
     [[0, '09:00'], [180, '12:00'], [360, '15:00'], [540, '18:00'], [720, '21:00'], [870, '23:30']].forEach(([m, lab]) => {
       if (compact && (m === 180 || m === 540)) return;
@@ -546,7 +557,7 @@
     box.innerHTML = sessionsSvg({ w, rows, live, ma45: d.h.ma45, uid: 's', todayIso: d.ist.iso, h: w < 520 ? null : 300 });
     $('tdSessionsLegend').innerHTML = sessionsLegend(live, w < 520);
     $('tdSessionsBasis').innerHTML = INFO + '<span>' + (live && live.range && d.nowBand && d.nowBand.above !== null
-      ? `On 8 of 10 past days, the final landed between ${num(d.nowBand.below, 0)}% below and ${num(d.nowBand.above, 0)}% above the projection made at this time of day.`
+      ? `On 8 of 10 past days, the final landed ${bandWords(d.nowBand)} the projection made at this time of day.`
       : 'Futures and options transaction fees only. MCX’s reported revenue also includes other items.') + '</span>';
   }
 
@@ -645,7 +656,7 @@
     const w = Math.round(box.clientWidth) || 700;
     box.innerHTML = trustSvg(w, acc.grid, d.state === 'live' ? d.min : null, d.nowBand);
     const row = (a, b) => `<div class="kv-row"><span>${a}</span><strong>${b}</strong></div>`;
-    const fb = b => !b || b.above === null ? '—' : `−${num(b.below, 0)}% to +${num(b.above, 0)}%`;
+    const fb = b => !b || b.above === null ? '—' : rangePct(-b.below, b.above);
     let rows, lean;
     if (d.state === 'live' && d.nowBand) {
       rows = row(`Now, ${d.clock}`, fb(d.nowBand)) + (d.min < 600 ? row('By 19:00', fb(d.bandAt(600))) : '')
@@ -880,6 +891,7 @@
 
   MCX.today = {
     mount() { loadHome(); loadQuarter(); render(); },
+    trustSvg,                          // reused by Lab › Diagnostics
   };
   loadHome();      // start at page load, whatever page opens first: Today is one click away and the header status needs it
 })();

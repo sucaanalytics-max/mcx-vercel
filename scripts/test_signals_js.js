@@ -63,11 +63,14 @@ check('each run: length and price change to the next change (or to now)', ch.map
 
 const fw = M.forward(days(Array(14).fill('HOT').map((g, i) => (i % 2 ? 'HOT' : 'COLD')), [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 110, 90, 110, 90]),
                      'composite_signal', ['STRONG_BUY', 'SELL'], 10);
-check('forward 10-day returns grouped by the day’s signal; the last 10 days are left out',
-  fw.rows.map(x => [x.key, x.n, r2(x.avg), x.up]), [['STRONG_BUY', 2, -10, 0], ['SELL', 2, 10, 100]]);
-check('all days row', [fw.all.n, r2(fw.all.avg)], [4, 0]);
+check('forward 10-day returns from the next day’s close, grouped by the day’s signal',
+  fw.rows.map(x => [x.key, x.n, r2(x.avg), x.up]), [['STRONG_BUY', 1, 10, 100], ['SELL', 2, -10, 0]]);
+check('all days row: the last 11 days have no outcome yet', [fw.all.n, r2(fw.all.avg)], [3, -3.33]);
+const fw0 = M.forward(days(Array(14).fill('HOT').map((g, i) => (i % 2 ? 'HOT' : 'COLD')), [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 110, 90, 110, 90]),
+                      'composite_signal', ['STRONG_BUY', 'SELL'], 10, 'close_price', 0);
+check('with no lag (same-day entry, not tradeable) the old figures come back', fw0.rows.map(x => [x.key, x.n, r2(x.avg)]), [['STRONG_BUY', 2, -10], ['SELL', 2, 10]]);
 const priced = [100, 100, 100, 110].map((price, i) => ({ date: `2026-08-0${i + 1}`, ensemble_signal: 'BUY', price }));
-check('model rows carry the price as "price"', (x => [x.all.n, r2(x.all.avg)])(M.forward(priced, 'ensemble_signal', ['BUY'], 2, 'price')), [2, 5]);
+check('model rows carry the price as "price"', (x => [x.all.n, r2(x.all.avg)])(M.forward(priced, 'ensemble_signal', ['BUY'], 2, 'price')), [1, 10]);
 
 // ── Model ensemble ─────────────────────────────────────────────────────────
 const es = { date: '2026-09-28', price: 3263.5, fair_value_base: 2940.65,

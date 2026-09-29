@@ -101,20 +101,21 @@
     return `5-day average daily move is ${num(s.adr_ratio, 2)}× the 20-day; price ${signed(s.price_mom_5d * 100)}% over 5 days`;
   }
 
-  // Share price change over the next h rows after each day, grouped by that day's signal.
-  // Overlapping windows; the last h days have no outcome yet and are left out.
-  // priceKey: 'close_price' in the momentum rows, 'price' in the model rows.
-  function forward(rows, key, order, h = 10, priceKey = 'close_price') {
+  // Share price change over h rows, grouped by each day's signal. A day's signal uses that day's
+  // MCX revenue, known only after the evening session (23:30), so it is first tradeable at the
+  // next day's close: the change runs from row i + lag to row i + lag + h. Overlapping windows;
+  // days without an outcome yet are left out. priceKey: 'close_price' (momentum) or 'price' (models).
+  function forward(rows, key, order, h = 10, priceKey = 'close_price', lag = 1) {
     const g = {}, all = [];
-    for (let i = 0; i + h < rows.length; i++) {
-      const a = rows[i][priceKey], b = rows[i + h][priceKey], k = rows[i][key];
+    for (let i = 0; i + lag + h < rows.length; i++) {
+      const a = rows[i + lag][priceKey], b = rows[i + lag + h][priceKey], k = rows[i][key];
       if (!(a > 0) || !(b > 0) || !k || k === 'NO_DATA') continue;
       const r = (b / a - 1) * 100;
       (g[k] = g[k] || []).push(r); all.push(r);
     }
     const stat = xs => xs.length ? { n: xs.length, avg: xs.reduce((p, q) => p + q, 0) / xs.length, up: xs.filter(x => x > 0).length / xs.length * 100 } : null;
     return { rows: order.filter(k => g[k]).map(k => ({ key: k, ...stat(g[k]) })), all: stat(all),
-             first: rows.length ? rows[0].date : null, last: rows.length > h ? rows[rows.length - 1 - h].date : null };
+             first: rows.length ? rows[0].date : null, last: rows.length > h + lag ? rows[rows.length - 1 - h - lag].date : null };
   }
 
   // Each part's contribution to the ensemble score
@@ -220,10 +221,10 @@
     if (!ev || !ev.all) return '<p class="note">Not enough history yet.</p>';
     const row = (lab, s, cls) => `<tr${cls ? ` class="${cls}"` : ''}><td>${lab}</td><td>${num(s.n)}</td><td>${pctCell(s.avg)}</td><td>${num(s.up, 0)}%</td></tr>`;
     return `<div class="table-scroll"><table class="v2-table"><thead><tr><th scope="col">Signal that day</th><th scope="col">Days</th>`
-      + `<th scope="col">Average change, next ${h} days</th><th scope="col">Share of days up</th></tr></thead><tbody>`
+      + `<th scope="col">Average change over ${h} days</th><th scope="col">Share of days up</th></tr></thead><tbody>`
       + ev.rows.map(r => row(pill(map, r.key), r)).join('')
       + `${row('All days', ev.all, 'total')}</tbody></table></div>`
-      + `<p class="note">${fmt.span(ev.first, ev.last)}. Each day is followed for ${h} trading days, so the windows overlap and the counts overstate how much independent evidence there is. `
+      + `<p class="note">Signal days ${fmt.span(ev.first, ev.last)}. Each change runs from the next day’s close, the first chance to act, since a day’s signal needs MCX’s revenue from its evening session. It covers ${h} trading days, so the windows overlap and the counts overstate how much independent evidence there is. `
       + 'The rules were chosen on this same history, which flatters them. Compare each row with all days: MCX’s shares rose over most of this period.</p>';
   }
   function lazyEvidence(boxId, btnId, load) {
