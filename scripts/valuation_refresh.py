@@ -19,11 +19,9 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supa
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2cXdwZWJ2ZXFldHd3emttdHV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDkwMzMsImV4cCI6MjA4Njk4NTAzM30.U_Ug61Fp1NSCesXBkYU7GJGTbuATFtXsz6GTi5948Rw")
 
-# Model parameters (same as mcx_config.py)
-TRADING_DAYS = 252
-PAT_MARGIN = 0.55
-NON_FO_REV_ANNUAL_CR = 527.0
-DILUTED_SHARES_CR = 25.451
+# Model parameters: the same constants the API and the cron use
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from lib.mcx_config import TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR
 PE_MEAN_DEFAULT = 34.79
 PE_SD_DEFAULT = 3.49
 MA_WINDOW = 45

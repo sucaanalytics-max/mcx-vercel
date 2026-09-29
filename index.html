@@ -2358,8 +2358,8 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
   <div class="acc-body">
     <div class="kv"><span class="kv-key">Model</span><span class="kv-val">EPS-Path Fair Value (45DMA Revenue → EPS → P/E Bands)</span></div>
     <div class="kv"><span class="kv-key">Revenue Window</span><span class="kv-val">45-day moving average of daily F&O transaction revenue</span></div>
-    <div class="kv"><span class="kv-key">Annualization</span><span class="kv-val">45DMA × 252 trading days + ₹527 Cr non-F&O revenue</span></div>
-    <div class="kv"><span class="kv-key">PAT Margin</span><span class="kv-val">55% (MCX long-term structural margin)</span></div>
+    <div class="kv"><span class="kv-key">Annualization</span><span class="kv-val" id="valMethodAnn">45DMA × trading days + non-F&amp;O revenue and other income</span></div>
+    <div class="kv"><span class="kv-key">PAT Margin</span><span class="kv-val" id="valMethodMargin">— of total income</span></div>
     <div class="kv"><span class="kv-key">Diluted Shares</span><span class="kv-val">25.451 Cr (254.51M, post 1:5 split Jan 2026)</span></div>
     <div class="kv"><span class="kv-key">P/E Bands</span><span class="kv-val" id="valMethodPE">Dynamic: mean —x ± —x SD (— observations)</span></div>
     <div class="kv"><span class="kv-key">Signal Logic</span><span class="kv-val">DEEP_VALUE (&lt;Bear) · UNDERVALUED (&lt;Base−5%) · FAIR (±5%) · OVERVALUED (&gt;Base+5%) · STRETCHED (&gt;Bull)</span></div>
@@ -4639,6 +4639,12 @@ function renderValuation(data) {
   document.getElementById('valPeMeta').textContent = `mean ${pe.mean}x · sd ${pe.sd}x · ${pe.data_points} obs`;
   document.getElementById('valMethodPE').textContent =
     `Dynamic: mean ${pe.mean}x ± ${pe.sd}x SD (${pe.data_points} observations)`;
+  if (c) {
+    document.getElementById('valMethodAnn').textContent =
+      `45DMA × ${c.trading_days} trading days + ₹${c.non_fo_rev_cr} Cr non-F&O revenue and other income`;
+    document.getElementById('valMethodMargin').textContent =
+      `${Math.round(c.pat_margin * 100)}% of total income (PAT ÷ total income, FY26 and Q1 FY27)`;
+  }
 
   renderPEGauge(s, pe);
 
