@@ -29,8 +29,9 @@ from lib.mcx_config import supabase_upsert, now_ist, MCX_HOLIDAYS_2026, COMMODIT
 
 def closed_session_date() -> str:
     """Return the most recent CLOSED MCX trading session date (IST).
-    MCX session is 09:00-23:30 IST. Between 23:30 today and 09:00 tomorrow,
-    today's date is the closed session. Between 00:00 and 09:00, it's yesterday.
+    MCX session is 09:00-23:30 IST (23:55 while the US is on standard time).
+    After the close, today's date is the closed session. Between 00:00 and
+    09:00, it's yesterday.
     Weekends/holidays: walk back to the prior trading day.
     """
     ist = now_ist()

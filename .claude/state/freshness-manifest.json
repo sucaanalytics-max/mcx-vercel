@@ -2,7 +2,7 @@
   "version": 1,
   "description": "MCX dashboard data-freshness rules. One entry per data domain backing the 10 tabs. 'grace_days' = trading days a domain may legitimately lag the expected latest trading day before it counts as STALE. The freshness-scanner reads this; the /freshness-check orchestrator dispatches 'fixer' agents for STALE domains in dependency order.",
   "expected_day_rule": "latest_completed_trading_day",
-  "session_complete_after_ist": "23:30",
+  "session_complete_after_ist": "23:30, or 23:55 while the US is on standard time (lib.mcx_config.session_end)",
   "domains": [
     {"domain": "revenue", "tabs": ["Daily Predictions", "Timeline Dashboard", "Interactive Forecast"],
      "table": "mcx_daily_revenue", "date_col": "trading_date", "grace_days": 0,

@@ -5,8 +5,12 @@ Checks previous trading day's data integrity and backfills gaps.
 
 Designed for launchd (macOS) or Task Scheduler (Windows).
 
+Each morning it also reconciles recent relay EOD rows with MCX's historical
+detailed report and replaces any that differ by more than 1% (see
+reconcile_decision).
+
 Usage:
-  python3 scripts/daily_verify.py           # verify yesterday
+  python3 scripts/daily_verify.py           # verify last 3 trading days
   python3 scripts/daily_verify.py --days 7  # verify last 7 trading days
 """
 import sys, os, json, urllib.request, urllib.error
@@ -26,15 +30,99 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib.mcx_config import (
     SUPABASE_URL, SUPABASE_ANON_KEY,
     FUTURES_RATE, OPTIONS_RATE,
-    now_ist, is_trading_day, get_day_type, supabase_upsert, supabase_read,
+    now_ist, is_trading_day, get_day_type, session_total, supabase_upsert, supabase_read,
 )
+
+# ── Relay EOD reconciliation ─────────────────────────────────────────────────
+# A relay EOD row is the market-watch cumulative taken just after the close;
+# MCX's historical detailed report is the exchange's own full-day figure. On
+# summer days they agree to within 1% (101 relay days, Mar–Sep 2026: median
+# -0.01%, worst -0.83%). A bigger gap means the stored row is short or stale,
+# e.g. a 23:30 capture on a 23:55 winter day, where the last 25 minutes carry
+# ~4% of the day. Such rows are replaced with the historical figure.
+RECONCILE_TOLERANCE_PCT = 1.0
+# Only rows written by these sources are replaced automatically. The historical
+# source is included so a row replaced from a not-yet-final report corrects
+# itself on a later morning. Imported Excel rows are left for a human.
+REPLACEABLE_SOURCES = {"mcx_relay_eod", "mcx_historical"}
+REVIEW_THRESHOLD_PCT = 5.0   # flag, don't replace, other sources beyond this
+DEFAULT_DAYS = 3             # T-1's options leg is often unsettled at 07:00
+
+
+def reconcile_decision(stored, hist, tolerance_pct=RECONCILE_TOLERANCE_PCT):
+    """Compare a stored mcx_daily_revenue row with MCX's historical report.
+
+    Returns (action, delta_pct, reason). action is one of:
+      "unsettled" — the report isn't final yet (a leg missing or far below
+                    what's stored); check again tomorrow
+      "ok"        — within tolerance
+      "replace"   — outside tolerance and the row may be replaced
+      "review"    — well outside tolerance but from a source we don't replace
+    delta_pct is (historical - stored) / historical × 100, or None.
+    """
+    total = hist.get("total_rev_cr") or 0
+    if (hist.get("opt_rev_cr") or 0) <= 0 or not (1.0 <= total <= 50.0):
+        return "unsettled", None, "options leg missing or total out of range"
+    # MCX publishes T-1's report in pieces. A leg under half of what the relay
+    # saw is a partial report, not a correction.
+    for leg in ("fut_notl_cr", "opt_prem_cr"):
+        if (stored.get(leg) or 0) > 0 and (hist.get(leg) or 0) < 0.5 * stored[leg]:
+            return "unsettled", None, f"{leg} below half of stored"
+
+    delta_pct = (total - stored["total_rev_cr"]) / total * 100
+    if abs(delta_pct) <= tolerance_pct:
+        return "ok", delta_pct, ""
+    if stored.get("source") in REPLACEABLE_SOURCES:
+        return "replace", delta_pct, ""
+    if abs(delta_pct) > REVIEW_THRESHOLD_PCT:
+        return "review", delta_pct, ""
+    return "ok", delta_pct, "outside tolerance but source not replaceable"
+
+
+def historical_record(date_iso, hist):
+    """mcx_daily_revenue row built from a historical-report dict."""
+    from datetime import datetime as dt
+    return {
+        "trading_date": date_iso,
+        "day_type": get_day_type(dt.strptime(date_iso, "%Y-%m-%d")),
+        "source": "mcx_historical",
+        "data_source": "mcx_historical_detailed",
+        "is_actual": True,
+        **hist,
+    }
+
+
+def replace_with_historical(date_iso, hist):
+    """Overwrite the stored row with the historical figure. Returns an error
+    string, or None on success. Confirms the write took: an UPDATE that RLS
+    blocks can come back as success with zero rows."""
+    record = historical_record(date_iso, hist)
+    try:
+        written = supabase_upsert("mcx_daily_revenue", record, on_conflict="trading_date")
+    except Exception as e:
+        return str(e)[:200]
+    if not written or abs((written[0].get("total_rev_cr") or 0) - record["total_rev_cr"]) > 1e-4:
+        return "upsert returned no updated row (write blocked by RLS?)"
+    return None
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+_hist_unavailable = None   # set when the MCX historical client can't load
+
+
 def fetch_mcx_historical(date_iso):
     """Fetch from MCX Historical API (reuse relay logic)."""
+    global _hist_unavailable
     try:
         from scripts.mcx_relay import fetch_mcx_historical as _fetch
+    except Exception as e:
+        # Typically curl_cffi missing because launchd ran /usr/bin/python3.
+        # Remember why, so the run reports it instead of silently skipping
+        # every cross-check.
+        _hist_unavailable = f"{type(e).__name__}: {e}"
+        return None
+    try:
         return _fetch(date_iso)
     except Exception:
         return None
@@ -78,19 +166,11 @@ def get_snapshot_summary(date_iso):
 
 def backfill_from_historical(date_iso):
     """Backfill daily revenue + commodities from Historical API."""
-    from datetime import datetime as dt
     hist = fetch_mcx_historical(date_iso)
     if not hist or hist["total_rev_cr"] < 0.5 or hist["total_rev_cr"] > 50.0:
         return None
 
-    d = dt.strptime(date_iso, "%Y-%m-%d")
-    record = {
-        "trading_date": date_iso,
-        "day_type": get_day_type(d),
-        "source": "mcx_historical",
-        "is_actual": True,
-        **hist,
-    }
+    record = historical_record(date_iso, hist)
     try:
         supabase_upsert("mcx_daily_revenue", record)
         return record
@@ -160,30 +240,42 @@ def verify_date(date_iso):
         elif rev["total_rev_cr"] > 30.0:
             result["issues"].append(f"Revenue unusually high: {rev['total_rev_cr']:.4f}")
 
-        # Cross-validate with Historical API.
-        # The MCX historical detailed report lags ~1 trading day on the OPTIONS
-        # leg: for the most recent day (T-1) it often returns futures only
-        # (opt premium = 0), which is INCOMPLETE, not a real divergence. So only
-        # act on a COMPLETE report, and NEVER auto-overwrite from this check —
-        # a clean live relay EOD close is authoritative; auto-replacing it with a
-        # settlement report (esp. an unsettled one) risks clobbering good data.
+        # Reconcile with MCX's historical report (see reconcile_decision).
+        # The report lags ~1 trading day on the OPTIONS leg: for T-1 it often
+        # returns futures only, which is incomplete, not a divergence. Such
+        # days are skipped and picked up on a later morning (DEFAULT_DAYS).
         hist = fetch_mcx_historical(date_iso)
         if hist:
-            hist_complete = (hist.get("opt_rev_cr") or 0) > 0 and 1.0 <= hist["total_rev_cr"] <= 50.0
-            if not hist_complete:
+            action, delta_pct, why = reconcile_decision(rev, hist)
+            if action == "unsettled":
                 result["actions"].append(
                     f"Historical not yet settled (got {hist['total_rev_cr']:.2f} Cr, "
-                    f"opt={hist.get('opt_rev_cr') or 0:.2f}) — cross-check skipped"
+                    f"opt={hist.get('opt_rev_cr') or 0:.2f}; {why}) — cross-check skipped"
                 )
-            else:
-                delta_pct = abs(hist["total_rev_cr"] - rev["total_rev_cr"]) / rev["total_rev_cr"] * 100
-                if delta_pct > 5.0:
-                    # Real divergence between a complete settlement report and the
-                    # stored value — flag for human review; do NOT auto-overwrite.
+            elif action == "replace":
+                err = replace_with_historical(date_iso, hist)
+                if err:
                     result["issues"].append(
-                        f"Historical API divergence vs stored ({rev['source']}): "
-                        f"{hist['total_rev_cr']:.4f} vs {rev['total_rev_cr']:.4f} ({delta_pct:.1f}%) — review"
-                    )
+                        f"Stored {rev['source']} {rev['total_rev_cr']:.4f} differs from historical "
+                        f"{hist['total_rev_cr']:.4f} ({delta_pct:+.2f}%) but replace failed: {err}")
+                else:
+                    result["revenue"] = hist["total_rev_cr"]
+                    result["source"] = "mcx_historical"
+                    result["actions"].append(
+                        f"Replaced {rev['source']} {rev['total_rev_cr']:.4f} with historical "
+                        f"{hist['total_rev_cr']:.4f} Cr ({delta_pct:+.2f}%)")
+            elif action == "review":
+                result["issues"].append(
+                    f"Historical API divergence vs stored ({rev['source']}): "
+                    f"{hist['total_rev_cr']:.4f} vs {rev['total_rev_cr']:.4f} ({delta_pct:+.1f}%) — review"
+                )
+        elif _hist_unavailable:
+            result["issues"].append(f"MCX historical client unavailable ({_hist_unavailable}) "
+                                    f"— cross-check skipped; run under the homebrew python")
+        else:
+            # Even T-1 has at least its futures leg by 07:00, so no report at all
+            # means the fetch failed. Say so: a silent skip hides a short row.
+            result["issues"].append("MCX historical report unavailable — cross-check skipped")
     else:
         result["issues"].append("MISSING from mcx_daily_revenue")
         # Try to backfill
@@ -205,7 +297,8 @@ def verify_date(date_iso):
         if snap["count"] < 10:
             result["issues"].append(f"Low snapshot count: {snap['count']}")
         if snap["last_elapsed"] < 800 and not snap["session_closed"]:
-            result["issues"].append(f"Relay died early: {snap['last_elapsed']}/870 min")
+            result["issues"].append(
+                f"Relay died early: {snap['last_elapsed']}/{session_total(date_iso)} min")
     else:
         result["snapshots"] = 0
         result["issues"].append("No relay snapshots")
@@ -227,7 +320,7 @@ def verify_date(date_iso):
 
 
 def main():
-    days = 1
+    days = DEFAULT_DAYS
     for i, arg in enumerate(sys.argv):
         if arg == "--days" and i + 1 < len(sys.argv):
             try:

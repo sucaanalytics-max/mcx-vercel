@@ -1725,7 +1725,7 @@ html.dark .spark-legend .leg-bhav::before { background: #ccc; }
     <!-- Stats row -->
     <div id="curveStats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;margin-top:8px;font-family:var(--mono);font-size:10px"></div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:8px;padding:8px;border:1px dashed var(--border)">
-      Session: 09:00–23:30 IST · Static model: evening = 67% · Weights computed over <span id="intradayRangeLabel">(30 days)</span> of snapshots.
+      Session: 09:00–<span id="intradaySessionEnd">23:30</span> IST (23:55 while the US is on standard time) · Static model: evening = 67% · Weights computed over <span id="intradayRangeLabel">(30 days)</span> of snapshots.
     </div>
   </div>
 </div>
@@ -3449,7 +3449,7 @@ const INTRADAY_BUCKETS = [
   { label: '15:00–17:00', tag: 'Pre-evening',       weight: 0.10 },
   { label: '17:00–19:30', tag: 'Europe open',       weight: 0.18 },
   { label: '19:30–22:00', tag: '★ NYMEX open',      weight: 0.34 },
-  { label: '22:00–23:30', tag: 'Late session',      weight: 0.15 },
+  { label: '22:00–close', tag: 'Late session',      weight: 0.15 },
 ];
 
 function switchCurveView(view) {
@@ -3468,6 +3468,8 @@ async function loadIntradayCurve() {
     const data = await fetchRanged('/api/exchange_dashboard?view=intraday_curve&days=' + RANGE_TRADING_DAYS[rangeState['intraday'] || '30D']);
     if (!data.success) throw new Error(data.error);
     curveDataCache = data;
+    const sessEndEl = document.getElementById('intradaySessionEnd');
+    if (sessEndEl && data.session_end) sessEndEl.textContent = data.session_end;
     renderDynamicBucketChart(data);
     renderCurveStats(data);
     // One fetch feeds both sub-views: refresh cumulative chart too if it's the visible one.
@@ -3526,8 +3528,10 @@ function renderCumulativeChart(data) {
   const isDark = document.documentElement.classList.contains('dark');
   const gridColor = isDark ? '#333' : '#E8E6E1';
   const tickColor = isDark ? '#888' : '#6B6560';
-  // Build cumulative points from static and average bucket weights
-  const edges = [0, 90, 210, 360, 480, 630, 780, 870]; // elapsed_min at bucket boundaries
+  // Build cumulative points from static and average bucket weights.
+  // Bucket boundaries in elapsed minutes; the last one is 870 (23:30) or 895 (23:55).
+  const sessionMin = data.session_total_min || 870;
+  const edges = [0, ...data.static_model.buckets.map(b => b.end_min - 540)];
   const staticCum = [], avgCum = [];
   let sc = 0, ac = 0;
   staticCum.push({x: 0, y: 0}); avgCum.push({x: 0, y: 0});
@@ -3557,8 +3561,6 @@ function renderCumulativeChart(data) {
   ];
   // Today's cumulative
   if (data.today && data.today.cumulative_curve) {
-    const todayPts = data.today.cumulative_curve.map(p => ({x: p.elapsed_min, y: (p.volume_cr / data.today.total_volume_cr * (data.today.elapsed_min / 870)) * 100}));
-    // Actually compute today's cumulative % properly
     const todayTotal = data.today.cumulative_curve[data.today.cumulative_curve.length - 1]?.volume_cr || 1;
     const todayCum = data.today.cumulative_curve.map(p => ({x: p.elapsed_min, y: p.volume_cr / todayTotal * 100}));
     datasets.push({ label: 'Today', data: todayCum, borderColor: isDark ? '#FF6B47' : '#D4380D', borderWidth: 2.5, fill: false, pointRadius: 0, tension: 0.3 });
@@ -3570,7 +3572,7 @@ function renderCumulativeChart(data) {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: true, position: 'bottom', labels: { font: { size: 10, family: "'JetBrains Mono'" }, filter: item => item.text !== '' } } },
       scales: {
-        x: { type: 'linear', min: 0, max: 870, ticks: { color: tickColor, font: { family: "'JetBrains Mono'", size: 9 },
+        x: { type: 'linear', min: 0, max: sessionMin, ticks: { color: tickColor, font: { family: "'JetBrains Mono'", size: 9 },
           callback: v => { const h = Math.floor((v + 540) / 60), m = (v + 540) % 60; return `${h}:${m.toString().padStart(2,'0')}`; } },
           grid: { color: gridColor } },
         y: { min: 0, max: 105, ticks: { color: tickColor, font: { family: "'JetBrains Mono'", size: 9 }, callback: v => v + '%' }, grid: { color: gridColor } }
@@ -3634,7 +3636,7 @@ function renderIntradayChart() {
       <span><span class="dot" style="background:${isDark ? '#FF6B47' : '#D4380D'}"></span> ≥30% Prime</span>
       <span><span class="dot" style="background:${isDark ? '#FAAD14' : '#D48806'}"></span> 15–29% High</span>
       <span><span class="dot" style="background:${isDark ? '#5B9CF5' : '#0958D9'}"></span> <15% Regular</span>
-      <span>Evening (17:00–23:30) = 67%</span>
+      <span>Evening (17:00–close) = 67%</span>
     `;
   }
 }

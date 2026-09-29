@@ -2,23 +2,24 @@
 Intraday Volume Curve Analysis — Dynamic curves from mcx_snapshots.
 
 Derives actual bucket weights from historical snapshot data and compares
-against the static INTRADAY_BUCKETS model. Used by exchange_dashboard?view=intraday_curve.
+against the static intraday_buckets() model. Used by exchange_dashboard?view=intraday_curve.
+
+Each day is cut with its own session's buckets: the last one ends at 23:30, or
+at 23:55 while the US is on standard time.
 """
 from datetime import date, timedelta
 from collections import defaultdict
 
 from lib.mcx_config import (
-    INTRADAY_BUCKETS, SESSION_START, SESSION_END, SESSION_TOTAL,
-    supabase_read_all, now_ist, get_day_type, calc_revenue,
+    SESSION_START, intraday_buckets, bucket_labels, session_end, session_total,
+    fmt_ist_minutes, supabase_read_all, now_ist, get_day_type, calc_revenue,
 )
 
-# Bucket boundaries as elapsed minutes from session start
-_BUCKET_EDGES = [b[0] - SESSION_START for b in INTRADAY_BUCKETS] + [SESSION_TOTAL]
-_BUCKET_LABELS = [
-    "09:00–10:30", "10:30–12:30", "12:30–15:00", "15:00–17:00",
-    "17:00–19:30", "19:30–22:00", "22:00–23:30",
-]
-_STATIC_WEIGHTS = [b[2] for b in INTRADAY_BUCKETS]
+
+def _bucket_edges(trading_date):
+    """Bucket boundaries as elapsed minutes from session start (8 edges)."""
+    buckets = intraday_buckets(trading_date)
+    return [b[0] - SESSION_START for b in buckets] + [buckets[-1][1] - SESSION_START]
 
 # ─── helpers ──────────────────────────────────────────────────────────────
 
@@ -51,21 +52,22 @@ def _interpolate_volume(snapshots, target_elapsed):
     return _vol(snapshots[-1])
 
 
-def _derive_bucket_weights(snapshots):
+def _derive_bucket_weights(snapshots, trading_date):
     """Derive 7 bucket weights from a single day's sorted snapshots.
     Returns (weights, total_vol) where weights is a list of 7 floats summing to ~1.0,
     or (None, 0) if insufficient data."""
     if len(snapshots) < 4:
         return None, 0
 
-    total_vol = _interpolate_volume(snapshots, SESSION_TOTAL)
+    edges = _bucket_edges(trading_date)
+    total_vol = _interpolate_volume(snapshots, edges[-1])
     if total_vol <= 0:
         return None, 0
 
     weights = []
     prev_cum = 0.0
-    for i in range(len(_BUCKET_EDGES) - 1):
-        edge_end = _BUCKET_EDGES[i + 1]
+    for i in range(len(edges) - 1):
+        edge_end = edges[i + 1]
         cum = _interpolate_volume(snapshots, edge_end)
         bucket_vol = max(0, cum - prev_cum)
         weights.append(bucket_vol / total_vol)
@@ -98,6 +100,12 @@ def generate_intraday_curves(days=30, include_today=True):
     today_str = ist.strftime("%Y-%m-%d")
     start_date = (ist - timedelta(days=days + 10)).strftime("%Y-%m-%d")
 
+    # The static model, labels and today's buckets follow today's session.
+    today_buckets = intraday_buckets(today_str)
+    bucket_edges = _bucket_edges(today_str)
+    labels = bucket_labels(today_str)
+    static_weights = [round(b[2], 4) for b in today_buckets]
+
     # Fetch snapshots
     snapshots = supabase_read_all(
         "mcx_snapshots",
@@ -114,8 +122,14 @@ def generate_intraday_curves(days=30, include_today=True):
         if em is not None:
             by_date[s["trading_date"]].append(s)
 
-    # Separate today from historical
+    # Separate today from historical. Only days with today's close are
+    # averaged: a 23:30 day and a 23:55 day cut the late bucket differently,
+    # so blending them across a switch would show drift that isn't there.
     today_snaps = by_date.pop(today_str, [])
+    close_today = session_end(today_str)
+    other_season = [d for d in by_date if session_end(d) != close_today]
+    for d in other_season:
+        del by_date[d]
     hist_dates = sorted(by_date.keys(), reverse=True)[:days]
 
     # ── Historical bucket weights per day ──
@@ -126,7 +140,7 @@ def generate_intraday_curves(days=30, include_today=True):
         snaps = by_date[dt_str]
         if len(snaps) < 4:
             continue
-        w, total_vol = _derive_bucket_weights(snaps)
+        w, total_vol = _derive_bucket_weights(snaps, dt_str)
         if w is None:
             continue
         daily_curves.append({
@@ -150,7 +164,7 @@ def generate_intraday_curves(days=30, include_today=True):
             avg_weights.append(round(m, 4))
             std_weights.append(round(var ** 0.5, 4))
         else:
-            avg_weights.append(_STATIC_WEIGHTS[i])
+            avg_weights.append(static_weights[i])
             std_weights.append(0)
 
     evening_pct = round(sum(avg_weights[4:]) * 100, 1) if n_days > 0 else 67.0
@@ -180,15 +194,15 @@ def generate_intraday_curves(days=30, include_today=True):
 
         # Partial bucket weights (only for completed buckets)
         partial_buckets = []
-        for i in range(len(_BUCKET_EDGES) - 1):
-            edge_start = _BUCKET_EDGES[i]
-            edge_end = _BUCKET_EDGES[i + 1]
+        for i in range(len(bucket_edges) - 1):
+            edge_start = bucket_edges[i]
+            edge_end = bucket_edges[i + 1]
             if total_so_far > 0 and elapsed_now >= edge_end:
                 cum_end = _interpolate_volume(today_snaps, edge_end)
                 cum_start = _interpolate_volume(today_snaps, edge_start)
                 w = (cum_end - cum_start) / total_so_far if total_so_far > 0 else 0
                 partial_buckets.append({
-                    "label": _BUCKET_LABELS[i],
+                    "label": labels[i],
                     "weight": round(w, 4),
                     "complete": True,
                 })
@@ -198,14 +212,14 @@ def generate_intraday_curves(days=30, include_today=True):
                 cum_start = _interpolate_volume(today_snaps, edge_start)
                 partial_w = (cum_now - cum_start) / total_so_far if total_so_far > 0 else 0
                 partial_buckets.append({
-                    "label": _BUCKET_LABELS[i],
+                    "label": labels[i],
                     "weight": round(partial_w, 4),
                     "complete": False,
                     "bucket_pct": round((elapsed_now - edge_start) / (edge_end - edge_start) * 100, 0),
                 })
             else:
                 partial_buckets.append({
-                    "label": _BUCKET_LABELS[i],
+                    "label": labels[i],
                     "weight": None,
                     "complete": False,
                 })
@@ -220,11 +234,11 @@ def generate_intraday_curves(days=30, include_today=True):
     # ── Divergence analysis (static vs actual) ──
     divergences = []
     for i in range(7):
-        static_w = _STATIC_WEIGHTS[i]
+        static_w = static_weights[i]
         actual_w = avg_weights[i]
         diff = actual_w - static_w
         divergences.append({
-            "label": _BUCKET_LABELS[i],
+            "label": labels[i],
             "static": static_w,
             "actual_avg": actual_w,
             "diff": round(diff, 4),
@@ -252,14 +266,14 @@ def generate_intraday_curves(days=30, include_today=True):
             adaptive_data = {
                 "halflife_days": _halflife,
                 "buckets": [
-                    {"label": _BUCKET_LABELS[i], "weight": round(ewma_wts[i], 4)}
+                    {"label": labels[i], "weight": round(ewma_wts[i], 4)}
                     for i in range(7)
                 ],
                 "evening_pct": ewma_evening_pct,
                 "vs_static": [
-                    {"label": _BUCKET_LABELS[i],
-                     "diff": round(ewma_wts[i] - _STATIC_WEIGHTS[i], 4),
-                     "diff_pct": round((ewma_wts[i] - _STATIC_WEIGHTS[i]) / _STATIC_WEIGHTS[i] * 100, 1) if _STATIC_WEIGHTS[i] > 0 else 0}
+                    {"label": labels[i],
+                     "diff": round(ewma_wts[i] - static_weights[i], 4),
+                     "diff_pct": round((ewma_wts[i] - static_weights[i]) / static_weights[i] * 100, 1) if static_weights[i] > 0 else 0}
                     for i in range(7)
                 ],
             }
@@ -267,17 +281,20 @@ def generate_intraday_curves(days=30, include_today=True):
     return {
         "success": True,
         "as_of": ist.strftime("%Y-%m-%d %H:%M IST"),
+        "session_end": fmt_ist_minutes(session_end(today_str)),
+        "session_total_min": session_total(today_str),
         "static_model": {
             "buckets": [
-                {"label": _BUCKET_LABELS[i], "weight": _STATIC_WEIGHTS[i],
-                 "start_min": INTRADAY_BUCKETS[i][0], "end_min": INTRADAY_BUCKETS[i][1]}
+                {"label": labels[i], "weight": static_weights[i],
+                 "start_min": today_buckets[i][0], "end_min": today_buckets[i][1]}
                 for i in range(7)
             ],
         },
         "rolling_average": {
             "days_used": n_days,
+            "other_season_days_excluded": len(other_season),
             "buckets": [
-                {"label": _BUCKET_LABELS[i], "weight": avg_weights[i], "std": std_weights[i]}
+                {"label": labels[i], "weight": avg_weights[i], "std": std_weights[i]}
                 for i in range(7)
             ],
             "evening_pct": evening_pct,

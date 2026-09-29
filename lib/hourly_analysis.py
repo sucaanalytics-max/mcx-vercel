@@ -26,7 +26,7 @@ TARGET_HOURS = [
     (600,  "19:00"),
     (720,  "21:00"),   # mid-NYMEX
     (810,  "22:30"),
-    (870,  "23:30"),   # session end
+    (870,  "23:30"),   # session end (in winter the close is 23:55, elapsed 895)
 ]
 
 
@@ -189,7 +189,8 @@ def generate_hourly_accuracy(lookback_days=90):
             except Exception:
                 day_type = "LOW"
 
-            proj_fut, proj_opt, conf = project_full_day(fut_at_hour, opt_at_hour, target_elapsed, day_type)
+            proj_fut, proj_opt, conf = project_full_day(fut_at_hour, opt_at_hour, target_elapsed,
+                                                        day_type, trading_date=dt_str)
             _, _, _, proj_rev = calc_revenue(proj_fut, proj_opt)
 
             # Revenue error

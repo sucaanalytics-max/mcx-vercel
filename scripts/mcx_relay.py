@@ -5,7 +5,8 @@ Fetches MCX MarketWatch data locally (bypasses cloud IP blocks),
 computes intraday revenue projection, and upserts snapshot to Supabase.
 The Vercel /api/refresh GET endpoint reads from Supabase to serve the frontend.
 
-Runs every 15 minutes during MCX trading hours (09:00–23:30 IST).
+Runs every 15 minutes during MCX trading hours (09:00 to 23:30 IST, or 23:55
+while the US is on standard time; see lib.mcx_config.session_end).
 Designed to be called by a cron/scheduled task starting at 8:00 AM IST.
 
 Usage:
@@ -49,8 +50,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib.mcx_config import (
     SUPABASE_URL, SUPABASE_ANON_KEY,
     FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY, TRADING_DAYS,
-    SESSION_START, SESSION_END, SESSION_TOTAL,
-    INTRADAY_BUCKETS, DAY_MULTIPLIER, DAY_DESCRIPTION,
+    SESSION_START, session_end, fmt_ist_minutes,
+    DAY_MULTIPLIER, DAY_DESCRIPTION,
     MCX_HOLIDAYS_2026,
     now_ist, get_day_type, get_intraday_weight,
     project_full_day, calc_revenue, calc_uncertainty,
@@ -72,6 +73,16 @@ except ImportError:
     _HAS_OI = False
 
 LOOP_INTERVAL = 900  # 15 minutes in seconds
+# Minutes after the close to take the final snapshot and EOD capture. The loop
+# shortens its sleep to land here, so the EOD row is taken at the real close
+# (23:30 or 23:55) instead of up to 15 min later, and, in winter, before
+# midnight rolls the date over.
+EOD_DELAY_MIN = 2
+# If the snapshot after the close keeps failing, retry for up to
+# EOD_FALLBACK_MIN, then capture EOD directly. Never later than LATEST_EOD_MIN:
+# after a 23:55 close there are only minutes left before midnight.
+EOD_FALLBACK_MIN = 15
+LATEST_EOD_MIN = 23 * 60 + 57
 RELAY_ID = os.environ.get("MCX_RELAY_ID", "default")
 
 # Alias for backward compat (relay uses MCX_HOLIDAYS directly)
@@ -86,16 +97,34 @@ def is_trading_day(d):
 # ── MCX API (curl_cffi with Chrome TLS impersonation) ───────────────────────
 _mw_session = None
 _hist_session = None
+# Newest target first; older curl_cffi builds (e.g. 0.13 under the system
+# python that daily_verify may run on) reject chrome142 with ImpersonateError.
+CHROME_IMPERSONATE = os.environ.get("MCX_IMPERSONATE", "chrome142")
+CHROME_IMPERSONATE_FALLBACKS = ["chrome136", "chrome131", "chrome"]
+
+
+def _new_session(warm_url):
+    """curl_cffi session warmed on warm_url, trying impersonation targets in turn."""
+    last_err = None
+    for target in [CHROME_IMPERSONATE, *CHROME_IMPERSONATE_FALLBACKS]:
+        try:
+            sess = cfreq.Session(impersonate=target)
+            # Some builds only reject an unknown target on the first request.
+            _hard_call(sess.get, warm_url, timeout=20, hard_timeout=25)
+            return sess
+        except Exception as e:
+            if "impersonat" in str(e).lower() or "not supported" in str(e).lower():
+                last_err = e
+                continue  # token unknown to this curl_cffi build — try the next
+            raise
+    raise last_err
 
 
 def _get_mw_session(force_new=False):
     """Shared curl_cffi session for MarketWatch API (bypasses Akamai)."""
     global _mw_session
     if _mw_session is None or force_new:
-        _mw_session = cfreq.Session(impersonate="chrome142")
-        _hard_call(_mw_session.get,
-                   "https://www.mcxindia.com/market-data/market-watch",
-                   timeout=20, hard_timeout=25)
+        _mw_session = _new_session("https://www.mcxindia.com/market-data/market-watch")
     return _mw_session
 
 
@@ -103,10 +132,7 @@ def _get_hist_session(force_new=False):
     """Shared curl_cffi session for Historical API (bypasses Akamai)."""
     global _hist_session
     if _hist_session is None or force_new:
-        _hist_session = cfreq.Session(impersonate="chrome142")
-        _hard_call(_hist_session.get,
-                   "https://www.mcxindia.com/market-data/historical-data",
-                   timeout=20, hard_timeout=25)
+        _hist_session = _new_session("https://www.mcxindia.com/market-data/historical-data")
     return _hist_session
 
 
@@ -174,14 +200,16 @@ def run_snapshot():
     """Fetch MCX data, compute projection, push to Supabase. Returns True on success."""
     capture = now_ist()
     current_min = capture.hour * 60 + capture.minute
+    close = session_end(capture)       # 1410 (23:30) or 1435 (23:55)
+    total = close - SESSION_START
 
     # Check if within trading window (with 30-min pre-buffer)
-    if current_min < SESSION_START - 30 or current_min > SESSION_END + 15:
+    if current_min < SESSION_START - 30 or current_min > close + 15:
         print(f"  ⏸ {capture.strftime('%H:%M IST')} — outside trading hours, skipping")
         return False
 
-    elapsed = max(0, min(current_min - SESSION_START, SESSION_TOTAL))
-    time_pct = elapsed / SESSION_TOTAL
+    elapsed = max(0, min(current_min - SESSION_START, total))
+    time_pct = elapsed / total
 
     # Fetch market data via curl_cffi session
     print(f"  Fetching market data...")
@@ -228,7 +256,8 @@ def run_snapshot():
     except Exception:
         today_snaps = None
     proj_fut, proj_opt, conf = project_full_day(fut_notl, opt_prem, elapsed, day_type,
-                                                 today_snapshots=today_snaps)
+                                                 today_snapshots=today_snaps,
+                                                 trading_date=capture)
     fut_rev, opt_rev, tx_rev, total_rev = calc_revenue(proj_fut, proj_opt)
 
     unc = calc_uncertainty(time_pct, day_type, dual_call)
@@ -260,7 +289,7 @@ def run_snapshot():
     snapshot = {
         "trading_date": capture.strftime("%Y-%m-%d"),
         "elapsed_min": elapsed,
-        "session_closed": elapsed >= SESSION_TOTAL,
+        "session_closed": elapsed >= total,
         "fut_notl_cr": round(fut_notl, 2),
         "opt_notl_cr": round(opt_notl, 2),
         "opt_prem_cr": round(opt_prem, 2),
@@ -305,7 +334,7 @@ def run_snapshot():
                 f"&order=elapsed_min.asc",
                 max_rows=100,
             )
-            alerts = check_regime_drift(today_snaps)
+            alerts = check_regime_drift(today_snaps, trading_date=capture)
             for a in alerts:
                 print(f"  ⚠ REGIME SHIFT: {a['bucket']} volume {a['direction']} "
                       f"(today={a['today_weight']:.1%} vs adaptive={a['adaptive_weight']:.1%}, "
@@ -392,12 +421,17 @@ def fetch_mcx_historical(date_iso):
         return None
 
 
-def capture_eod():
+def capture_eod(date_iso=None):
     """Capture final EOD data and upsert to mcx_daily_revenue as authoritative record.
     Priority: market watch API (direct PremiumValue) > historical detailed report.
-    This replaces/supersedes BHAV proxy data for the day."""
+    This replaces/supersedes BHAV proxy data for the day.
+
+    date_iso is the session being closed. Pass it explicitly: a 23:55 close
+    leaves only minutes before now_ist() rolls over to the next date."""
     t = now_ist()
-    date_iso = t.strftime("%Y-%m-%d")
+    if date_iso is None:
+        date_iso = t.strftime("%Y-%m-%d")
+    session_dt = datetime.strptime(date_iso, "%Y-%m-%d")
     print(f"\n  ── EOD Capture for {date_iso} ──")
 
     eod_record = None
@@ -428,7 +462,7 @@ def capture_eod():
                 "opt_rev_cr": round(opt_rev, 4),
                 "nontx_rev_cr": NONTX_DAILY,
                 "total_rev_cr": round(total_rev, 4),
-                "day_type": get_day_type(t),
+                "day_type": get_day_type(session_dt),
                 "source": "mcx_relay_eod",
                 "is_actual": True,
                 "active_futures": len(futures1),
@@ -446,7 +480,7 @@ def capture_eod():
         if hist and 1.0 <= hist["total_rev_cr"] <= 50.0:
             eod_record = {
                 "trading_date": date_iso,
-                "day_type": get_day_type(t),
+                "day_type": get_day_type(session_dt),
                 "source": "mcx_historical",
                 "is_actual": True,
                 **hist,
@@ -631,11 +665,24 @@ def _start_stall_watchdog():
     threading.Thread(target=_watch, daemon=True, name="stall-watchdog").start()
 
 
+def next_sleep_seconds(t, base_s):
+    """Sleep before the next snapshot: base_s, cut short so the loop wakes
+    EOD_DELAY_MIN after today's close. Without the cut, a 15-min cadence can
+    land the final snapshot anywhere up to 15 min late; at a 23:55 close that
+    crosses midnight, and the loop then exits without an EOD capture."""
+    wake = (session_end(t) + EOD_DELAY_MIN) * 60
+    now_s = t.hour * 3600 + t.minute * 60 + t.second
+    until_wake = wake - now_s
+    if 0 < until_wake < base_s:
+        return until_wake
+    return base_s
+
+
 def run_loop():
     """Run snapshots every 15 minutes until trading session ends.
     After session close, captures authoritative EOD record for mcx_daily_revenue."""
     print(f"MCX Relay — loop mode (every {LOOP_INTERVAL//60} min)")
-    print(f"Trading hours: 09:00–23:30 IST")
+    print(f"Trading hours: 09:00–{fmt_ist_minutes(session_end(now_ist()))} IST")
     _start_stall_watchdog()
 
     fail_streak = 0
@@ -645,12 +692,14 @@ def run_loop():
         _mark_progress()  # reset the stall-watchdog each iteration
         t = now_ist()
         current_min = t.hour * 60 + t.minute
+        close = session_end(t)
+        session_date = t.strftime("%Y-%m-%d")
 
         if not is_trading_day(t.date()):
             print(f"{t.strftime('%H:%M IST')} — Not a trading day. Exiting.")
             break
 
-        if current_min > SESSION_END + 30 or (0 < current_min < SESSION_START - 60):
+        if current_min > close + 30 or (0 < current_min < SESSION_START - 60):
             print(f"{t.strftime('%H:%M IST')} — Session ended. Exiting.")
             break
 
@@ -684,26 +733,29 @@ def run_loop():
         # Trigger EOD immediately when session closes (no timing race)
         if result == "closed":
             print("\nSession closed. Capturing EOD record...")
-            capture_eod()
+            capture_eod(session_date)
             refresh_margins_local()
             refresh_oi_participants_local()
             send_heartbeat("eod_done")
             break
 
-        # Fallback: clock-based EOD check
+        # Fallback: past the close but the snapshot hasn't reported it (fetches
+        # failing, or it ran outside hours). Summer keeps its 15 min of retries;
+        # winter captures at 23:57 at the latest.
         t2 = now_ist()
         current_min2 = t2.hour * 60 + t2.minute
-        if current_min2 > SESSION_END + 15:
+        fallback_min = min(close + EOD_FALLBACK_MIN, LATEST_EOD_MIN)
+        if t2.strftime("%Y-%m-%d") == session_date and current_min2 >= fallback_min:
             print("\nSession ended (clock fallback). Capturing EOD record...")
-            capture_eod()
+            capture_eod(session_date)
             refresh_margins_local()
             refresh_oi_participants_local()
             break
 
         # After a failure, retry in 2 min (not 15) so a transient stall recovers
         # in minutes and the watchdog can trip quickly, instead of dead cycles.
-        sleep_s = 120 if fail_streak > 0 else LOOP_INTERVAL
-        print(f"  Next snapshot in {sleep_s//60} min...")
+        sleep_s = next_sleep_seconds(now_ist(), 120 if fail_streak > 0 else LOOP_INTERVAL)
+        print(f"  Next snapshot in {sleep_s/60:.0f} min...")
         _watchful_sleep(sleep_s)
 
     print("MCX Relay finished.")
