@@ -9,11 +9,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=DM+Sans:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/legacy.css?v=fa69a335">
-<link rel="stylesheet" href="/assets/css/tokens.css?v=fa69a335">
-<link rel="stylesheet" href="/assets/css/components.css?v=fa69a335">
-<link rel="stylesheet" href="/assets/css/shell.css?v=fa69a335">
-<link rel="stylesheet" href="/assets/css/v2.css?v=fa69a335">
+<link rel="stylesheet" href="/assets/css/legacy.css?v=571444d8">
+<link rel="stylesheet" href="/assets/css/tokens.css?v=571444d8">
+<link rel="stylesheet" href="/assets/css/components.css?v=571444d8">
+<link rel="stylesheet" href="/assets/css/shell.css?v=571444d8">
+<link rel="stylesheet" href="/assets/css/v2.css?v=571444d8">
 </head>
 <body>
 
@@ -554,23 +554,27 @@
   <div class="chart-box" id="fvFootball"></div>
   <div class="basis" id="fvFootballBasis"></div>
 </section>
+<section class="sec" aria-labelledby="fvHouseTitle">
+  <div class="sec-head"><div><h2 id="fvHouseTitle">How the Tusk house view is built</h2><div class="sec-sub">The Tusk sheet, line by line. Change any input to see its effect</div></div><span id="fvHouseEdited"></span></div>
+  <div class="house-grid">
+    <form class="house-inputs" id="fvInputs" aria-label="House model inputs" novalidate></form>
+    <div id="fvSheet"></div>
+  </div>
+  <div class="basis" id="fvSheetBasis"></div>
+</section>
 <div class="two-col">
-  <section class="sec" aria-labelledby="fvHouseTitle">
-    <div class="sec-head"><div><h2 id="fvHouseTitle">How the Tusk house view is built</h2><div class="sec-sub">Forward multiple, 18% hurdle, regression and analysts blended</div></div></div>
-    <div id="fvHouseChain"></div>
-  </section>
   <section class="sec" aria-labelledby="fvDdTitle">
     <div class="sec-head"><div><h2 id="fvDdTitle">How the data-driven view is built</h2><div class="sec-sub">The stock’s own valuation history, applied to today’s earnings</div></div></div>
     <div id="fvDdChain"></div>
   </section>
+  <section class="sec" aria-labelledby="fvWhyTitle">
+    <div class="sec-head"><div><h2 id="fvWhyTitle">Why the two views differ</h2><div class="sec-sub">Same data, different lenses</div></div></div>
+    <div id="fvWhy"></div>
+    <div class="basis" id="fvWhyBasis"></div>
+  </section>
 </div>
-<section class="sec" aria-labelledby="fvWhyTitle">
-  <div class="sec-head"><div><h2 id="fvWhyTitle">Why the two views differ</h2><div class="sec-sub">Same data, different lenses</div></div></div>
-  <div id="fvWhy"></div>
-  <div class="basis" id="fvWhyBasis"></div>
-</section>
 <section class="sec" aria-labelledby="fvSensTitle">
-  <div class="sec-head"><div><h2 id="fvSensTitle">What moves the house number</h2><div class="sec-sub">Growth assumed for FY28 revenue, at 48× and 52×</div></div></div>
+  <div class="sec-head"><div><h2 id="fvSensTitle">What moves the house number</h2><div class="sec-sub">Value today for FY28 revenue per day against the three multiples, with the other inputs as set above</div></div></div>
   <div id="fvSens"></div>
   <div class="basis" id="fvSensBasis"></div>
 </section>
@@ -580,7 +584,7 @@
   <div class="legend"><span><i class="sw sw--line"></i>Share price</span><span><i class="sw sw--typical"></i>Data-driven base</span><span><i class="sw sw--band"></i>Bear to bull band</span></div>
 </section>
 <section class="sec" aria-labelledby="fvBrTitle">
-  <div class="sec-head"><div><h2 id="fvBrTitle">Broker targets in the house blend</h2><div class="sec-sub">From the Tusk workbook; each is discounted at the hurdle from its 12-month target date. Update when new reports land.</div></div></div>
+  <div class="sec-head"><div><h2 id="fvBrTitle">Broker targets, a cross-check</h2><div class="sec-sub">From the Tusk workbook; each is discounted at 18% from its 12-month target date. Not part of the house view. Update when new reports land.</div></div></div>
   <div id="fvBrokers"></div>
 </section>
 </div>
@@ -1175,12 +1179,12 @@
 </div>
 
 <!-- ═══ JAVASCRIPT ═══════════════════════════════════════════════════════════ -->
-<script src="/assets/js/core.js?v=fa69a335"></script>
-<script src="/assets/js/legacy.js?v=fa69a335"></script>
-<script src="/assets/js/today.js?v=fa69a335"></script>
-<script src="/assets/js/revenue.js?v=fa69a335"></script>
-<script src="/assets/js/value.js?v=fa69a335"></script>
-<script src="/assets/js/signals.js?v=fa69a335"></script>
-<script src="/assets/js/shell.js?v=fa69a335"></script>
+<script src="/assets/js/core.js?v=571444d8"></script>
+<script src="/assets/js/legacy.js?v=571444d8"></script>
+<script src="/assets/js/today.js?v=571444d8"></script>
+<script src="/assets/js/revenue.js?v=571444d8"></script>
+<script src="/assets/js/value.js?v=571444d8"></script>
+<script src="/assets/js/signals.js?v=571444d8"></script>
+<script src="/assets/js/shell.js?v=571444d8"></script>
 </body>
 </html>

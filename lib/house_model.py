@@ -1,29 +1,36 @@
 """
 Tusk house valuation model (shown beside the data-driven view on Fair value).
 
-Follows the Tusk workbook (20260121_Exchanges_Dashboard.xlsx) with the corrections the
-user decided on 29 Sep 2026:
-- 48-52x is a FORWARD multiple on FY28E EPS, giving a target price at 31 Mar 2027.
-- That target is discounted to today at the 18% hurdle, pro rata (actual days / 365).
-- The regression of price on the 45-day ADR stays in the blend, refitted live.
-- Analyst targets are each discounted from their own target date (report + 12 months).
-- The blend is the equal-weight average of the ADR model, the regression and the analysts.
+Follows the Tusk sheet "Based on latest trend - FY2028" (user, 29 Sep 2026):
+- FY28 revenue = revenue per day x trading days, plus non-F&O operating revenue and other
+  income, each grown 20% on FY26 and a further 15% on FY27.
+- PAT = 57% of that total revenue; EPS = PAT / diluted shares.
+- Target price for FY28 = P/E x FY28 EPS, at 42x / 48x / 54x (bear / base / bull).
+- Discounted 18% to FY27, then a further 9% to today. The page can switch the second step
+  to pro-rata: 18% x the days left to 31 Mar 2027 / 365.
+- The regression of price on the 45-day ADR and the broker targets are reported as
+  cross-checks; they are not blended into the house view.
 
-Every constant below is a house assumption or an input table, not a measured figure.
+Revenue per day uses the calendar count of 260 FY28 sessions (the user's decision; the sheet
+shows 258). Every constant below is a house input, editable on the page, not a measured figure.
 """
 from datetime import date, timedelta
 import math
 
-HOUSE_PE = (48, 52)                 # forward P/E on FY28E EPS
-HURDLE = 0.18                       # required annual return, used to discount to today
-HOUSE_MARGIN = 0.60                 # PAT / total revenue
-HOUSE_DAYS = {"FY27": 256, "FY28": 260}   # MCX sessions: FY27 261 weekdays - 5 closures; FY28 262 - 26 Jan 2028 - Muhurat-only 29 Oct 2027
-HOUSE_FY28_GROWTH = 0.20            # ADR and non-F&O revenue growth into FY28
+HOUSE_ADR_FY28 = 15.00              # FY28 revenue per day, Rs Cr (house input)
+HOUSE_DAYS_FY28 = 260               # FY28 MCX sessions: 262 weekdays - 26 Jan 2028 - Muhurat-only 29 Oct 2027
+HOUSE_DAYS = {"FY27": 256, "FY28": HOUSE_DAYS_FY28}   # FY27: 261 weekdays - 5 closures (used by Scenarios)
 NON_FO_FY26_CR = 211.06             # FY26 non-F&O operating revenue: reported 2,302 - F&O daily sum 2,091
-NON_FO_FY27_GROWTH = 0.20           # non-F&O FY27 = FY26 x 1.2
-TARGET_DATE = date(2027, 3, 31)     # the forward target is struck at FY27's end
+OTHER_INCOME_FY26_CR = 127.05       # FY26 other income (reported)
+GROWTH_FY27 = 0.20                  # non-F&O and other income, FY26 -> FY27
+GROWTH_FY28 = 0.15                  # non-F&O and other income, FY27 -> FY28
+HOUSE_MARGIN = 0.57                 # PAT / total revenue including other income (the sheet's arithmetic)
+HOUSE_PE = {"bear": 42, "base": 48, "bull": 54}
+DISCOUNT_FY28_TO_FY27 = 0.18        # one year at the 18% hurdle
+DISCOUNT_FY27_TO_TODAY = 0.09       # the sheet's fixed second step (half a year at 18%)
+FY27_END = date(2027, 3, 31)
 REGRESSION_START = date(2024, 11, 1)
-SENSITIVITY = (0.0, 0.10, 0.20)
+HURDLE = 0.18                       # used to discount broker targets from their own target dates
 
 # Broker targets (Tusk workbook, sheet 'MCX Analyst'). Update when new reports land.
 # (broker, report date, rating, 12-month target Rs, FY27E EPS, FY28E EPS, P/E used on FY28E)
@@ -38,7 +45,7 @@ ANALYSTS = [
 
 
 def years(a, b):
-    """Year fraction from a to b, actual/365 (YEARFRAC basis 3)."""
+    """Year fraction from a to b, actual/365."""
     return (b - a).days / 365
 
 
@@ -68,20 +75,46 @@ def predict(fit, x):
     return y, half
 
 
-def eps(adr, days, non_fo, shares, margin=HOUSE_MARGIN):
-    return (adr * days + non_fo) * margin / shares
+def default_inputs():
+    """The house inputs, as the page's input panel starts."""
+    return {"adr_fy28": HOUSE_ADR_FY28, "days_fy28": HOUSE_DAYS_FY28,
+            "non_fo_fy26": NON_FO_FY26_CR, "other_income_fy26": OTHER_INCOME_FY26_CR,
+            "growth_fy27": GROWTH_FY27, "growth_fy28": GROWTH_FY28, "margin": HOUSE_MARGIN,
+            "pe": dict(HOUSE_PE), "disc_fy28": DISCOUNT_FY28_TO_FY27, "disc_today": DISCOUNT_FY27_TO_TODAY,
+            "method": "fixed"}
+
+
+def second_step(inp, val_date):
+    """The FY27 -> today discount: the fixed rate, or pro-rata to 31 Mar 2027 (simple, actual/365)."""
+    days_left = max((FY27_END - val_date).days, 0)
+    prorata = inp["disc_fy28"] * days_left / 365
+    return (prorata if inp["method"] == "prorata" else inp["disc_today"]), days_left, prorata
+
+
+def house_calc(inp, shares, val_date):
+    """The sheet, line by line. Mirrors MCX.valueModel.houseCalc in assets/js/value.js."""
+    grow = (1 + inp["growth_fy27"]) * (1 + inp["growth_fy28"])
+    op = inp["adr_fy28"] * inp["days_fy28"]
+    non_fo = inp["non_fo_fy26"] * grow
+    other = inp["other_income_fy26"] * grow
+    total = op + non_fo + other
+    pat = total * inp["margin"]
+    eps = pat / shares
+    step2, days_left, prorata = second_step(inp, val_date)
+    fy28 = {k: pe * eps for k, pe in inp["pe"].items()}
+    fy27 = {k: v / (1 + inp["disc_fy28"]) for k, v in fy28.items()}
+    today = {k: v / (1 + step2) for k, v in fy27.items()}
+    return {"op_rev_cr": op, "non_fo_cr": non_fo, "other_income_cr": other, "total_rev_cr": total,
+            "pat_cr": pat, "eps": eps, "fy28": fy28, "fy27": fy27, "today": today,
+            "disc_today": step2, "days_to_fy27_end": days_left, "prorata": prorata}
 
 
 def house_view(adr, price, val_date, shares, reg_pairs):
-    """The house model at today's 45-day ADR. reg_pairs: [(adr, price)] since REGRESSION_START."""
-    nf27 = NON_FO_FY26_CR * (1 + NON_FO_FY27_GROWTH)
-    nf28 = nf27 * (1 + HOUSE_FY28_GROWTH)
-    eps27 = eps(adr, HOUSE_DAYS["FY27"], nf27, shares)
-    eps28 = eps(adr * (1 + HOUSE_FY28_GROWTH), HOUSE_DAYS["FY28"], nf28, shares)
-    t = max(years(val_date, TARGET_DATE), 0.0)
-    disc = (1 + HURDLE) ** t
-    target = {str(pe): pe * eps28 for pe in HOUSE_PE}
-    adr_leg = {str(pe): pe * eps28 / disc for pe in HOUSE_PE}
+    """The house model at its default inputs, plus the two cross-checks.
+    adr: today's 45-day ADR (context only; the house case uses its own FY28 input)."""
+    inp = default_inputs()
+    c = house_calc(inp, shares, val_date)
+    pro = house_calc({**inp, "method": "prorata"}, shares, val_date)
 
     fit = fit_regression(reg_pairs)
     reg = None
@@ -100,38 +133,22 @@ def house_view(adr, price, val_date, shares, reg_pairs):
                          "eps27": e27, "eps28": e28, "pe": pe})
     analyst_leg = sum(x["present_value"] for x in analysts) / len(analysts)
 
-    legs = lambda pe: [adr_leg[str(pe)], analyst_leg] + ([reg["value"]] if reg else [])
-    blend = {str(pe): sum(legs(pe)) / len(legs(pe)) for pe in HOUSE_PE}
-
-    sens = []
-    for g in SENSITIVITY:
-        e = eps(adr * (1 + g), HOUSE_DAYS["FY28"], nf27 * (1 + g), shares)
-        row = {"growth": g, "eps28": e}
-        for pe in HOUSE_PE:
-            leg = pe * e / disc
-            row[f"adr_leg_{pe}"] = leg
-            parts = [leg, analyst_leg] + ([reg["value"]] if reg else [])
-            row[f"blend_{pe}"] = sum(parts) / len(parts)
-        sens.append(row)
-
+    r = lambda v, dp=2: None if v is None else round(v, dp)
+    rk = lambda d, dp=0: {k: r(v, dp) for k, v in d.items()}
     street_eps28 = sum(x["eps28"] for x in analysts) / len(analysts)
     street_pe = sum(x["pe"] for x in analysts) / len(analysts)
-    r = lambda v, dp=2: None if v is None else round(v, dp)
     return {
-        "assumptions": {"pe": list(HOUSE_PE), "hurdle": HURDLE, "margin": HOUSE_MARGIN, "days": HOUSE_DAYS,
-                        "fy28_growth": HOUSE_FY28_GROWTH, "non_fo_fy26_cr": NON_FO_FY26_CR,
-                        "non_fo_fy27_growth": NON_FO_FY27_GROWTH, "target_date": TARGET_DATE.isoformat()},
-        "valuation_date": val_date.isoformat(),
-        "adr_cr": r(adr), "price": r(price), "shares_cr": shares,
-        "non_fo_fy27_cr": r(nf27), "non_fo_fy28_cr": r(nf28),
-        "eps27": r(eps27), "eps28": r(eps28),
-        "years_to_target": round(t, 4), "discount": round(disc, 4),
-        "target": {k: r(v, 0) for k, v in target.items()},
-        "adr_leg": {k: r(v, 0) for k, v in adr_leg.items()},
+        "inputs": inp,
+        "assumptions": {"days": HOUSE_DAYS, "fy27_end": FY27_END.isoformat(), "hurdle": HURDLE,
+                        "margin_base": "total revenue including other income"},
+        "valuation_date": val_date.isoformat(), "adr_cr": r(adr), "price": r(price), "shares_cr": shares,
+        "fy28": {"op_rev_cr": r(c["op_rev_cr"], 1), "non_fo_cr": r(c["non_fo_cr"], 1), "other_income_cr": r(c["other_income_cr"], 1),
+                 "total_rev_cr": r(c["total_rev_cr"], 1), "pat_cr": r(c["pat_cr"], 1), "eps": r(c["eps"])},
+        "target_fy28": rk(c["fy28"]), "target_fy27": rk(c["fy27"]), "today": rk(c["today"]),
+        "today_prorata": rk(pro["today"]), "prorata_pct": r(pro["prorata"] * 100),
+        "days_to_fy27_end": c["days_to_fy27_end"],
         "regression": None if not reg else {k: (r(v, 4) if k in ("a", "b", "r_squared") else r(v, 0) if isinstance(v, float) else v) for k, v in reg.items()},
         "analysts": [{**x, "present_value": r(x["present_value"], 0)} for x in analysts],
         "analyst_leg": r(analyst_leg, 0),
-        "blend": {k: r(v, 0) for k, v in blend.items()},
-        "sensitivity": [{k: (r(v, 2) if k != "growth" else v) for k, v in row.items()} for row in sens],
         "street": {"eps28": r(street_eps28), "pe": r(street_pe, 1), "brokers": len(analysts)},
     }

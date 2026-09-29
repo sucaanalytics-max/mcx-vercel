@@ -61,16 +61,33 @@ check('no adjustment without the non-F&O basis', M.adjusted(Object.assign({}, D,
 // Fair value
 const fvd = { bear: 2442.46, base: 2981.27, bull: 3520.07 };
 check('data-driven signal rules', [2400, 2800, 3000, 3300, 3600].map(p => M.ddSignal(p, fvd)), ['DEEP_VALUE', 'UNDERVALUED', 'FAIR', 'OVERVALUED', 'STRETCHED']);
-check('house state: within 5% of the range is near fair value', [M.houseState(3338, 3355, 3472), M.houseState(3000, 3355, 3472), M.houseState(3800, 3355, 3472)], ['near', 'below', 'above']);
 const chainD = { diluted_shares_cr: 25.451, pat_margin: 0.55, non_fo_rev_cr: 374.5, trading_days: 256 };
 check('revenue priced in at the data-driven multiple', Math.round(M.revenuePricedIn(3337.6, 40.06, chainD) * 100) / 100, 13.6);
-const V = { snapshot: { fair_value: fvd }, pe_bands: { mean: 40.06 } };
-const H = { blend: { 48: 3355, 52: 3472 }, assumptions: { pe: [48, 52], fy28_growth: 0.2 } };
-const fl = M.fvLede(3338, H, V);
-check('fair value headline', fl.head, 'The Tusk house view puts MCX close to fair value; the data-driven view has it about 12% overvalued.');
-check('fair value deck', fl.deck, 'At ₹3,338, the price sits below the house range of ₹3,355 – 3,472 and 12% above the data-driven base of ₹2,981. The gap is the multiple (48–52× forward against the stock’s own median of 40.1×) and the house’s 20% FY28 growth assumption.');
-check('well below the house range is said plainly', M.fvLede(2800, H, V).head,
-  'The Tusk house view puts MCX below fair value: the house range starts 20% above the price; the data-driven view has it about 6% undervalued.');
+
+// Tusk house model: the sheet, exactly (₹15.00 × 258, 42 / 48 / 54×, 18% then 9%)
+const INP = { adr_fy28: 15, days_fy28: 260, non_fo_fy26: 211.06, other_income_fy26: 127.05, growth_fy27: 0.2, growth_fy28: 0.15,
+              margin: 0.57, pe: { bear: 42, base: 48, bull: 54 }, disc_fy28: 0.18, disc_today: 0.09, method: 'fixed' };
+const R0 = o => ({ bear: Math.round(o.bear), base: Math.round(o.base), bull: Math.round(o.bull) });
+const sheet = M.houseCalc(Object.assign({}, INP, { days_fy28: 258 }), 25.451, '2026-09-29');
+check('sheet: operating, other operating, other income, total, PAT', [sheet.op, sheet.nonFo, sheet.other, sheet.total, sheet.pat].map(Math.round), [3870, 291, 175, 4337, 2472]);
+check('sheet: FY28 targets', R0(sheet.fy28), { bear: 4079, base: 4662, bull: 5245 });
+check('sheet: FY27 targets', R0(sheet.fy27), { bear: 3457, base: 3951, bull: 4445 });
+check('sheet: today (bear and bull as shown; base 3,624.5)', [Math.round(sheet.today.bear), Math.round(sheet.today.base * 10) / 10, Math.round(sheet.today.bull)], [3171, 3624.5, 4078]);
+// The house defaults: 260 sessions
+const hc = M.houseCalc(INP, 25.451, '2026-09-29');
+check('house defaults today, same as lib/house_model.py', R0(hc.today), { bear: 3193, base: 3650, bull: 4106 });
+const pro = M.houseCalc(Object.assign({}, INP, { method: 'prorata' }), 25.451, '2026-09-29');
+check('pro-rata: 18% × 183 / 365 = 9.02%', [pro.daysLeft, Math.round(pro.step2 * 10000) / 100], [183, 9.02]);
+check('pro-rata after 31 Mar 2027 is zero', M.houseCalc(Object.assign({}, INP, { method: 'prorata' }), 25.451, '2027-04-15').step2, 0);
+check('breakeven: the FY28 revenue per day at which the base case equals ₹3,263.5', Math.round(M.breakevenAdr(3263.5, INP, 25.451, hc) * 100) / 100, 13.22);
+check('house state bands', [2900, 3300, 3500, 3700, 3900, 4300].map(p => M.houseState(p, hc.today)), ['deep', 'under', 'near', 'near', 'over', 'stretched']);
+
+const V = { snapshot: { fair_value: fvd, eps_chain: { ma45_rev_cr: 11.99 } }, pe_bands: { mean: 40.06 } };
+const fl = M.fvLede(3263.5, hc.today, INP, V);
+check('fair value headline', fl.head, 'The Tusk house model values MCX at ₹3,650 a share, 12% above the price; the data-driven view has it about 9% overvalued.');
+check('fair value deck', fl.deck, 'At ₹3,264, the price sits between the house bear case (₹3,193 at 42×) and base case (₹3,650 at 48×), and 9% above the data-driven base of ₹2,981. '
+  + 'The house case rests on ₹15.00 Cr a day in FY28, against ₹11.99 Cr over the last 45 days, and on 42–54× FY28 earnings, against the stock’s own median of 40.1× run-rate earnings.');
+check('near the base case', M.fvLede(3600, hc.today, INP, V).head, 'The Tusk house model values MCX at ₹3,650 a share, close to the price; the data-driven view has it about 21% overvalued.');
 
 // Scenarios: trailing EPS from the last four reported quarters
 const acts = [{ quarter: 'Q1 FY26', pat_cr: 203 }, { quarter: 'Q2 FY26', pat_cr: 197 }, { quarter: 'Q3 FY26', pat_cr: 401 }, { quarter: 'Q4 FY26', pat_cr: 530 }, { quarter: 'Q1 FY27', pat_cr: 413 }];

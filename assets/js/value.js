@@ -65,28 +65,54 @@
     if (price <= fv.bull) return 'OVERVALUED';
     return 'STRETCHED';
   }
-  // Where the price sits against the house range: within 5% of it counts as close to fair value
-  function houseState(price, lo, hi) {
-    if (lo <= price * 1.05 && hi >= price * 0.95) return 'near';
-    return lo > price ? 'below' : 'above';
+  // The Tusk sheet, line by line (mirrors house_calc in lib/house_model.py).
+  // inp: adr_fy28, days_fy28, non_fo_fy26, other_income_fy26, growth_fy27, growth_fy28, margin,
+  // pe {bear, base, bull}, disc_fy28, disc_today, method ('fixed' | 'prorata'). todayIso: the valuation date.
+  function houseCalc(inp, shares, todayIso, fy27End = '2027-03-31') {
+    const grow = (1 + inp.growth_fy27) * (1 + inp.growth_fy28);
+    const op = inp.adr_fy28 * inp.days_fy28, nonFo = inp.non_fo_fy26 * grow, other = inp.other_income_fy26 * grow;
+    const total = op + nonFo + other, pat = total * inp.margin, eps = pat / shares;
+    const daysLeft = Math.max(Math.round((Date.parse(fy27End) - Date.parse(todayIso)) / 86400000), 0);
+    const prorata = inp.disc_fy28 * daysLeft / 365;
+    const step2 = inp.method === 'prorata' ? prorata : inp.disc_today;
+    const map = f => ({ bear: f(inp.pe.bear), base: f(inp.pe.base), bull: f(inp.pe.bull) });
+    const fy28 = map(pe => pe * eps), fy27 = map(pe => pe * eps / (1 + inp.disc_fy28));
+    const today = map(pe => pe * eps / (1 + inp.disc_fy28) / (1 + step2));
+    return { op, nonFo, other, total, pat, eps, fy28, fy27, today, step2, daysLeft, prorata };
   }
   // Daily revenue the price implies at the data-driven multiple
   function revenuePricedIn(price, pe, c) {
     return ((price / pe) * c.diluted_shares_cr / c.pat_margin - c.non_fo_rev_cr) / c.trading_days;
   }
-  function fvLede(price, h, v) {
-    const fv = v.snapshot.fair_value, pe = v.pe_bands.mean;
-    const lo = h.blend['48'], hi = h.blend['52'];
-    const st = houseState(price, lo, hi);
-    const prem = (price / fv.base - 1) * 100;
-    const house = st === 'near' ? 'close to fair value' : st === 'below' ? `below fair value: the house range starts ${Math.round((lo / price - 1) * 100)}% above the price`
-                                                        : `above fair value: the house range tops out ${Math.round((1 - hi / price) * 100)}% below the price`;
+  // FY28 revenue per day at which the base case equals today's price
+  function breakevenAdr(price, inp, shares, c) {
+    const eps = price * (1 + inp.disc_fy28) * (1 + c.step2) / inp.pe.base;
+    return (eps * shares / inp.margin - c.nonFo - c.other) / inp.days_fy28;
+  }
+  // Where the price sits against the house cases: within 5% of the base counts as near it
+  function houseState(price, t) {
+    if (Math.abs(price / t.base - 1) <= 0.05) return 'near';
+    if (price < t.bear) return 'deep';
+    if (price < t.base) return 'under';
+    return price <= t.bull ? 'over' : 'stretched';
+  }
+  const HOUSE_STATE = { near: ['', 'Near the base case'], deep: ['strong-up', 'Below the bear case'], under: ['up', 'Below the base case'],
+                        over: ['down', 'Above the base case'], stretched: ['strong-down', 'Above the bull case'] };
+  function fvLede(price, t, inp, v) {
+    const fv = v.snapshot.fair_value, pe = v.pe_bands.mean, ma45 = v.snapshot.eps_chain.ma45_rev_cr;
+    const st = houseState(price, t);
+    const gap = (t.base / price - 1) * 100, prem = (price / fv.base - 1) * 100;
+    const r = x => `₹${num(x, 0)}`;
+    const house = st === 'near' ? `values MCX at ${r(t.base)} a share, close to the price`
+      : `values MCX at ${r(t.base)} a share, ${Math.round(Math.abs(gap))}% ${gap > 0 ? 'above' : 'below'} the price`;
     const dd = Math.abs(prem) < 5 ? 'the data-driven view has it near fair value' : `the data-driven view has it about ${Math.round(Math.abs(prem))}% ${prem > 0 ? 'overvalued' : 'undervalued'}`;
-    const head = `The Tusk house view puts MCX ${house}; ${dd}.`;
-    const inside = price >= lo && price <= hi ? 'inside' : price < lo ? 'below' : 'above';
-    const deck = `At ₹${num(price, 0)}, the price sits ${inside} the house range of ₹${num(lo, 0)} – ${num(hi, 0)} and ${Math.abs(prem).toFixed(0)}% ${prem >= 0 ? 'above' : 'below'} the data-driven base of ₹${num(fv.base, 0)}. `
-      + `The gap is the multiple (${h.assumptions.pe[0]}–${h.assumptions.pe[1]}× forward against the stock’s own median of ${num(pe, 1)}×) and the house’s ${Math.round(h.assumptions.fy28_growth * 100)}% FY28 growth assumption.`;
-    return { head, deck, state: st, prem };
+    const cs = k => `${k} case (${r(t[k])} at ${inp.pe[k]}×)`;
+    const where = { near: `close to the house ${cs('base')}`, deep: `below even the house ${cs('bear')}`,
+                    under: `between the house ${cs('bear')} and ${cs('base')}`, over: `between the house ${cs('base')} and ${cs('bull')}`,
+                    stretched: `above even the house ${cs('bull')}` }[st];
+    const deck = `At ${r(price)}, the price sits ${where}, and ${Math.abs(prem).toFixed(0)}% ${prem >= 0 ? 'above' : 'below'} the data-driven base of ${r(fv.base)}. `
+      + `The house case rests on ₹${num(inp.adr_fy28, 2)} Cr a day in FY28${ma45 ? `, against ₹${num(ma45, 2)} Cr over the last 45 days,` : ''} and on ${inp.pe.bear}–${inp.pe.bull}× FY28 earnings, against the stock’s own median of ${num(pe, 1)}× run-rate earnings.`;
+    return { head: `The Tusk house model ${house}; ${dd}.`, deck, state: st, prem };
   }
 
   // Trailing twelve months: the last four reported quarters' profit over diluted shares
@@ -96,7 +122,7 @@
     return { eps: last.reduce((a, q) => a + q.pat_cr, 0) / shares, from: last[0].quarter, to: last[3].quarter };
   }
 
-  MCX.valueModel = { quarterLede, adjusted, missStory, words, ddSignal, houseState, revenuePricedIn, fvLede, ttm };
+  MCX.valueModel = { quarterLede, adjusted, missStory, words, ddSignal, houseCalc, breakevenAdr, houseState, HOUSE_STATE, revenuePricedIn, fvLede, ttm };
   if (window.MCX_TEST) return;
 
   // ════════════════════════════════════════════════════════════════════════
@@ -297,7 +323,7 @@
   // ════════════════════════════════════════════════════════════════════════
   //  Fair value
   // ════════════════════════════════════════════════════════════════════════
-  const FV = { data: null, price: null };
+  const FV = { data: null, price: null, inp: null, calc: null };
   const valUrl = () => '/api/valuation?range=' + encodeURIComponent(rangeState.valChart || '60D');
   const SIGNALS = { DEEP_VALUE: ['strong-up', '▲▲', 'Deep value'], UNDERVALUED: ['up', '▲', 'Undervalued'], FAIR: ['', '', 'Fair'],
                     OVERVALUED: ['down', '▼', 'Overvalued'], STRETCHED: ['strong-down', '▼▼', 'Stretched'] };
@@ -385,79 +411,185 @@
     return '<ol class="chain">' + steps.map(([k, v, note], i) => `<li${i === steps.length - 1 ? ' class="last"' : ''}><span><span class="chain-k">${k}</span>${note ? `<span class="chain-n">${note}</span>` : ''}</span><span class="chain-v">${v}</span></li>`).join('') + '</ol>';
   }
 
+  // ── House inputs: start from the backend's house values; edits stay in this browser ──
+  const HI_KEY = 'mcx.house.inputs';
+  const clone = o => JSON.parse(JSON.stringify(o));
+  function houseInputs(h) {
+    const base = h.inputs;
+    try {
+      const saved = JSON.parse(MCX.storage.get(HI_KEY, 'null'));
+      // Edits made against older house values are dropped, so a house update is never masked
+      if (saved && JSON.stringify(saved.base) === JSON.stringify(base)) return saved.edits;
+    } catch (e) { /* unreadable: start from the house values */ }
+    return clone(base);
+  }
+  const edited = h => JSON.stringify(FV.inp) !== JSON.stringify(h.inputs);
+  function saveInputs(h) {
+    MCX.storage.set(HI_KEY, edited(h) ? JSON.stringify({ base: h.inputs, edits: FV.inp }) : 'null');
+  }
+  // [key, label, unit, scale (shown = stored × scale), step, decimals]
+  const FIELDS = [
+    ['adr_fy28', 'Revenue per day, FY28', '₹ Cr', 1, 0.25, 2],
+    ['days_fy28', 'Trading days, FY28', 'days', 1, 1, 0],
+    ['non_fo_fy26', 'Non-F&amp;O revenue, FY26', '₹ Cr', 1, 1, 2],
+    ['other_income_fy26', 'Other income, FY26', '₹ Cr', 1, 1, 2],
+    ['growth_fy27', 'Growth into FY27', '%', 100, 1, 1],
+    ['growth_fy28', 'Growth into FY28', '%', 100, 1, 1],
+    ['margin', 'PAT margin, of total revenue', '%', 100, 0.5, 1],
+    ['pe.bear', 'P/E, bear', '×', 1, 1, 1], ['pe.base', 'P/E, base', '×', 1, 1, 1], ['pe.bull', 'P/E, bull', '×', 1, 1, 1],
+    ['disc_fy28', 'Discount, FY28 to FY27', '%', 100, 0.5, 1],
+    ['disc_today', 'Discount, FY27 to today', '%', 100, 0.5, 2],
+  ];
+  const getK = (o, k) => k.split('.').reduce((a, p) => a[p], o);
+  const setK = (o, k, v) => { const ps = k.split('.'); ps.slice(0, -1).reduce((a, p) => a[p], o)[ps[ps.length - 1]] = v; };
+  const fieldVal = (k, sc, dp) => +(getK(FV.inp, k) * sc).toFixed(dp);
+
+  function renderInputs(h) {
+    const form = $('fvInputs');
+    const row = ([k, lab, unit, sc, step, dp]) => `<label class="hin"><span>${lab}</span><span class="hin-box">`
+      + `<input type="number" inputmode="decimal" step="${step}" min="0" data-k="${k}" data-sc="${sc}" data-dp="${dp}" value="${fieldVal(k, sc, dp)}">`
+      + `<small>${unit}</small></span></label>`;
+    form.innerHTML = `<fieldset><legend>FY28 earnings</legend>${FIELDS.slice(0, 7).map(row).join('')}</fieldset>`
+      + `<fieldset><legend>Multiples</legend>${FIELDS.slice(7, 10).map(row).join('')}</fieldset>`
+      + `<fieldset><legend>Discounting</legend>${row(FIELDS[10])}`
+      + '<div class="hin hin--method"><span id="fvMethodLab">Second step</span><span class="seg" role="group" aria-labelledby="fvMethodLab">'
+      + '<button type="button" data-method="fixed">Fixed</button><button type="button" data-method="prorata">Pro-rata to 31 Mar</button></span></div>'
+      + `${row(FIELDS[11])}<p class="hin-note" id="fvMethodNote"></p></fieldset>`
+      + '<div class="hin-foot"><button type="button" class="more-btn" id="fvReset">Reset to house inputs</button><span id="fvEditNote"></span></div>';
+    syncInputs(h);
+  }
+  function syncInputs(h) {
+    const c = FV.calc, pro = FV.inp.method === 'prorata';
+    document.querySelectorAll('#fvInputs [data-method]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.method === FV.inp.method)));
+    const d2 = document.querySelector('#fvInputs input[data-k="disc_today"]');
+    d2.disabled = pro;
+    if (pro) d2.value = +(c.prorata * 100).toFixed(2);
+    $('fvMethodNote').textContent = pro
+      ? `${num(FV.inp.disc_fy28 * 100, 1)}% × ${c.daysLeft} days left to 31 Mar 2027 ÷ 365 = ${num(c.prorata * 100, 2)}%. It falls to zero by 31 March.`
+      : `A fixed step, as in the Tusk sheet. Pro-rata would be ${num(c.prorata * 100, 2)}% today (${c.daysLeft} days to 31 Mar 2027).`;
+    const ed = edited(h);
+    $('fvEditNote').textContent = ed ? 'Your edits, kept in this browser only.' : 'The house inputs.';
+    $('fvReset').disabled = !ed;
+    $('fvHouseEdited').innerHTML = ed ? '<span class="pill pill--caution"><span aria-hidden="true">!</span>Edited inputs</span>' : '';
+  }
+  function onInput(e) {
+    const el = e.target.closest('input[data-k]');
+    if (!el) return;
+    const v = parseFloat(el.value), sc = +el.dataset.sc;
+    const ok = isFinite(v) && v >= 0 && !(el.dataset.k === 'days_fy28' && v < 1) && !(el.dataset.k.startsWith('pe.') && v <= 0);
+    el.setAttribute('aria-invalid', String(!ok));
+    if (!ok) return;
+    setK(FV.inp, el.dataset.k, v / sc);
+    saveInputs(FV.data.house);
+    renderHouse();
+  }
+
   function renderFairValue() {
     const v = FV.data;
     if (!v) return;
-    const h = v.house, snap = v.snapshot, c = snap.eps_chain, pb = v.pe_bands, fv = snap.fair_value;
+    const h = v.house;
+    if (!h) { MCX.ui.error($('fvStats'), v.house_error ? 'House model unavailable: ' + v.house_error : 'No house model.', mountFairValue); return; }
+    if (!FV.inp) { FV.inp = houseInputs(h); FV.calc = houseCalc(FV.inp, h.shares_cr, MCX.market.ist().iso); renderInputs(h); }
+    renderHouse();
+    renderBand();
+  }
+
+  // Everything that depends on the house inputs or the price
+  function renderHouse() {
+    const v = FV.data, h = v.house, snap = v.snapshot, c = snap.eps_chain, pb = v.pe_bands, fv = snap.fair_value;
     const cp = currentPrice();
-    if (!cp || !h) { MCX.ui.error($('fvStats'), v.house_error ? 'House model unavailable: ' + v.house_error : 'No share price yet.', mountFairValue); return; }
-    const price = cp.price, pe = pb.mean;
-    const l = fvLede(price, h, v);
+    if (!cp) { MCX.ui.error($('fvStats'), 'No share price yet.', mountFairValue); return; }
+    const inp = FV.inp, price = cp.price, pe = pb.mean;
+    const hc = FV.calc = houseCalc(inp, h.shares_cr, MCX.market.ist().iso), t = hc.today;
+    syncInputs(h);
+    const l = fvLede(price, t, inp, v);
     $('fvKicker').textContent = `Fair value · two views · ADR to ${fmt.dayMonth(v.data_quality.latest_valuation_date)}, price ${cp.label}`;
     $('fvHead').textContent = l.head;
     $('fvDeck').textContent = l.deck;
-    const lo = h.blend['48'], hi = h.blend['52'];
     const implied = revenuePricedIn(price, pe, c);
-    const perCr = c.trading_days * c.pat_margin / c.diluted_shares_cr * pe;
-    const stateLabel = { near: ['', 'Near fair value'], below: ['up', 'Below the house range'], above: ['down', 'Above the house range'] }[l.state];
+    const hs = HOUSE_STATE[l.state];
     $('fvStats').innerHTML =
       stat('Share price', `₹${num(price, 0)}`, `${cp.change !== null && cp.change !== undefined ? `<span class="${cp.change >= 0 ? 'up' : 'down'}">${cp.change >= 0 ? '▲' : '▼'} ${num(Math.abs(cp.change), 2)}%</span> today · ` : ''}NSE, ${esc(cp.label)}`, true)
-      + stat('Tusk house view', `₹${num(lo, 0)} – ${num(hi, 0)}`, `<div class="stat-pill"><span class="pill${stateLabel[0] ? ' pill--' + stateLabel[0] : ''}">${stateLabel[1]}</span></div>${pct((lo / price - 1) * 100)} to ${pct((hi / price - 1) * 100)} vs price`)
+      + stat('Tusk house view', `₹${num(t.base, 0)}`, `<div class="stat-pill"><span class="pill${hs[0] ? ' pill--' + hs[0] : ''}">${hs[1]}</span></div>bear ₹${num(t.bear, 0)} · bull ₹${num(t.bull, 0)} · base ${pct((t.base / price - 1) * 100)} vs price`)
       + stat('Data-driven view', `₹${num(fv.base, 0)}`, `<div class="stat-pill">${sigPill(ddSignal(price, fv))}</div>price ${Math.abs(l.prem).toFixed(1)}% ${l.prem >= 0 ? 'above' : 'below'}`)
       + stat('Revenue priced in', `₹${num(implied, 2)}<small>Cr/day</small>`, `at the data-driven multiple · 45-day average ₹${num(c.ma45_rev_cr, 2)} Cr`);
 
     const reg = h.regression, pvs = h.analysts.map(a => a.present_value);
     const rows = [
+      { group: 'Tusk house model' },
+      { name: 'House view', sub: `${inp.pe.bear} / ${inp.pe.base} / ${inp.pe.bull}× FY28 EPS, discounted to today`, lo: t.bear, hi: t.bull, mark: t.base, kind: 'blend',
+        value: `${rs(t.base)} <tspan class="c-label2">(${num(t.bear, 0)}–${num(t.bull, 0)})</tspan>` },
       { group: 'Data-driven' },
       { name: 'P/E band on run-rate EPS', sub: `${num(pb.bear_pe, 1)}–${num(pb.bull_pe, 1)}× · base ${num(pe, 1)}×`, lo: fv.bear, hi: fv.bull, mark: fv.base, kind: 'dd',
         value: `${rs(fv.base)} <tspan class="c-label2">(${num(fv.bear, 0)}–${num(fv.bull, 0)})</tspan>` },
-      { group: 'Tusk house model' },
-      { name: 'ADR model', sub: `${h.assumptions.pe[0]}–${h.assumptions.pe[1]}× FY28E EPS, ${Math.round(h.assumptions.hurdle * 100)}% hurdle`, lo: h.adr_leg['48'], hi: h.adr_leg['52'], mark: null, kind: 'leg', value: `${rs(h.adr_leg['48'])} – ${num(h.adr_leg['52'], 0)}` },
+      { group: 'Cross-checks, not in the house view' },
       reg ? { name: 'Regression', sub: 'price on 45-day ADR · 95% band', lo: reg.low, hi: reg.high, mark: reg.value, kind: 'whisker', value: rs(reg.value) } : null,
       { name: 'Analyst targets', sub: `${h.analysts.length} brokers, discounted at ${Math.round(h.assumptions.hurdle * 100)}%`, lo: Math.min(...pvs), hi: Math.max(...pvs), mark: h.analyst_leg, kind: 'leg',
         value: `${rs(h.analyst_leg)} <tspan class="c-label2">(${num(Math.min(...pvs), 0)}–${num(Math.max(...pvs), 0)})</tspan>` },
-      { name: 'House blend', sub: `average of the ${reg ? 'three' : 'two'} legs`, lo, hi, mark: null, kind: 'blend', value: `${rs(lo)} – ${num(hi, 0)}` },
     ].filter(Boolean);
     const box = $('fvFootball');
     box.innerHTML = footballSvg(Math.round(box.clientWidth) || 1000, rows, price);
     $('fvFootballBasis').innerHTML = INFO + `<span>The regression is refitted on ${reg ? reg.n : '—'} sessions since ${reg ? fmt.dayMonth(reg.since) + ' ' + reg.since.slice(0, 4) : '—'} (price ≈ ${reg ? num(reg.a, 0) : '—'} + ${reg ? num(reg.b, 1) : '—'} × ADR${reg && reg.r_squared ? `, R² ${num(reg.r_squared, 2)}` : ''}). `
       + `Analyst targets are from the Tusk workbook (reports of ${esc([...new Set(h.analysts.map(a => fmt.dayMonth(a.report_date).split(' ')[1]))].join(' and '))} 2026), each discounted from its 12-month target date.</span>`;
 
-    $('fvHouseChain').innerHTML = chain([
-      ['FY27E EPS', `₹${num(h.eps27, 2)}`, `ADR ₹${num(h.adr_cr, 2)} Cr × ${h.assumptions.days.FY27} days + non-F&amp;O ₹${num(h.non_fo_fy27_cr, 0)} Cr, × ${Math.round(h.assumptions.margin * 100)}% margin, ÷ ${num(h.shares_cr, 3)} Cr shares`],
-      ['FY28E EPS', `₹${num(h.eps28, 2)}`, `House assumption: ADR and non-F&amp;O both +${Math.round(h.assumptions.fy28_growth * 100)}%, over FY28’s ${h.assumptions.days.FY28} trading days`],
-      [`Target price at ${fmt.dayMonth(h.assumptions.target_date)} ${h.assumptions.target_date.slice(0, 4)}`, `₹${num(h.target['48'], 0)} – ${num(h.target['52'], 0)}`, `${h.assumptions.pe[0]}–${h.assumptions.pe[1]}× forward P/E on FY28E EPS`],
-      ['ADR model today', `₹${num(h.adr_leg['48'], 0)} – ${num(h.adr_leg['52'], 0)}`, `Discounted at the ${Math.round(h.assumptions.hurdle * 100)}% hurdle for ${num(h.years_to_target, 2)} years`],
-      ['House blend', `₹${num(lo, 0)} – ${num(hi, 0)}`, `Average of ADR model${reg ? `, regression ₹${num(reg.value, 0)}` : ''} and analysts ₹${num(h.analyst_leg, 0)}`],
-    ]);
+    // The sheet
+    const three = f => ['bear', 'base', 'bull'].map(f);
+    const same = x => three(() => x);
+    const grow = `FY26 ₹${num(inp.non_fo_fy26, 0)} Cr, +${num(inp.growth_fy27 * 100, 0)}% then +${num(inp.growth_fy28 * 100, 0)}%`;
+    const sheetRows = [
+      ['Revenue per day, FY28', same(`₹${num(inp.adr_fy28, 2)}`)],
+      ['Trading days', same(num(inp.days_fy28))],
+      ['Operating revenue (F&amp;O)', same(num(hc.op, 0))],
+      [`Other operating revenue<small>${grow}</small>`, same(num(hc.nonFo, 0))],
+      [`Other income<small>FY26 ₹${num(inp.other_income_fy26, 0)} Cr, same growth</small>`, same(num(hc.other, 0))],
+      ['Total revenue', same(num(hc.total, 0)), 'sub'],
+      [`PAT<small>${num(inp.margin * 100, 1)}% of total revenue</small>`, same(num(hc.pat, 0))],
+      [`EPS<small>÷ ${num(h.shares_cr, 3)} Cr shares</small>`, same(`₹${num(hc.eps, 2)}`)],
+      ['P/E', three(k => `${num(inp.pe[k], 1)}×`)],
+      ['Target price, FY28', three(k => `₹${num(hc.fy28[k], 0)}`), 'sub'],
+      ['Discount to FY27', same(`${num(inp.disc_fy28 * 100, 1)}%`)],
+      ['Target price, FY27', three(k => `₹${num(hc.fy27[k], 0)}`)],
+      [`Discount to today<small>${inp.method === 'prorata' ? `pro-rata, ${hc.daysLeft} days to 31 Mar 2027` : 'fixed'}</small>`, same(`${num(hc.step2 * 100, 2)}%`)],
+      ['Target price today', three(k => `₹${num(t[k], 0)}`), 'total'],
+      ['Against the price', three(k => `<span class="${t[k] >= price ? 'up' : 'down'}">${pct((t[k] / price - 1) * 100)}</span>`)],
+    ];
+    $('fvSheet').innerHTML = `<div class="table-scroll"><table class="v2-table house-sheet"><thead><tr><th scope="col">Based on the latest trend, FY28</th>`
+      + three(k => `<th scope="col">${k[0].toUpperCase() + k.slice(1)}</th>`).join('') + '</tr></thead><tbody>'
+      + sheetRows.map(([lab, cells, cls]) => `<tr${cls ? ` class="${cls}"` : ''}><td>${lab}</td>${cells.map(x => `<td>${x}</td>`).join('')}</tr>`).join('')
+      + '</tbody></table></div>';
+    $('fvSheetBasis').innerHTML = INFO + `<span>From the Tusk sheet “Based on latest trend, FY2028”, with the FY28 calendar of ${h.assumptions.days.FY28} trading days. `
+      + 'The margin is applied to total revenue including other income, which is how the sheet’s figures are computed. The target is P/E on FY28 earnings, brought back to FY27 and then to today.</span>';
+
     $('fvDdChain').innerHTML = chain([
       ['Run-rate EPS', `₹${num(c.eps, 2)}`, `ADR ₹${num(c.ma45_rev_cr, 2)} Cr × ${c.trading_days} days + non-F&amp;O ₹${num(c.non_fo_rev_cr, 1)} Cr, × ${Math.round(c.pat_margin * 100)}%, ÷ ${num(c.diluted_shares_cr, 3)} Cr shares`],
       ['Multiple', `${num(pe, 1)}×`, `Median of the stock’s own P/E on run-rate EPS; band ±1 SD = ${num(pb.bear_pe, 1)}–${num(pb.bull_pe, 1)}×`],
       ['Fair value today', `₹${num(fv.base, 0)}`, `Range ₹${num(fv.bear, 0)} – ${num(fv.bull, 0)} · no discounting: a spot multiple on current earnings`],
-      ['Revenue priced in', `₹${num(implied, 2)} Cr/day`, `What today’s price needs at ${num(pe, 1)}×; each ₹1 Cr a day is worth about ₹${num(perCr, 0)} a share`],
+      ['Revenue priced in', `₹${num(implied, 2)} Cr/day`, `What today’s price needs at ${num(pe, 1)}×; each ₹1 Cr a day is worth about ₹${num(c.trading_days * c.pat_margin / c.diluted_shares_cr * pe, 0)} a share`],
     ]);
 
     $('fvWhy').innerHTML = table(['', 'Tusk house', 'Data-driven'], [
-      ['Earnings used', `FY28E ₹${num(h.eps28, 2)}`, `Run-rate ₹${num(c.eps, 2)}`],
-      ['Multiple', `${h.assumptions.pe[0]}–${h.assumptions.pe[1]}× forward`, `${num(pe, 1)}× median of own history`],
-      ['Discounting', `${Math.round(h.assumptions.hurdle * 100)}% hurdle, ${num(h.years_to_target, 2)} years`, 'Not applied'],
-      ['Other legs', reg ? 'Regression and analysts, equal weight' : 'Analysts, equal weight', 'Not used'],
-      { cls: 'total', cells: ['Result', `₹${num(lo, 0)} – ${num(hi, 0)}`, `₹${num(fv.base, 0)}`] },
+      ['Revenue per day', `₹${num(inp.adr_fy28, 2)} Cr in FY28`, `₹${num(c.ma45_rev_cr, 2)} Cr, the 45-day average`],
+      ['Earnings used', `FY28 EPS ₹${num(hc.eps, 2)}`, `Run-rate EPS ₹${num(c.eps, 2)}`],
+      ['Multiple', `${inp.pe.bear} / ${inp.pe.base} / ${inp.pe.bull}×`, `${num(pe, 1)}×, median of own history`],
+      ['Discounting', `${num(inp.disc_fy28 * 100, 1)}% to FY27, then ${num(hc.step2 * 100, 2)}% to today`, 'Not applied'],
+      { cls: 'total', cells: ['Base value', `₹${num(t.base, 0)}`, `₹${num(fv.base, 0)}`] },
     ]);
-    const epsGap = (h.eps27 / c.eps - 1) * 100;
-    $('fvWhyBasis').innerHTML = INFO + `<span>On the same year the two methods’ EPS differ by ${num(Math.abs(epsGap), 0)}% (house FY27E ₹${num(h.eps27, 2)} against run-rate ₹${num(c.eps, 2)}); most of the gap is the growth year, the multiple and the blend.</span>`;
+    $('fvWhyBasis').innerHTML = INFO + `<span>The house earnings are ${num(Math.abs(hc.eps / c.eps - 1) * 100, 0)}% ${hc.eps >= c.eps ? 'above' : 'below'} run-rate: a higher revenue per day, other income counted, and a full FY28.</span>`;
 
-    $('fvSens').innerHTML = table(['FY28 growth', 'FY28E EPS', 'ADR model today', 'House blend'], h.sensitivity.map(r => ({
-      cls: Math.abs(r.growth - h.assumptions.fy28_growth) < 1e-9 ? 'total' : '',
-      cells: [`${Math.round(r.growth * 100)}%${Math.abs(r.growth - h.assumptions.fy28_growth) < 1e-9 ? ' <span class="muted">house</span>' : ''}`, `₹${num(r.eps28, 2)}`,
-              `₹${num(r.adr_leg_48, 0)} – ${num(r.adr_leg_52, 0)}`, `₹${num(r.blend_48, 0)} – ${num(r.blend_52, 0)}`] })));
-    $('fvSensBasis').innerHTML = INFO + `<span>For comparison, the ${h.street.brokers} brokers average ${num(h.street.pe, 0)}× on FY28E EPS of ₹${num(h.street.eps28, 1)}; the house uses ${h.assumptions.pe[0]}–${h.assumptions.pe[1]}× on ₹${num(h.eps28, 2)}.</span>`;
+    // What moves the house number: revenue per day × multiple
+    const adrs = [-2, -1, 0, 1, 2].map(d => inp.adr_fy28 + d).filter(x => x > 0);
+    $('fvSens').innerHTML = table(['Revenue per day, FY28', `Bear ${inp.pe.bear}×`, `Base ${inp.pe.base}×`, `Bull ${inp.pe.bull}×`], adrs.map(a => {
+      const r = houseCalc(Object.assign({}, inp, { adr_fy28: a }), h.shares_cr, MCX.market.ist().iso).today;
+      const cur = Math.abs(a - inp.adr_fy28) < 1e-9;
+      return { cls: cur ? 'total' : '', cells: [`₹${num(a, 2)} Cr${cur ? ' <span class="muted">house</span>' : ''}`, ...three(k => `₹${num(r[k], 0)}`)] };
+    }));
+    const be = breakevenAdr(price, inp, h.shares_cr, hc);
+    $('fvSensBasis').innerHTML = INFO + `<span>Today’s price equals the house base case at ₹${num(be, 2)} Cr a day in FY28, against the house’s ₹${num(inp.adr_fy28, 2)} Cr and the last 45 days’ ₹${num(c.ma45_rev_cr, 2)} Cr. `
+      + `For comparison, the ${h.street.brokers} brokers average ${num(h.street.pe, 0)}× on FY28E EPS of ₹${num(h.street.eps28, 1)}.</span>`;
 
     $('fvBrokers').innerHTML = table(['Broker', 'Report', 'Rating', 'Target', 'Target date', 'Worth today', 'FY28E EPS', 'P/E on FY28E'], h.analysts.map(a => [
       esc(a.broker), fmt.dayMonth(a.report_date) + ' ' + a.report_date.slice(0, 4), esc(a.rating), `₹${num(a.target, 0)}`,
       fmt.dayMonth(a.target_date) + ' ' + a.target_date.slice(0, 4) + (a.expired ? ' <span class="muted">passed</span>' : ''), `₹${num(a.present_value, 0)}`, `₹${num(a.eps28, 1)}`, `${num(a.pe, 0)}×`]));
-
-    renderBand();
   }
 
   function renderBand() {
@@ -476,6 +608,16 @@
     MCX.poll.kick('cmp');
   }
   MCX.store.on('price', () => { if (FV.data && MCX.router.current() === 'val-fv') renderFairValue(); });
+  $('fvInputs').addEventListener('input', onInput);
+  $('fvInputs').addEventListener('submit', e => e.preventDefault());
+  $('fvInputs').addEventListener('click', e => {
+    const m = e.target.closest('[data-method]'), r = e.target.closest('#fvReset');
+    if (m && FV.inp && m.dataset.method !== FV.inp.method) { FV.inp.method = m.dataset.method; saveInputs(FV.data.house); renderHouse(); }
+    if (r && FV.data) {
+      FV.inp = clone(FV.data.house.inputs); saveInputs(FV.data.house);
+      FV.calc = houseCalc(FV.inp, FV.data.house.shares_cr, MCX.market.ist().iso); renderInputs(FV.data.house); renderHouse();
+    }
+  });
   makeRangeToggle({ key: 'valChart', containerId: 'fvBandRange', ranges: ['30D', '60D', 'Q', '1Y', '2Y', 'Max'], defaultRange: '60D', labelIds: ['fvBandRangeLabel'],
                     onChange: () => fetchRanged(valUrl()).then(d => { if (d.success) { FV.data = d; renderBand(); } }) });
   onResize($('fairvalue'), () => FV.data && renderFairValue());
