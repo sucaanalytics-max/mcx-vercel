@@ -1,15 +1,12 @@
 // ════════════════════════════════════════════════════════════════════════════
 //  GLOBALS
 // ════════════════════════════════════════════════════════════════════════════
-let sparkChartInst = null;
 let valChartInst = null;
 let valCache = null;
 let valLoading = false;
 let ecmChartInst = null;
 let mdlCache = null;
 let mdlLoading = false;
-let futData = [], optData = [];
-let TOTAL_FUT = 0, TOTAL_OPT = 0;
 let autoRefreshInterval = null;
 let nextRefreshAt = null;
 const AUTO_REFRESH_MS = 2 * 60 * 1000;  // 2 minutes
@@ -98,22 +95,15 @@ function fmtDec(n,d=2) { return parseFloat(n).toFixed(d); }
 // MCX.theme (core.js) sets html.dark; the router redraws each page's charts after a change.
 function toggleTheme() { MCX.theme.cycle(); }
 
-// Today's charts read the theme when drawn, so draw them again from the data on screen.
+// The session profile charts read the theme when drawn, so draw them again.
+// (Today's other charts are SVG coloured by CSS variables.)
 function rethemeToday() {
-  renderCharts();
   if (curveDataCache) {
     renderDynamicBucketChart(curveDataCache);
     const cumEl = document.getElementById('curveViewCumulative');
     if (cumEl && cumEl.style.display !== 'none') renderCumulativeChart(curveDataCache);
   } else {
     renderIntradayChart();
-  }
-  if (sparkArgs) {
-    const ds = sparkChartInst && sparkChartInst.data.datasets[0];
-    const live = ds && ds.data.length ? ds.data[ds.data.length - 1] : undefined;   // today's point, updated by refreshes
-    renderSparkline(sparkArgs[0], sparkArgs[1]);
-    const nds = sparkChartInst && sparkChartInst.data.datasets[0];
-    if (nds && nds.data.length && live !== undefined) { nds.data[nds.data.length - 1] = live; sparkChartInst.update('none'); }
   }
 }
 
@@ -151,67 +141,6 @@ function saveCookie() {
   if (val) { MCX.storage.set('mcxCookie', val); closeCookieModal(); showToast('Cookie saved', 'success'); }
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCookieModal(); });
-
-// ════════════════════════════════════════════════════════════════════════════
-//  RENDER TABLES
-// ════════════════════════════════════════════════════════════════════════════
-function renderTables() {
-  const ftb = document.getElementById('futTable');
-  ftb.innerHTML = futData.slice(0, 10).map(f => {
-    const pct = TOTAL_FUT > 0 ? (f.notl / TOTAL_FUT * 100).toFixed(1) : '—';
-    return `<tr><td>${f.sym}</td><td class="num">₹${fmtNum1(f.notl)}</td><td class="num">${pct}%</td></tr>`;
-  }).join('');
-
-  const otb = document.getElementById('optTable');
-  otb.innerHTML = optData.slice(0, 10).map(o => {
-    const ratio = o.ratio ? o.ratio.toFixed(3) : '—';
-    return `<tr><td>${o.sym}</td><td class="num">₹${fmtDec(o.prem)}</td><td class="num">${ratio}%</td></tr>`;
-  }).join('');
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  RENDER CHARTS
-// ════════════════════════════════════════════════════════════════════════════
-let futChartInst = null, optChartInst = null;
-function renderCharts() {
-  const isDark = document.documentElement.classList.contains('dark');
-  const gridColor = isDark ? '#333' : '#E8E6E1';
-  const tickColor = isDark ? '#888' : '#6B6560';
-
-  // Futures chart
-  const futLabels = futData.slice(0, 8).map(f => f.sym);
-  const futVals = futData.slice(0, 8).map(f => f.notl);
-  if (futChartInst) futChartInst.destroy();
-  futChartInst = new Chart(document.getElementById('futChart'), {
-    type: 'bar',
-    data: { labels: futLabels, datasets: [{ data: futVals, backgroundColor: isDark ? '#FF6B47' : '#D4380D', borderWidth: 0, borderRadius: 2 }] },
-    options: {
-      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        y: { ticks: { color: tickColor, font: { family: "'JetBrains Mono'", size: 9 } }, grid: { display: false } },
-        x: { ticks: { color: tickColor, font: { family: "'JetBrains Mono'", size: 9 }, callback: v => '₹' + (v/1000).toFixed(0) + 'K' }, grid: { color: gridColor } }
-      }
-    }
-  });
-
-  // Options chart
-  const optLabels = optData.slice(0, 8).map(o => o.sym);
-  const optVals = optData.slice(0, 8).map(o => o.prem);
-  if (optChartInst) optChartInst.destroy();
-  optChartInst = new Chart(document.getElementById('optChart'), {
-    type: 'bar',
-    data: { labels: optLabels, datasets: [{ data: optVals, backgroundColor: isDark ? '#5B9CF5' : '#0958D9', borderWidth: 0, borderRadius: 2 }] },
-    options: {
-      indexAxis: 'y', responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        y: { ticks: { color: tickColor, font: { family: "'JetBrains Mono'", size: 9 } }, grid: { display: false } },
-        x: { ticks: { color: tickColor, font: { family: "'JetBrains Mono'", size: 9 }, callback: v => '₹' + v.toFixed(0) }, grid: { color: gridColor } }
-      }
-    }
-  });
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 //  INTRADAY VOLUME CURVE (DYNAMIC)
@@ -419,82 +348,10 @@ function renderIntradayChart() {
 //  UPDATE UI FROM /api/refresh
 // ════════════════════════════════════════════════════════════════════════════
 function updateSnapshotFromAPI(d) {
-  const futRevVal = 2 * d.proj_fut_cr * 210 / 1e7;
-  const optRevVal = 2 * d.proj_opt_cr * 4180 / 1e7;
-  const txRev = futRevVal + optRevVal;
-  const totalRev = txRev;
-  const isLive = !d.session_closed;
-  const tradingDays = d.trading_days || 250;
-
-  // ── Hero ──────────────────────────────────────────────────────────────
-  document.getElementById('heroEyebrow').textContent = isLive ? "Today's Projected Revenue" : "Today's Final Revenue";
-  document.getElementById('heroRevenue').textContent = '₹' + fmtDec(totalRev);
-  const badge = document.getElementById('heroBadge');
-  badge.textContent = d.day_type || '—';
-  badge.className = 'hero-badge ' + (d.day_type || 'low').toLowerCase();
-
-  const deltaEl = document.getElementById('heroDelta');
-  const ma45 = parseFloat(document.getElementById('heroMAVal')?.textContent?.replace(/[^0-9.]/g, '')) || 13.93;
-  const vsMa = ((totalRev / ma45 - 1) * 100);
-  deltaEl.textContent = `vs 45d MA: ${vsMa >= 0 ? '+' : ''}${vsMa.toFixed(1)}%`;
-  deltaEl.className = 'hero-delta ' + (vsMa >= 0 ? 'up' : 'down');
-
-  document.getElementById('heroDate').textContent = d.timestamp ? d.timestamp.split('T')[0] : '—';
-  const sessLabel = d.session_type === 'evening_only' ? 'Evening' : d.session_type === 'morning_only' ? 'Morning' : '';
-  document.getElementById('heroSession').textContent = isLive ? `${d.elapsed_pct}% elapsed${sessLabel ? ' (' + sessLabel + ')' : ''}` : 'Session closed';
-  // Realized-so-far: revenue actually booked from current cumulative notionals
-  // (heroRevenue above is the full-day projection). Clarifies how much of the
-  // projected figure is real this early in the session; hidden once closed.
-  const realizedRev = 2 * (d.fut_notl_cr || 0) * 210 / 1e7 + 2 * (d.opt_prem_cr || 0) * 4180 / 1e7;
-  document.getElementById('heroRealized').textContent = isLive ? `₹${fmtDec(realizedRev, 1)} Cr booked` : '';
-  document.getElementById('heroRange').textContent = (d.rev_low != null) ? `₹${fmtDec(d.rev_low,1)}–${fmtDec(d.rev_high,1)} Cr` : '';
-  document.getElementById('heroConfidence').textContent = `${d.confidence || '—'} · ±${d.uncertainty_pct || 0}%`;
-  document.getElementById('heroProgressFill').style.width = (d.elapsed_pct || 0) + '%';
-
-  // ── Today card in history row ────────────────────────────────────────
-  document.getElementById('heroTodayCard').textContent = '₹' + fmtDec(totalRev);
-  document.getElementById('heroTodayCardSub').textContent = isLive ? `${d.elapsed_pct}% · ${d.confidence}` : 'Final';
-
-  // ── Snapshot accordion ───────────────────────────────────────────────
-  document.getElementById('snBadgeRev').textContent = '₹' + fmtDec(totalRev) + ' Cr';
-  document.getElementById('snFutNotl').textContent = '₹' + fmtNum1(d.fut_notl_cr) + ' Cr';
-  document.getElementById('snOptNotl').textContent = '₹' + fmtNum1(d.opt_notl_cr) + ' Cr';
-  document.getElementById('snOptPrem').textContent = '₹' + fmtNum1(d.opt_prem_cr) + ' Cr';
-  document.getElementById('snTotalNotl').textContent = '₹' + fmtNum1((d.fut_notl_cr||0) + (d.opt_notl_cr||0)) + ' Cr';
-  document.getElementById('snFutContracts').textContent = d.active_futures + ' contracts';
-  document.getElementById('snOptContracts').textContent = d.active_options + ' contracts';
-  document.getElementById('snFutFormula').textContent = `(2×₹${fmtNum1(d.proj_fut_cr)}×210)`;
-  document.getElementById('snOptFormula').textContent = `(2×₹${fmtNum1(d.proj_opt_cr)}×4180)`;
-  document.getElementById('snFutRev').textContent = '₹' + fmtDec(futRevVal, 2) + ' Cr';
-  document.getElementById('snOptRev').textContent = '₹' + fmtDec(optRevVal, 2) + ' Cr';
-  document.getElementById('snTotalLabel').textContent = isLive ? 'Projected Total' : 'Actual Total';
-  document.getElementById('snTotalRev').textContent = '₹' + fmtDec(totalRev) + ' Cr (±' + (d.uncertainty_pct||0) + '%)';
-  if (d.rev_low != null) document.getElementById('snRevRange').textContent = '₹' + fmtDec(d.rev_low) + '–' + fmtDec(d.rev_high) + ' Cr';
-  document.getElementById('snAnnual').textContent = '₹' + Math.round(totalRev * tradingDays) + ' Cr';
-
-  const vsModel = ((totalRev / 9.05 - 1) * 100);
-  const cme = document.getElementById('corrModelDelta');
-  cme.textContent = (vsModel >= 0 ? '+' : '') + vsModel.toFixed(1) + '%';
-  cme.style.color = vsModel >= 0 ? 'var(--positive)' : 'var(--negative)';
-
-  document.getElementById('snDataSource').textContent = (d.source === 'supabase_cache' ? 'Relay → Supabase' : 'MCX Direct') + ' · ' + (d.active_futures + d.active_options) + ' contracts';
-  document.getElementById('snStatus').textContent = isLive ? `Open · ${d.elapsed_pct}%` : 'Closed';
-
-  // ── KPIs ──────────────────────────────────────────────────────────────
-  document.getElementById('kpiTotalRev').textContent = '₹' + fmtDec(totalRev);
-  document.getElementById('kpiTotalRevLbl').textContent = isLive ? 'Projected' : 'Final';
-  const kdt = document.getElementById('kpiDayType');
-  kdt.textContent = d.day_type || '—';
-  kdt.style.color = d.day_type === 'HIGH' ? 'var(--positive)' : d.day_type === 'MEDIUM' ? 'var(--warning)' : 'var(--text-secondary)';
-  document.getElementById('kpiDayTypeNote').textContent = (d.day_description || '').split('.')[0];
-  document.getElementById('kpiAnnual').textContent = '₹' + Math.round(totalRev * tradingDays) + ' Cr';
-  document.getElementById('kpiPremRatio').textContent = (d.prem_notl_pct || 0).toFixed(3) + '%';
-  const vsQ3 = (totalRev / 10.25 * 100).toFixed(1);
-  document.getElementById('kpiVsQ3').textContent = vsQ3 + '%';
-  document.getElementById('kpiVsQ3').style.color = parseFloat(vsQ3) >= 100 ? 'var(--positive)' : 'var(--negative)';
-
-  // ── Live pill ────────────────────────────────────────────────────────
-  MCX.store.set('liveRevenue', { value: totalRev, live: isLive });
+  // The Today page renders from MCX.store 'refresh' (today.js). This keeps the
+  // header, the session profile and the Scenarios seed in step.
+  const totalRev = d.proj_rev_cr;          // projected revenue for the day (final after the close), ₹ Cr
+  MCX.store.set('liveRevenue', { value: totalRev, live: !d.session_closed });
   // Top-right meta: show the SNAPSHOT'S OWN timestamp (the timeframe of the data
   // on screen), converted to IST regardless of viewer timezone — not the client
   // clock. This tells viewers how fresh the data is (and surfaces staleness).
@@ -512,31 +369,9 @@ function updateSnapshotFromAPI(d) {
       _meta.textContent = '—';
     }
   }
-
-  // ── Tables & charts ──────────────────────────────────────────────────
-  if (d.top_futures && d.top_futures.length) {
-    futData = d.top_futures.map(f => ({sym:f.sym, notl:f.notl}));
-    TOTAL_FUT = d.proj_fut_cr;
-  }
-  if (d.top_options && d.top_options.length) {
-    optData = d.top_options.map(o => ({sym:o.sym, prem:o.prem, notl:o.notl, ratio:o.ratio||0}));
-    TOTAL_OPT = d.proj_opt_cr;
-  }
-  renderTables();
-  renderCharts();
+  // Session profile: redraw with the new snapshot
   if (curveDataCache) { curveDataCache = null; loadIntradayCurve(); } else { renderIntradayChart(); }
-
-  // ── Seed forecast tab with live revenue ──────────────────────────────
   seedForecastFromAPI(totalRev);
-
-  // ── Update sparkline today point ─────────────────────────────────────
-  if (sparkChartInst) {
-    const ds = sparkChartInst.data.datasets[0];
-    if (ds && ds.data.length > 0) {
-      ds.data[ds.data.length - 1] = totalRev;
-      sparkChartInst.update('none');
-    }
-  }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -583,6 +418,7 @@ async function doRefresh(silent) {
       data = await resp.json();
     }
 
+    MCX.store.set('refresh', data);
     if (data.success) {
       clearRangedCache();
       updateSnapshotFromAPI(data);
@@ -592,96 +428,12 @@ async function doRefresh(silent) {
       if (!silent) showToast('Refresh failed: ' + (data.error || ''), 'error');
     }
   } catch(e) {
+    MCX.store.set('refresh', { success: false, error: 'Network error' });
     if (!silent) showToast('Network error', 'error');
   } finally {
     btn.classList.remove('loading');
     btn.disabled = false;
   }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-//  HERO — load from /api/history
-// ════════════════════════════════════════════════════════════════════════════
-async function loadHero() {
-  try {
-    const days = RANGE_TRADING_DAYS[rangeState['spark'] || '60D'];
-    const data = await fetchRanged('/api/history?days=' + (days == null ? 0 : days));
-    renderHero(data);
-  } catch(e) {
-    document.getElementById('heroMAVal').textContent = '—';
-  }
-}
-
-function renderHero(data) {
-  const history = data.history || [];
-  const ma45 = data.ma_45 || 13.93;
-  const prev3 = history.filter(h => !h.is_today && h.adr !== null).slice(-3);
-
-  prev3.forEach((day, i) => {
-    const vs = ((day.adr / ma45 - 1) * 100);
-    const col = vs >= 0 ? 'var(--positive)' : 'var(--negative)';
-    document.getElementById(`hd${i+1}val`).textContent = '₹' + fmtDec(day.adr);
-    document.getElementById(`hd${i+1}sub`).innerHTML = `<span style="color:${col}">${vs>=0?'+':''}${vs.toFixed(1)}%</span> · ${day.label}`;
-  });
-
-  document.getElementById('heroMAVal').textContent = '₹' + fmtDec(ma45);
-  const validAdrs = history.map(h => h.adr).filter(v => v !== null);
-  document.getElementById('heroMARange').textContent = validAdrs.length ? `₹${Math.min(...validAdrs).toFixed(1)}–${Math.max(...validAdrs).toFixed(1)}` : '—';
-
-  const todayLabel = data.today_label || new Date().toLocaleDateString('en-IN', {weekday:'short',day:'2-digit',month:'short'});
-  document.getElementById('heroDate').textContent = todayLabel;
-
-  renderSparkline(history, data.period_avg || ma45);
-}
-
-let sparkArgs = null;
-function renderSparkline(history, ma45) {
-  sparkArgs = [history, ma45];
-  const isDark = document.documentElement.classList.contains('dark');
-  const labels = history.map(h => h.label);
-  const adrs = history.map(h => h.is_today ? null : h.adr);
-  const maLine = history.map(() => ma45);
-
-  const pointColors = history.map(h =>
-    h.is_today ? (isDark ? '#52C41A' : '#1B7D3A') :
-    h.is_actual ? (isDark ? '#E0DDD8' : '#1A1A1A') :
-    (isDark ? '#555' : '#C4C0B8')
-  );
-  const pointRadius = history.map(h => h.is_today ? 6 : h.is_actual ? 3 : 2);
-
-  if (sparkChartInst) sparkChartInst.destroy();
-  sparkChartInst = new Chart(document.getElementById('sparkChart'), {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: 'Daily Revenue',
-          data: adrs,
-          borderColor: isDark ? 'rgba(255,107,71,0.6)' : 'rgba(212,56,13,0.5)',
-          backgroundColor: isDark ? 'rgba(255,107,71,0.05)' : 'rgba(212,56,13,0.04)',
-          fill: true, tension: 0.25,
-          pointRadius, pointBackgroundColor: pointColors,
-          borderWidth: 1.5
-        },
-        {
-          label: 'Period Avg',
-          data: maLine,
-          borderColor: isDark ? '#5B9CF5' : '#0958D9',
-          borderDash: [5, 3],
-          pointRadius: 0, borderWidth: 1.5, fill: false
-        }
-      ]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { callbacks: { label: item => '₹' + (item.raw||0).toFixed(2) + ' Cr' } } },
-      scales: {
-        x: { ticks: { maxTicksLimit: 8, color: isDark ? '#555' : '#999', font: { family: "'JetBrains Mono'", size: 9 } }, grid: { color: isDark ? '#222' : '#E8E6E1' } },
-        y: { ticks: { color: isDark ? '#555' : '#999', font: { family: "'JetBrains Mono'", size: 9 }, callback: v => '₹' + v.toFixed(0) }, grid: { color: isDark ? '#222' : '#E8E6E1' } }
-      }
-    }
-  });
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -700,13 +452,6 @@ makeRangeToggle({
   ranges: ['30D','60D','Q','1Y','2Y','Max'], defaultRange: '60D',
   labelIds: ['ecmChartRangeLabel'],
   onChange: () => loadModels()
-});
-
-makeRangeToggle({
-  key: 'spark', containerId: 'sparkRange',
-  ranges: ['30D','60D','Q','1Y','2Y','Max'], defaultRange: '60D',
-  labelIds: ['sparkRangeLabel'],
-  onChange: () => loadHero()
 });
 
 makeRangeToggle({
@@ -887,8 +632,6 @@ makeRangeToggle({
   labelIds: ['icomdexRangeLabel'],
   onChange: () => loadIcomdex()
 });
-
-loadHero();
 
 // Auto-trigger first refresh
 setTimeout(() => doRefresh(true), 800);

@@ -93,6 +93,13 @@ html { scroll-padding-top: 76px; }
 .status { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--mcx-text-2); white-space: nowrap; }
 .status::before { content: ''; width: 7px; height: 7px; border-radius: 999px; background: var(--mcx-text-3); }
 .status[data-state="live"]::before { background: var(--mcx-up); box-shadow: 0 0 0 3px var(--mcx-up-tint); }
+.present-btn {
+  height: 34px; padding: 0 12px; border: 1px solid var(--mcx-border-strong); border-radius: 6px;
+  background: var(--mcx-surface); color: var(--mcx-text); cursor: pointer;
+  font: 500 13px/1 var(--mcx-font-sans);
+}
+.present-btn:hover { background: var(--mcx-surface-2); }
+.present-btn:focus-visible { outline: 2px solid var(--mcx-focus); outline-offset: 2px; }
 .appbar-meta { font-size: 13px; color: var(--mcx-text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 /* ── Page chips (below 1024 px) ─────────────────────────────────────────── */
@@ -161,6 +168,7 @@ html { scroll-padding-top: 76px; }
   .appbar { height: 52px; padding: 0 16px; }
   .appbar-brand { display: block; }
   .crumbs { display: none; }
+  .present-btn { display: none; }
   .subnav:not(:empty) { display: flex; }
   .bottombar { display: flex; }
   #main { padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }

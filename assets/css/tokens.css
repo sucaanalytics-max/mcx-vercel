@@ -31,6 +31,11 @@
   --mcx-caution: #8A5C00;
   --mcx-fut: #2a78d6;
   --mcx-opt: #eb6834;
+  --mcx-grid: #EFEFEC;        /* chart gridlines */
+  --mcx-band: #E9EBEE;        /* chart grammar: grey band = range */
+  --mcx-typical: #80878F;     /* chart grammar: dashed grey = typical */
+  --mcx-hatch: #15181D;       /* chart grammar: hatching = projected */
+  --mcx-bar: #858C95;         /* single-series bars, 3:1 on the page */
   --mcx-scrim: rgba(21, 24, 29, 0.40);
   --mcx-shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
   --mcx-shadow-lg: 0 -8px 24px rgba(16, 24, 40, 0.10);
@@ -54,6 +59,11 @@ html.dark {
   --mcx-caution: #E0B040;
   --mcx-fut: #3987e5;
   --mcx-opt: #d95926;
+  --mcx-grid: #23272D;
+  --mcx-band: #23272E;
+  --mcx-typical: #7F8792;
+  --mcx-hatch: #E8EAED;
+  --mcx-bar: #7A828C;
   --mcx-scrim: rgba(0, 0, 0, 0.55);
   --mcx-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.30);
   --mcx-shadow-lg: 0 -8px 24px rgba(0, 0, 0, 0.40);

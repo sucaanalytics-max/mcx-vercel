@@ -433,10 +433,17 @@ class handler(BaseHTTPRequestHandler):
             qs = parse_qs(urlparse(self.path).query)
             view = qs.get("view", [None])[0]
 
+            cache = "public, max-age=120, s-maxage=120"
             if view == "intraday_curve":
                 from lib.intraday_curves import generate_intraday_curves
                 days = int(qs.get("days", ["30"])[0])
                 result = generate_intraday_curves(days=min(days, 90))
+            elif view == "home":
+                # Today page: completed days, six averages, measured projection error.
+                # Changes once a day (after the close), so the CDN can hold it longer.
+                from lib.home_view import generate_home
+                result = generate_home()
+                cache = "public, max-age=60, s-maxage=600, stale-while-revalidate=1800"
             else:
                 result = generate_exchange_dashboard()
 
@@ -444,7 +451,7 @@ class handler(BaseHTTPRequestHandler):
             for k, v in cors.items():
                 self.send_header(k, v)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Cache-Control", "public, max-age=120, s-maxage=120")
+            self.send_header("Cache-Control", cache)
             self.end_headers()
             self.wfile.write(json.dumps(result).encode())
         except Exception as e:

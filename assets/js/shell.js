@@ -8,7 +8,7 @@
   // pages: the .page elements shown for the route. legacy: the old tab id that links here.
   const ROUTES = [
     { id: 'today', path: '/today', section: 'today', title: 'Today', pages: ['tabPredictor'], legacy: 'tabPredictor',
-      retheme: () => rethemeToday() },
+      mount: () => MCX.today.mount(), retheme: () => rethemeToday() },
     { id: 'rev-trends', path: '/revenue/trends', section: 'revenue', title: 'Trends', pages: ['tabExchange'], legacy: 'tabExchange',
       mount: () => loadExchange() },
     { id: 'rev-season', path: '/revenue/seasonality', section: 'revenue', title: 'Seasonality', pages: ['pageRevSeason'],
@@ -44,6 +44,7 @@
   // ── Navigation state ─────────────────────────────────────────────────────
   MCX.router.onChange(r => {
     lastInSection[r.section] = r.path;
+    $('presentBtn').hidden = r.id !== 'today';
     document.querySelectorAll('[data-route]').forEach(a => {
       if (a.dataset.route === r.id) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
     });
@@ -89,13 +90,16 @@
     return s;
   }
 
-  // ── Live status: header chip and the value beside Today ─────────────────
-  MCX.store.on('liveRevenue', v => {
+  // ── Session status: header chip (set by the Today page) and the value beside Today ──
+  MCX.store.on('session', v => {
     const pill = $('livePill');
-    pill.textContent = v.live ? 'Live' : 'Final';
-    pill.dataset.state = v.live ? 'live' : 'final';
+    pill.textContent = v.label;
+    pill.dataset.state = v.state === 'live' ? 'live' : 'final';
+    if (v.state === 'pre') $('railLive').textContent = '';
+  });
+  MCX.store.on('liveRevenue', v => {
     const rail = $('railLive');
-    rail.dataset.state = pill.dataset.state;
+    rail.dataset.state = v.live ? 'live' : 'final';
     rail.textContent = '₹' + MCX.fmt.num(v.value, 2) + ' Cr' + (v.live ? ' proj.' : '');
     rail.title = (v.live ? 'Projected revenue for today: ₹' : 'Final revenue for today: ₹') + MCX.fmt.num(v.value, 2) + ' Cr';
   });

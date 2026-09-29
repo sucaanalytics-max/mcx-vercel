@@ -17,6 +17,30 @@
     eps: v => num(v, 2),          // ₹ per share, always two decimals
   };
 
+  // ── Dates: ISO 'YYYY-MM-DD' strings in, labels out (no time zone involved) ──
+  const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const DOW_LONG = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const MON_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  function dparts(iso) {
+    const [y, m, d] = String(iso).split('-').map(Number);
+    return { y, m, d, dow: new Date(Date.UTC(y, m - 1, d)).getUTCDay() };
+  }
+  Object.assign(MCX.fmt, {
+    weekday: iso => DOW[dparts(iso).dow],                                   // Mon
+    weekdayLong: iso => DOW_LONG[dparts(iso).dow],                          // Monday
+    dayMonth: iso => { const p = dparts(iso); return p.d + ' ' + MON[p.m - 1]; },               // 28 Sep
+    day: iso => { const p = dparts(iso); return DOW[p.dow] + ' ' + p.d + ' ' + MON[p.m - 1]; }, // Mon 28 Sep
+    dateLong: iso => { const p = dparts(iso); return `${DOW_LONG[p.dow]} ${p.d} ${MON_LONG[p.m - 1]} ${p.y}`; },
+    // 22–28 Sep · 1 Jul – 28 Sep · 12 Nov 2026 – 20 Jan 2027
+    span(a, b) {
+      const p = dparts(a), q = dparts(b);
+      if (p.y !== q.y) return `${p.d} ${MON[p.m - 1]} ${p.y} – ${q.d} ${MON[q.m - 1]} ${q.y}`;
+      if (p.m !== q.m) return `${p.d} ${MON[p.m - 1]} – ${q.d} ${MON[q.m - 1]}`;
+      return p.d === q.d ? `${q.d} ${MON[q.m - 1]}` : `${p.d}–${q.d} ${MON[q.m - 1]}`;
+    },
+  });
+
   // ── Timestamps ───────────────────────────────────────────────────────────
   // /api/refresh returns ISO 8601 on GET but "14:42 IST, 28 Sep 2026" after a
   // manual refresh (POST). new Date() can't read the second form.
@@ -71,9 +95,11 @@
   // ── Market hours (IST) ───────────────────────────────────────────────────
   function istNow(d) {
     const ist = new Date((d || new Date()).getTime() + 330 * 60000);
-    return { dow: ist.getUTCDay(), min: ist.getUTCHours() * 60 + ist.getUTCMinutes() };
+    return { dow: ist.getUTCDay(), min: ist.getUTCHours() * 60 + ist.getUTCMinutes(), iso: ist.toISOString().slice(0, 10) };
   }
   MCX.market = {
+    // Today's date (iso), minutes since midnight and weekday, in IST
+    ist: d => istNow(d),
     // NSE equity session, 09:15–15:30 IST on weekdays (exchange holidays not modelled)
     nseOpen(d) { const t = istNow(d); return t.dow >= 1 && t.dow <= 5 && t.min >= 555 && t.min <= 930; },
   };

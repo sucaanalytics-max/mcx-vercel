@@ -116,6 +116,16 @@ def _extract_notionals(raw_json: dict):
     return fut_notl, opt_notl, opt_prem, futures, options
 
 
+def _revenue_fields(fut_notl, opt_prem, proj_fut, proj_opt):
+    """Revenue booked so far and projected for the day, ₹ Cr, split by segment."""
+    bf, bo, _, _ = calc_revenue(fut_notl or 0, opt_prem or 0)
+    pf, po, _, _ = calc_revenue(proj_fut or 0, proj_opt or 0)
+    return {
+        "booked_fut_rev_cr": round(bf, 4), "booked_opt_rev_cr": round(bo, 4), "booked_rev_cr": round(bf + bo, 4),
+        "proj_fut_rev_cr": round(pf, 4), "proj_opt_rev_cr": round(po, 4), "proj_rev_cr": round(pf + po, 4),
+    }
+
+
 def process_market_data(raw_json, capture_time_ist, raw_json2=None):
     """Process one (or two averaged) MCX API snapshots."""
     fut_n1, opt_n1, opt_p1, futures, options = _extract_notionals(raw_json)
@@ -201,6 +211,8 @@ def process_market_data(raw_json, capture_time_ist, raw_json2=None):
         "nontx_rev": NONTX_DAILY,
         "top_futures": top_fut,
         "top_options": top_opt,
+        "trading_date": capture_time_ist.strftime("%Y-%m-%d"),
+        **_revenue_fields(fut_notl, opt_prem, proj_fut, proj_opt),
     }
 
     # F-08: Push snapshot to Supabase for relay
@@ -405,6 +417,7 @@ class handler(BaseHTTPRequestHandler):
                 result["rev_low"] = round(proj_total * (1 - unc), 2)
                 result["rev_high"] = round(proj_total * (1 + unc), 2)
                 result["trading_days"] = TRADING_DAYS
+                result.update(_revenue_fields(fut_n, opt_p, result["proj_fut_cr"], result["proj_opt_cr"]))
 
                 # Surface the opening-artifact flag so the frontend doesn't
                 # trust the projection derived from a stale opening cumulative.
