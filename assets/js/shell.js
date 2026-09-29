@@ -223,7 +223,30 @@
     history.replaceState({}, '', location.pathname + location.hash);
   }
 
+  // ── Methodology drawer: opened from any [data-method] button, or ?m=<topic> in the URL ──
+  const md = $('methodDrawer');
+  let mdReturn = null;
+  function openMethod(topic) {
+    const sec = $('md-' + topic) || $('md-data');
+    document.querySelectorAll('.md-topic').forEach(x => { x.hidden = x !== sec; });
+    document.querySelectorAll('#mdNav [data-topic]').forEach(b => { if (b.dataset.topic === sec.id.slice(3)) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); });
+    if (!md.open) { mdReturn = document.activeElement; closeSheet(); if (md.showModal) md.showModal(); else md.setAttribute('open', ''); }
+    md.querySelector('.drawer-body').scrollTop = 0;
+    const h = sec.querySelector('h3'); h.tabIndex = -1; h.focus();
+  }
+  document.addEventListener('click', e => {
+    const b = e.target.closest && e.target.closest('[data-method]');
+    if (b) { e.preventDefault(); openMethod(b.dataset.method); }
+  });
+  $('mdNav').addEventListener('click', e => { const b = e.target.closest('[data-topic]'); if (b) openMethod(b.dataset.topic); });
+  $('mdClose').addEventListener('click', () => md.close());
+  md.addEventListener('click', e => { if (e.target === md) md.close(); });        // the backdrop
+  md.addEventListener('close', () => { if (mdReturn && mdReturn.focus) mdReturn.focus(); mdReturn = null; });
+  MCX.method = { open: openMethod };
+  const mParam = new URLSearchParams(location.search).get('m');
+
   MCX.router.start({ fallback: 'today', legacy: LEGACY });
   setTimeout(() => refresh(!!urlCookie), 300);     // the first snapshot
   fetchPrice();
+  if (mParam) setTimeout(() => openMethod(mParam), 400);
 })();

@@ -8,11 +8,11 @@
 <script defer src="/_vercel/insights/script.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400&family=Source+Serif+4:opsz,wght@8..60,600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/tokens.css?v=ca1ec025">
-<link rel="stylesheet" href="/assets/css/base.css?v=ca1ec025">
-<link rel="stylesheet" href="/assets/css/components.css?v=ca1ec025">
-<link rel="stylesheet" href="/assets/css/shell.css?v=ca1ec025">
-<link rel="stylesheet" href="/assets/css/v2.css?v=ca1ec025">
+<link rel="stylesheet" href="/assets/css/tokens.css?v=ca0b41e0">
+<link rel="stylesheet" href="/assets/css/base.css?v=ca0b41e0">
+<link rel="stylesheet" href="/assets/css/components.css?v=ca0b41e0">
+<link rel="stylesheet" href="/assets/css/shell.css?v=ca0b41e0">
+<link rel="stylesheet" href="/assets/css/v2.css?v=ca0b41e0">
 </head>
 <body>
 
@@ -65,6 +65,7 @@
     <button type="button" class="present-btn" id="presentBtn" data-action="present" hidden>Present</button>
     <span class="status" id="livePill" data-state="idle">Loading</span>
     <span class="appbar-meta" id="refreshMeta">—</span>
+    <button type="button" class="icon-btn" data-method="data" aria-label="How the numbers are made" title="How the numbers are made"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z"/></svg></button>
     <button type="button" class="icon-btn" id="refreshBtn" aria-label="Refresh data" title="Refresh data"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/></svg></button>
   </div>
 </header>
@@ -86,7 +87,7 @@
     <div class="stat stat--lead"><div class="stat-label">&nbsp;</div><div class="stat-value"><span class="skel"></span></div></div>
   </div>
   <figure class="td-figure">
-    <figcaption><strong id="tdChartTitle">Today and the last five trading days</strong> · estimated fee revenue per day, ₹ crore</figcaption>
+    <figcaption><strong id="tdChartTitle">Today and the last five trading days</strong> · estimated fee revenue per day, ₹ crore <button type="button" class="info-btn" data-method="projection" aria-label="How the live projection works" title="How the live projection works"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg></button></figcaption>
     <div class="chart-box" id="tdSessions"><div class="skel skel--block"></div></div>
     <div class="legend" id="tdSessionsLegend"></div>
     <div class="basis" id="tdSessionsBasis"></div>
@@ -95,7 +96,7 @@
 </div>
 
 <section class="td-card" aria-labelledby="tdAvgTitle">
-  <div class="sec-head"><div><h2 id="tdAvgTitle">Average revenue per trading day</h2><div class="sec-sub">₹ crore, from the shortest window to the longest, read against today</div></div></div>
+  <div class="sec-head"><div><h2 id="tdAvgTitle">Average revenue per trading day <button type="button" class="info-btn" data-method="averages" aria-label="How the averages are worked out" title="How the averages are worked out"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg></button></h2><div class="sec-sub">₹ crore, from the shortest window to the longest, read against today</div></div></div>
   <p class="takeaway" id="tdTakeaway"></p>
   <div class="ladder" id="tdAverages"></div>
   <div class="legend" id="tdLadderLegend"></div>
@@ -114,7 +115,7 @@
 <div class="td-rest" id="tdRest">
 
 <section class="sec" aria-labelledby="tdTrustTitle">
-  <div class="sec-head"><div><h2 id="tdTrustTitle">How far to trust the projection</h2>
+  <div class="sec-head"><div><h2 id="tdTrustTitle">How far to trust the projection <button type="button" class="info-btn" data-method="range" aria-label="How the likely range is measured" title="How the likely range is measured"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg></button></h2>
     <div class="sec-sub">Where the final figure landed relative to the projection made at each time of day, on 8 of 10 past days. The line is the median: below zero means projections ran high</div></div></div>
   <div class="trust">
     <div class="chart-box" id="tdTrust"></div>
@@ -123,7 +124,7 @@
 </section>
 
 <section class="sec" aria-labelledby="tdDailyTitle">
-  <div class="sec-head"><div><h2 id="tdDailyTitle">Revenue per trading day <span id="tdDailyRangeLabel">(60 days)</span></h2>
+  <div class="sec-head"><div><h2 id="tdDailyTitle">Revenue per trading day <span id="tdDailyRangeLabel">(60 days)</span> <button type="button" class="info-btn" data-method="revenue" aria-label="How revenue is worked out from turnover" title="How revenue is worked out from turnover"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg></button></h2>
     <div class="sec-sub">₹ crore: each day’s futures and options, with the rolling 20-day average (the trend) and 45-day average</div></div>
     <span id="tdDailyRange"></span></div>
   <div class="chart-box" id="tdDaily"></div>
@@ -183,7 +184,7 @@
   <p class="deck" id="scDeck"></p>
 </header>
 <section class="sec" aria-labelledby="scPriceTitle">
-  <div class="sec-head"><div><h2 id="scPriceTitle">Price scenarios</h2><div class="sec-sub">The share price one year of earnings supports, at a revenue per day and a P/E</div></div></div>
+  <div class="sec-head"><div><h2 id="scPriceTitle">Price scenarios <button type="button" class="info-btn" data-method="fairvalue" aria-label="How fair value is worked out" title="How fair value is worked out"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg></button></h2><div class="sec-sub">The share price one year of earnings supports, at a revenue per day and a P/E</div></div></div>
   <div class="sc-controls">
     <div class="sc-control">
       <label class="sc-label" for="fcRevInput">Revenue per day</label>
@@ -242,7 +243,7 @@
   <div class="basis" id="fvFootballBasis"></div>
 </section>
 <section class="sec" aria-labelledby="fvHouseTitle">
-  <div class="sec-head"><div><h2 id="fvHouseTitle">How the Tusk house view is built</h2><div class="sec-sub">The Tusk sheet, line by line. Change any input to see its effect</div></div><span id="fvHouseEdited"></span></div>
+  <div class="sec-head"><div><h2 id="fvHouseTitle">How the Tusk house view is built <button type="button" class="info-btn" data-method="fairvalue" aria-label="How fair value is worked out" title="How fair value is worked out"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg></button></h2><div class="sec-sub">The Tusk sheet, line by line. Change any input to see its effect</div></div><span id="fvHouseEdited"></span></div>
   <div class="house-grid">
     <form class="house-inputs" id="fvInputs" aria-label="House model inputs" novalidate></form>
     <div id="fvSheet"></div>
@@ -298,7 +299,7 @@
 </div>
 
 <section class="sec" aria-labelledby="enHistTitle">
-  <div class="sec-head"><div><h2 id="enHistTitle">Score and price gap over time <span id="enRangeLabel">(60 days)</span></h2>
+  <div class="sec-head"><div><h2 id="enHistTitle">Score and price gap over time <span id="enRangeLabel">(60 days)</span> <button type="button" class="info-btn" data-method="ensemble" aria-label="How the ensemble score is built" title="How the ensemble score is built"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg></button></h2>
     <div class="sec-sub">The ensemble score against its signal bands, and the price&rsquo;s gap to fair value against its own 60-day average</div></div>
     <span id="enRange"></span></div>
   <div class="chart-box" id="enHist"></div>
@@ -339,7 +340,7 @@
 </header>
 
 <section class="sec" aria-labelledby="dgTrustTitle">
-  <div class="sec-head"><div><h2 id="dgTrustTitle">How far to trust the live projection</h2>
+  <div class="sec-head"><div><h2 id="dgTrustTitle">How far to trust the live projection <button type="button" class="info-btn" data-method="range" aria-label="How the likely range is measured" title="How the likely range is measured"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg></button></h2>
     <div class="sec-sub">Where each day’s final revenue landed relative to the projection made at each time of day, on 8 of 10 past days; the line is the median</div></div></div>
   <div class="chart-box" id="dgTrust"><div class="skel skel--block"></div></div>
   <div id="dgTrustTable"></div>
@@ -347,7 +348,7 @@
 </section>
 
 <section class="sec" aria-labelledby="dgIcTitle">
-  <div class="sec-head"><div><h2 id="dgIcTitle">Has the ensemble score been any use? <span id="dgIcRangeLabel">(1 year)</span></h2>
+  <div class="sec-head"><div><h2 id="dgIcTitle">Has the ensemble score been any use? <span id="dgIcRangeLabel">(1 year)</span> <button type="button" class="info-btn" data-method="evaluation" aria-label="How the signals are tested" title="How the signals are tested"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg></button></h2>
     <div class="sec-sub">Each score against the share price from the next day’s close, the first chance to act on it; each 60-day window uses only returns known by its end</div></div>
     <span id="dgIcRange"></span></div>
   <div class="fv-stats dg-stats" id="dgIcStats"></div>
@@ -461,7 +462,7 @@
   <div id="qpYear"></div>
 </section>
 <section class="sec" aria-labelledby="qpBtTitle">
-  <div class="sec-head"><div><h2 id="qpBtTitle">How each basis has tracked reported profit</h2><div class="sec-sub">₹ crore · the last five quarters with sound data</div></div></div>
+  <div class="sec-head"><div><h2 id="qpBtTitle">How each basis has tracked reported profit <button type="button" class="info-btn" data-method="quarter" aria-label="How the quarter is projected" title="How the quarter is projected"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg></button></h2><div class="sec-sub">₹ crore · the last five quarters with sound data</div></div></div>
   <div id="qpBacktest"></div>
   <p class="takeaway" id="qpBacktestNote" style="margin:14px 0 0;max-width:860px;font-size:14px"></p>
   <div class="basis" id="qpBacktestBasis"></div>
@@ -580,7 +581,7 @@
     <div id="moLog"></div>
   </section>
   <section class="sec" aria-labelledby="moRulesTitle">
-    <div class="sec-head"><div><h2 id="moRulesTitle">How it is formed</h2><div class="sec-sub">The rules in the daily momentum job</div></div></div>
+    <div class="sec-head"><div><h2 id="moRulesTitle">How it is formed <button type="button" class="info-btn" data-method="momentum" aria-label="The momentum rules" title="The momentum rules"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg></button></h2><div class="sec-sub">The rules in the daily momentum job</div></div></div>
     <div id="moRules"></div>
   </section>
 </div>
@@ -652,7 +653,105 @@
     <a class="sheet-row" href="#/lab/margins" data-route="lab-mar">Margins<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></a>
     <div class="sheet-label">App</div>
     <button type="button" class="sheet-row" data-action="theme">Theme <small>System</small></button>
+    <button type="button" class="sheet-row" data-method="data">How the numbers are made<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
     <button type="button" class="sheet-row" data-action="settings">Data source settings<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
+  </div>
+</dialog>
+
+<!-- ═══ METHODOLOGY DRAWER ═════════════════════════════════════════════════ -->
+<dialog class="drawer" id="methodDrawer" aria-labelledby="mdTitle">
+  <div class="drawer-head">
+    <h2 class="drawer-title" id="mdTitle">How the numbers are made</h2>
+    <button type="button" class="icon-btn" id="mdClose" aria-label="Close"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <nav class="drawer-nav" aria-label="Topics" id="mdNav">
+    <button type="button" data-topic="data">Where the data comes from</button>
+    <button type="button" data-topic="revenue">Revenue from turnover</button>
+    <button type="button" data-topic="projection">The live projection</button>
+    <button type="button" data-topic="range">The likely range</button>
+    <button type="button" data-topic="averages">Completed days and averages</button>
+    <button type="button" data-topic="quarter">Quarter P&amp;L</button>
+    <button type="button" data-topic="fairvalue">Fair value</button>
+    <button type="button" data-topic="momentum">Momentum</button>
+    <button type="button" data-topic="ensemble">Model ensemble</button>
+    <button type="button" data-topic="evaluation">How signals are tested</button>
+  </nav>
+  <div class="drawer-body">
+    <section class="md-topic" id="md-data" hidden>
+      <h3>Where the data comes from</h3>
+      <p><strong>F&amp;O turnover.</strong> A relay reads MCX’s market data every 15 minutes during the session and stores a snapshot: futures notional, option premium and the most active contracts. After the close it writes the day’s final record, and the next morning’s job checks it against MCX’s bhavcopy.</p>
+      <p><strong>Share price.</strong> The NSE close for each day, and during NSE hours a live price (indianapi.in, falling back to Yahoo) refreshed every minute on Fair value and Scenarios.</p>
+      <p><strong>Reported results.</strong> Quarterly revenue, expenses and profit are entered from MCX’s filings when each quarter is reported.</p>
+      <p><strong>Signals.</strong> After each close the jobs recompute fair value, then the price-gap and multi-factor models, then momentum.</p>
+      <p><strong>Participants and margins.</strong> MCX’s disclosures, collected by scheduled jobs; each page shows the date of the data it uses.</p>
+    </section>
+    <section class="md-topic" id="md-revenue" hidden>
+      <h3>Revenue from turnover</h3>
+      <p>MCX charges a fee on each side of every trade, at SEBI’s flat rates since October 2024:</p>
+      <pre class="md-formula">futures revenue = 2 × futures notional × ₹210 per crore
+options revenue = 2 × option premium  × ₹4,180 per crore</pre>
+      <p>These are transaction fees only. MCX’s reported revenue also includes other operating income (lately about 9% of F&amp;O fees) and other income, which the daily figures leave out; Quarter P&amp;L can add an estimate back.</p>
+    </section>
+    <section class="md-topic" id="md-projection" hidden>
+      <h3>The live projection</h3>
+      <p>Futures and options are projected separately: what has been booked so far, multiplied up to a full day.</p>
+      <pre class="md-formula">multiplier = w × (1 ÷ share of hours gone) + (1 − w) × (1 ÷ share of a normal day done)
+w = (share of hours gone)^1.5</pre>
+      <p>The share of a normal day done by now comes from an intraday curve, a weighted average of recent complete days (half-life 10 trading days). Early in the day the curve dominates; by the evening straight-line extrapolation takes over.</p>
+      <p>A drift check compares today’s completed time buckets with that curve and scales the curve’s multiplier, capped at ±25%. On live data it sits at the +25% cap on most days from mid-morning, which offsets the curve’s tendency to project low; it stays until a calibration by time of day replaces it. A prior for scheduled events fades to nothing by the close.</p>
+    </section>
+    <section class="md-topic" id="md-range" hidden>
+      <h3>The likely range</h3>
+      <p>Measured, not modelled. Every live projection stored over the last 90 normal trading days is compared with that day’s final revenue:</p>
+      <pre class="md-formula">error = projection ÷ final − 1
+likely range = projection ÷ (1 + q90)  to  projection ÷ (1 + q10)</pre>
+      <p>q10 and q90 are the 10th and 90th percentile errors for projections made at the same half hour, so on 8 days in 10 the final landed inside the range. Because the error is measured against the final, the range reaches further up than down.</p>
+      <p>Part-day sessions and US market holidays are left out, and there is no range before 09:30. The same figures drive the chart “How far to trust the projection” and Lab › Diagnostics.</p>
+    </section>
+    <section class="md-topic" id="md-averages" hidden>
+      <h3>Completed days and averages</h3>
+      <p>A day counts only once it is complete: a day before today with a stored record, or today after the close once its final record has landed (the relay’s end-of-day row or MCX’s historical file). The live day never enters an average.</p>
+      <p>The windows are the last 5, 10, 20 and 45 trading days, and the quarter and financial year (April to March) so far. Each short window is compared with the same number of days just before it; the quarter and year with the whole previous quarter and year, and the year also with the same stretch of last year.</p>
+    </section>
+    <section class="md-topic" id="md-quarter" hidden>
+      <h3>Quarter P&amp;L</h3>
+      <p><strong>Revenue:</strong> F&amp;O revenue booked so far, plus a daily projection for each session left. Today counts as left until its final record lands. The daily projection blends the last 10 sessions with the quarter’s average so far, leaning on the last 10 as the quarter goes on (at most 80%).</p>
+      <pre class="md-formula">expenses = α + β × revenue   (at least ₹80 Cr; + ₹15 Cr in Q4)
+profit   = (revenue − expenses) × (1 − tax-and-depreciation rate)</pre>
+      <p>α and β are fitted to reported quarters; the tax-and-depreciation rate is the median of past quarters.</p>
+      <p><strong>Two bases.</strong> F&amp;O only, the default, or including non-F&amp;O revenue, estimated at the previous quarter’s share of F&amp;O revenue (used only when that share is between 0 and 20% and the quarter’s daily records are nearly complete). A walk-forward test on the last five reported quarters shows how each basis has missed.</p>
+    </section>
+    <section class="md-topic" id="md-fairvalue" hidden>
+      <h3>Fair value</h3>
+      <p><strong>Tusk house view</strong>, following the Tusk sheet:</p>
+      <pre class="md-formula">FY28 revenue = ₹15.00 × 260 + non-F&amp;O ₹211 Cr × 1.2 × 1.15 + other income ₹127 Cr × 1.2 × 1.15
+FY28 EPS     = FY28 revenue × 57% ÷ 25.451 Cr shares
+today        = P/E × FY28 EPS ÷ 1.18 ÷ 1.09     (P/E 42, 48, 54)</pre>
+      <p>Every input can be changed on the page, and the second discount can switch to pro-rata: 18% × the days left to 31 March 2027.</p>
+      <p><strong>Data-driven view</strong>, the stock’s own valuation history applied to today’s earnings:</p>
+      <pre class="md-formula">run-rate EPS = (45-day revenue per day × 256 + ₹374.5 Cr) × 55% ÷ shares
+fair value   = run-rate EPS × median P/E of the last 252 days</pre>
+      <p>The band is the median ± a robust standard deviation (1.4826 × the median absolute deviation). There is no discounting. The regression of price on the 45-day average and the six brokers’ targets are shown as cross-checks only.</p>
+    </section>
+    <section class="md-topic" id="md-momentum" hidden>
+      <h3>Momentum</h3>
+      <p><strong>Regime:</strong> the 10-day average revenue divided by the 45-day. Above 1.05 is hot, below 0.95 cold, in between neutral.</p>
+      <p><strong>Price overlay:</strong> the share price’s move over 5 days and its average daily move (close to close) over 5 days against 20. Breakout: up more than 1.5% with the 5-day move above 1.5× the 20-day. Quiet rise: up more than 1% with it below 0.8×. Sharp fall: down more than 1% with it above 1.3×.</p>
+      <p><strong>Composite:</strong> hot reads strong buy unless the overlay is a sharp fall (buy); neutral reads buy on a breakout or quiet rise, otherwise hold; cold reads sell, or watch after a sharp fall.</p>
+    </section>
+    <section class="md-topic" id="md-ensemble" hidden>
+      <h3>Model ensemble</h3>
+      <p><strong>Price gap (error correction):</strong> the share price against the data-driven fair value, in %, as a z-score against its last 60 days (at least 30).</p>
+      <p><strong>Exchange activity (multi-factor):</strong> daily revenue and turnover, each as a z-score against its last 60 days, blended 3 : 4. Volume and intraday range are computed but not used.</p>
+      <pre class="md-formula">score = 0.30 × (−price-gap z) + 0.70 × (3/7 × revenue z + 4/7 × turnover z)
+      = 30% price gap + 30% revenue + 40% turnover</pre>
+      <p>Above +0.5 reads buy and above +1.5 strong buy, mirrored for sell. The implied position is the score ÷ 2, capped at ±1.</p>
+    </section>
+    <section class="md-topic" id="md-evaluation" hidden>
+      <h3>How signals are tested</h3>
+      <p>A day’s signal uses that day’s MCX revenue, which is known only after the evening session ends at 23:30, hours after the NSE close. So every test starts at the next day’s close, the first chance to act.</p>
+      <p>Rolling windows use only returns already known on their date. Forward windows overlap, so day counts overstate the independent evidence, and the rules were chosen on the same history, which flatters them. Each result is shown beside the figure for all days.</p>
+    </section>
   </div>
 </dialog>
 
@@ -670,12 +769,12 @@
 </dialog>
 
 <!-- ═══ JAVASCRIPT ═══════════════════════════════════════════════════════════ -->
-<script src="/assets/js/core.js?v=ca1ec025"></script>
-<script src="/assets/js/today.js?v=ca1ec025"></script>
-<script src="/assets/js/revenue.js?v=ca1ec025"></script>
-<script src="/assets/js/value.js?v=ca1ec025"></script>
-<script src="/assets/js/lab.js?v=ca1ec025"></script>
-<script src="/assets/js/signals.js?v=ca1ec025"></script>
-<script src="/assets/js/shell.js?v=ca1ec025"></script>
+<script src="/assets/js/core.js?v=ca0b41e0"></script>
+<script src="/assets/js/today.js?v=ca0b41e0"></script>
+<script src="/assets/js/revenue.js?v=ca0b41e0"></script>
+<script src="/assets/js/value.js?v=ca0b41e0"></script>
+<script src="/assets/js/lab.js?v=ca0b41e0"></script>
+<script src="/assets/js/signals.js?v=ca0b41e0"></script>
+<script src="/assets/js/shell.js?v=ca0b41e0"></script>
 </body>
 </html>
