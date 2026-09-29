@@ -17,7 +17,7 @@ from datetime import date, datetime, timedelta
 
 from lib.mcx_config import (
     SUPABASE_URL, SUPABASE_ANON_KEY, DILUTED_SHARES_CR, SESSION_START,
-    MCX_HOLIDAYS_2026, supabase_read, now_ist, make_cors_headers,
+    MCX_HOLIDAYS_2026, supabase_read, supabase_read_all, now_ist, make_cors_headers,
 )
 try:
     from lib.mcx_config import session_end      # seasonal close: 23:55 in US winter
@@ -77,6 +77,13 @@ QUARTERLY_ACTUALS = [
 ]
 
 Q4_EXPENSE_ADJ_CR = 15
+
+# Non-F&O revenue (the gap between reported revenue and the F&O daily sum) is estimated
+# from the previous quarter's share of F&O revenue. A share outside this range, or a
+# quarter with under 90% of its sessions in the daily table, points to bad data.
+NON_FO_SHARE_MAX = 0.20
+MIN_SESSION_COVERAGE = 0.9
+BACKTEST_QUARTERS = 5
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -145,6 +152,67 @@ def _get_quarter_bounds(d):
         return f"Q2 FY{str(y+1)[-2:]}", 2, f"FY{str(y+1)[-2:]}", date(y, 7, 1), date(y, 9, 30)
     else:
         return f"Q3 FY{str(y+1)[-2:]}", 3, f"FY{str(y+1)[-2:]}", date(y, 10, 1), date(y, 12, 31)
+
+
+def _expected_sessions(a):
+    d, end, n = date.fromisoformat(a["start"]), date.fromisoformat(a["end"]), 0
+    while d <= end:
+        n += _is_trading_day(d)
+        d += timedelta(days=1)
+    return n
+
+
+def _fo_by_quarter(rows):
+    """F&O revenue summed per reported quarter, with its non-F&O share when the data is sound."""
+    out = {}
+    for a in QUARTERLY_ACTUALS:
+        rs = [r for r in rows if a["start"] <= r["trading_date"] <= a["end"]]
+        fo = sum(r["total_rev_cr"] for r in rs)
+        complete = len(rs) >= MIN_SESSION_COVERAGE * _expected_sessions(a)
+        share = (a["revenue_cr"] - fo) / fo if fo > 0 else None
+        ok = complete and share is not None and 0 <= share <= NON_FO_SHARE_MAX
+        out[a["quarter"]] = {"fo_cr": round(fo, 2), "sessions": len(rs), "complete": complete,
+                             "share": round(share, 4) if ok else None}
+    return out
+
+
+def _pat_model(rev, alpha, beta, tax_dep, q_num):
+    exp = max(alpha + beta * rev + (Q4_EXPENSE_ADJ_CR if q_num == 4 else 0), 80)
+    return exp, (rev - exp) * (1 - tax_dep)
+
+
+def _backtest(fo):
+    """Walk-forward test of both revenue bases on the last reported quarters: for each quarter,
+    the expense model, tax rate and non-F&O share come only from the quarters before it."""
+    rows, excluded = [], []
+    for k in range(4, len(QUARTERLY_ACTUALS)):
+        a, prev = QUARTERLY_ACTUALS[k], QUARTERLY_ACTUALS[k - 1]
+        f, fp = fo[a["quarter"]], fo[prev["quarter"]]
+        if not f["complete"] or f["fo_cr"] > a["revenue_cr"]:
+            excluded.append({"quarter": a["quarter"], "reason": "F&O daily sum incomplete or above reported revenue"})
+            continue
+        if fp["share"] is None:
+            excluded.append({"quarter": a["quarter"], "reason": f"no sound non-F&O share for {prev['quarter']}"})
+            continue
+        alpha, beta, _ = _fit_expense_model(QUARTERLY_ACTUALS[:k])
+        tax_dep = _compute_tax_dep_rate(QUARTERLY_ACTUALS[:k])
+        _, pat_fo = _pat_model(f["fo_cr"], alpha, beta, tax_dep, a["q_num"])
+        _, pat_all = _pat_model(f["fo_cr"] * (1 + fp["share"]), alpha, beta, tax_dep, a["q_num"])
+        rows.append({"quarter": a["quarter"], "fo_revenue_cr": f["fo_cr"], "reported_revenue_cr": a["revenue_cr"],
+                     "non_fo_cr": round(a["revenue_cr"] - f["fo_cr"], 1), "share_used": fp["share"],
+                     "reported_pat_cr": a["pat_cr"], "pat_fo_cr": round(pat_fo, 1), "pat_all_cr": round(pat_all, 1),
+                     "miss_fo_cr": round(pat_fo - a["pat_cr"], 1), "miss_all_cr": round(pat_all - a["pat_cr"], 1)})
+    rows = rows[-BACKTEST_QUARTERS:]
+    mean = lambda xs: round(sum(xs) / len(xs), 1) if xs else None
+    return {
+        "method": "walk-forward: expense model, tax rate and non-F&O share from earlier quarters only",
+        "rows": rows,
+        "miss_fo_avg_cr": mean([r["miss_fo_cr"] for r in rows]),
+        "miss_all_avg_cr": mean([r["miss_all_cr"] for r in rows]),
+        "abs_miss_fo_avg_cr": mean([abs(r["miss_fo_cr"]) for r in rows]),
+        "abs_miss_all_avg_cr": mean([abs(r["miss_all_cr"]) for r in rows]),
+        "excluded": [e for e in excluded if e["quarter"] not in {r["quarter"] for r in rows}],
+    }
 
 
 def _fit_expense_model(actuals):
@@ -276,6 +344,45 @@ def generate_quarterly(today=None, now=None):
     pat_low = round(pbt_low * (1 - tax_dep_rate), 1)
     pat_high = round(pbt_high * (1 - tax_dep_rate), 1)
 
+    # ── Revenue basis: F&O only (above) and including estimated non-F&O revenue ──
+    fo, non_fo, backtest = {}, None, None
+    try:
+        hist = supabase_read_all(
+            "mcx_daily_revenue",
+            f"?select=trading_date,total_rev_cr&trading_date=gte.{QUARTERLY_ACTUALS[0]['start']}"
+            f"&trading_date=lte.{QUARTERLY_ACTUALS[-1]['end']}&total_rev_cr=gt.0&order=trading_date.asc",
+            max_rows=3000)
+        fo = _fo_by_quarter(hist)
+        backtest = _backtest(fo)
+        last = QUARTERLY_ACTUALS[-1]
+        share, share_q, fallback = fo[last["quarter"]]["share"], last["quarter"], False
+        if share is None:           # previous quarter unsound: median of the last four sound shares
+            sound = [fo[a["quarter"]]["share"] for a in QUARTERLY_ACTUALS[-5:-1] if fo[a["quarter"]]["share"] is not None]
+            share = sorted(sound)[len(sound) // 2] if sound else None
+            share_q, fallback = "median of recent quarters", True
+        if share is not None:
+            rev_b = total_rev * (1 + share)
+            exp_b, pat_b = _pat_model(rev_b, alpha, beta, tax_dep_rate, q_num)
+            lo_b, hi_b = rev_low * (1 + share), rev_high * (1 + share)
+            non_fo = {
+                "share": round(share, 4), "share_from": share_q, "fallback": fallback,
+                "estimate_cr": round(total_rev * share, 1),
+                "revenue_projected_cr": round(rev_b, 1),
+                "revenue_low_cr": round(lo_b, 1), "revenue_high_cr": round(hi_b, 1),
+                "expenses_projected_cr": round(exp_b, 1),
+                "pat_projected_cr": round(pat_b, 1),
+                "pat_low_cr": round((lo_b - exp_b * 1.05) * (1 - tax_dep_rate), 1),
+                "pat_high_cr": round((hi_b - exp_b * 0.95) * (1 - tax_dep_rate), 1),
+                "pat_margin_pct": round(pat_b / rev_b * 100, 1),
+            }
+    except Exception as e:
+        errors.append(f"revenue basis: {e}")
+    for a in actuals_resp:
+        f = fo.get(a["quarter"])
+        if f:
+            a["fo_revenue_cr"] = f["fo_cr"] if f["complete"] else None
+            a["non_fo_share"] = f["share"]
+
     # Daily series for chart
     cumul = 0
     daily_series = []
@@ -367,6 +474,8 @@ def generate_quarterly(today=None, now=None):
             "data_points": len(QUARTERLY_ACTUALS),
         },
         "fy_projection": fy_projection,
+        "non_fo": non_fo,
+        "backtest": backtest,
         "errors": errors,
     }
 

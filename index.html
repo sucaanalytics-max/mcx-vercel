@@ -1030,74 +1030,44 @@
 </div>
 </div><!-- /tabCommodity -->
 <!-- ═══ QUARTERLY P&L TAB ═════════════════════════════════════════════════ -->
-<div id="tabQuarterly" class="page" hidden>
-<div class="wrap">
-
-  <!-- Hero: Current Quarter Projection -->
-  <div class="card" id="qtrHeroCard">
-    <div class="card-title" id="qtrHeroTitle">Loading...</div>
-    <div id="qtrHeroContent" style="opacity:0.4;text-align:center;padding:2rem">Loading quarterly data...</div>
-  </div>
-
-  <!-- FY Projection -->
-  <div class="card" id="qtrFyCard" style="display:none">
-    <div class="card-title" id="qtrFyTitle">FY26 Projection</div>
-    <div id="qtrFyContent"></div>
-  </div>
-
-  <!-- Chart: Quarterly Revenue & PAT Trend -->
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
-      <div class="card-title">Quarterly Revenue & PAT Trend</div>
-      <div id="qtrChartRange"></div>
-    </div>
-    <div style="position:relative;height:320px">
-      <canvas id="qtrTrendChart"></canvas>
-    </div>
-  </div>
-
-  <!-- Chart: Current Quarter Revenue Build-Up -->
-  <div class="card">
-    <div class="card-title">Current Quarter Revenue Build-Up</div>
-    <div style="position:relative;height:280px">
-      <canvas id="qtrBuildupChart"></canvas>
-    </div>
-  </div>
-
-  <!-- Table: Historical P&L -->
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">
-      <div class="card-title">Historical Quarterly P&L</div>
-      <div id="qtrTableRange"></div>
-    </div>
-    <div style="overflow-x:auto">
-      <table class="dtable" id="qtrTable">
-        <thead>
-          <tr>
-            <th>Quarter</th><th>Revenue</th><th>Expenses</th>
-            <th>PAT</th><th>Margin</th><th>YoY Rev</th>
-          </tr>
-        </thead>
-        <tbody id="qtrTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Methodology -->
-  <details class="card" style="cursor:pointer">
-    <summary class="card-title" style="list-style:none">Methodology</summary>
-    <div style="padding:0.5rem 0;font-size:0.82rem;color:var(--muted);line-height:1.6">
-      <p><strong>Revenue Projection:</strong> Actual daily revenue from Supabase is summed for elapsed trading days.
-      Remaining days are projected using a blend of MA10 (last 10 days) and quarter average, weighted by completion %.</p>
-      <p><strong>Expense Model:</strong> OLS regression on 8 quarters of actuals: Expenses = Fixed + Variable% x Revenue.
-      Q4 (Mar quarter) has a +15 Cr seasonal adjustment for annual audit/provisions.</p>
-      <p><strong>PAT:</strong> Revenue - Expenses = PBT, then apply effective tax+depreciation rate (~20%) derived from historical actuals.</p>
-      <p><strong>Confidence Bands:</strong> Uncertainty = 2% + 18% x (1 - completion). Narrows from ~20% at quarter start to ~2% at quarter end.</p>
-      <p><strong>Data Source:</strong> Quarterly actuals from Screener.in (MCX consolidated results). Daily revenue from MCX exchange relay + historical API.</p>
-    </div>
-  </details>
-
-</div><!-- /wrap -->
+<div id="tabQuarterly" class="page page--v2" hidden>
+<div class="v2" id="quarter">
+<div class="basis-toggle"><span class="basis-label" id="qpBasisLabel">Revenue basis</span>
+  <div role="group" aria-labelledby="qpBasisLabel" id="qpBasis">
+    <button type="button" data-basis="fo" aria-pressed="true"><span>F&amp;O only</span><small>Current model</small></button>
+    <button type="button" data-basis="all" aria-pressed="false"><span>Including non-F&amp;O</span><small id="qpBasisAllSub">Estimated</small></button>
+  </div></div>
+<header class="lede">
+  <div class="kicker" id="qpKicker"><span class="skel"></span></div>
+  <h1 class="headline" id="qpHead">Loading&hellip;</h1>
+  <p class="deck" id="qpDeck"></p>
+</header>
+<div class="td-hero">
+  <div class="td-stats" id="qpStats"><div class="stat stat--lead"><div class="stat-label">&nbsp;</div><div class="stat-value"><span class="skel"></span></div></div></div>
+  <figure class="td-figure">
+    <figcaption id="qpChartCap"><strong>Revenue build-up</strong> · cumulative F&amp;O revenue, ₹ crore</figcaption>
+    <div class="chart-box" id="qpChart"><div class="skel skel--block"></div></div>
+  </figure>
+</div>
+<section class="sec" aria-labelledby="qpPanelsTitle">
+  <div class="sec-head"><div><h2 id="qpPanelsTitle">Quarter by quarter</h2><div class="sec-sub" id="qpPanelsSub"></div></div></div>
+  <div class="panels" id="qpPanels"></div>
+</section>
+<section class="sec" aria-labelledby="qpYearTitle">
+  <div class="sec-head"><div><h2 id="qpYearTitle">This year so far</h2></div></div>
+  <div id="qpYear"></div>
+</section>
+<section class="sec" aria-labelledby="qpBtTitle">
+  <div class="sec-head"><div><h2 id="qpBtTitle">How each basis has tracked reported profit</h2><div class="sec-sub">₹ crore · the last five quarters with sound data</div></div></div>
+  <div id="qpBacktest"></div>
+  <p class="takeaway" id="qpBacktestNote" style="margin:14px 0 0;max-width:860px;font-size:14px"></p>
+  <div class="basis" id="qpBacktestBasis"></div>
+</section>
+<section class="sec" aria-labelledby="qpActTitle">
+  <div class="sec-head"><div><h2 id="qpActTitle">Every reported quarter</h2><div class="sec-sub">₹ crore, consolidated, from MCX’s results</div></div></div>
+  <div id="qpActuals"></div>
+</section>
+</div>
 </div><!-- /tabQuarterly -->
 <div id="tabExchange" class="page page--v2" hidden>
 <div class="v2" id="trends">
@@ -1492,6 +1462,7 @@
 <script src="/assets/js/legacy.js?v=7a827e38"></script>
 <script src="/assets/js/today.js?v=7a827e38"></script>
 <script src="/assets/js/revenue.js?v=7a827e38"></script>
+<script src="/assets/js/value.js?v=7a827e38"></script>
 <script src="/assets/js/shell.js?v=7a827e38"></script>
 </body>
 </html>

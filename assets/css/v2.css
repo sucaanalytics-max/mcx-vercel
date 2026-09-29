@@ -126,6 +126,25 @@ html.dark .c-soft { opacity: 0.72; }
 .trail-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; }
 .trail-grid .avg-value { font-size: 22px; }
 
+/* Revenue basis toggle (Quarter P&L) */
+.basis-toggle { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
+.basis-label { font-size: 13px; font-weight: 600; color: var(--mcx-text-2); }
+.basis-toggle [role="group"] { display: flex; gap: 8px; flex-wrap: wrap; }
+.basis-toggle button {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 44px; padding: 8px 14px;
+  border: 1px solid var(--mcx-border-strong); border-radius: 6px; background: var(--mcx-surface); color: var(--mcx-text);
+  font-family: var(--mcx-font-sans); text-align: left; cursor: pointer;
+}
+.basis-toggle button span { font-size: 14px; font-weight: 600; }
+.basis-toggle button small { font-size: 12px; color: var(--mcx-text-2); }
+.basis-toggle button[aria-pressed="true"] { border-color: var(--mcx-text); background: var(--mcx-text); color: var(--mcx-bg); }
+.basis-toggle button[aria-pressed="true"] small { color: inherit; opacity: 0.85; }
+.basis-toggle button:disabled { opacity: 0.5; cursor: not-allowed; }
+.basis-toggle button:focus-visible { outline: 2px solid var(--mcx-focus); outline-offset: 2px; }
+.panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 48px; }
+.panel-title { margin-bottom: 2px; font-size: 13px; font-weight: 600; }
+@media (max-width: 699px) { .panels { grid-template-columns: minmax(0, 1fr); gap: 20px; } }
+
 /* ── Today ──────────────────────────────────────────────────────────────── */
 .td-hero { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 48px; margin-top: 36px; align-items: start; }
 .td-figure { margin: 0; min-width: 0; }

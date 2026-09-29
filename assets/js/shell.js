@@ -16,7 +16,7 @@
     { id: 'rev-cmd', path: '/revenue/commodities', section: 'revenue', title: 'Commodities', pages: ['tabCommodity'], legacy: 'tabCommodity',
       mount: () => MCX.revenue.cmd.mount() },
     { id: 'val-q', path: '/value/quarter', section: 'value', title: 'Quarter P&L', pages: ['tabQuarterly'], legacy: 'tabQuarterly',
-      mount: () => loadQuarterly() },
+      mount: () => MCX.value.quarter.mount() },
     { id: 'val-fv', path: '/value/fair-value', section: 'value', title: 'Fair value', pages: ['tabValuation'], legacy: 'tabValuation',
       mount: () => loadValuation() },
     { id: 'val-scen', path: '/value/scenarios', section: 'value', title: 'Scenarios', pages: ['tabForecast'], legacy: 'tabForecast',
