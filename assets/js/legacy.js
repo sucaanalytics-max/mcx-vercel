@@ -95,23 +95,27 @@ function fmtDec(n,d=2) { return parseFloat(n).toFixed(d); }
 // ════════════════════════════════════════════════════════════════════════════
 //  THEME
 // ════════════════════════════════════════════════════════════════════════════
-function applyTheme(mode) {
-  if (mode === 'dark') {
-    document.documentElement.classList.add('dark');
-    document.getElementById('themeToggle').textContent = '◑';
+// MCX.theme (core.js) sets html.dark; the router redraws each page's charts after a change.
+function toggleTheme() { MCX.theme.cycle(); }
+
+// Today's charts read the theme when drawn, so draw them again from the data on screen.
+function rethemeToday() {
+  renderCharts();
+  if (curveDataCache) {
+    renderDynamicBucketChart(curveDataCache);
+    const cumEl = document.getElementById('curveViewCumulative');
+    if (cumEl && cumEl.style.display !== 'none') renderCumulativeChart(curveDataCache);
   } else {
-    document.documentElement.classList.remove('dark');
-    document.getElementById('themeToggle').textContent = '◐';
+    renderIntradayChart();
+  }
+  if (sparkArgs) {
+    const ds = sparkChartInst && sparkChartInst.data.datasets[0];
+    const live = ds && ds.data.length ? ds.data[ds.data.length - 1] : undefined;   // today's point, updated by refreshes
+    renderSparkline(sparkArgs[0], sparkArgs[1]);
+    const nds = sparkChartInst && sparkChartInst.data.datasets[0];
+    if (nds && nds.data.length && live !== undefined) { nds.data[nds.data.length - 1] = live; sparkChartInst.update('none'); }
   }
 }
-function toggleTheme() {
-  const isDark = document.documentElement.classList.contains('dark');
-  const next = isDark ? 'light' : 'dark';
-  MCX.storage.set('mcxTheme', next);
-  applyTheme(next);
-  if (curveDataCache) { renderDynamicBucketChart(curveDataCache); } else if (typeof renderIntradayChart === 'function') { renderIntradayChart(); }
-}
-applyTheme(MCX.storage.get('mcxTheme') || 'light');
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ACCORDION
@@ -490,7 +494,7 @@ function updateSnapshotFromAPI(d) {
   document.getElementById('kpiVsQ3').style.color = parseFloat(vsQ3) >= 100 ? 'var(--positive)' : 'var(--negative)';
 
   // ── Live pill ────────────────────────────────────────────────────────
-  document.getElementById('livePill').textContent = isLive ? '● LIVE' : '● FINAL';
+  MCX.store.set('liveRevenue', { value: totalRev, live: isLive });
   // Top-right meta: show the SNAPSHOT'S OWN timestamp (the timeframe of the data
   // on screen), converted to IST regardless of viewer timezone — not the client
   // clock. This tells viewers how fresh the data is (and surfaces staleness).
@@ -630,7 +634,9 @@ function renderHero(data) {
   renderSparkline(history, data.period_avg || ma45);
 }
 
+let sparkArgs = null;
 function renderSparkline(history, ma45) {
+  sparkArgs = [history, ma45];
   const isDark = document.documentElement.classList.contains('dark');
   const labels = history.map(h => h.label);
   const adrs = history.map(h => h.is_today ? null : h.adr);
@@ -887,27 +893,7 @@ loadHero();
 // Auto-trigger first refresh
 setTimeout(() => doRefresh(true), 800);
 
-// ════════════════════════════════════════════════════════════════════════════
-//  TAB SWITCHING
-// ════════════════════════════════════════════════════════════════════════════
-function switchTab(tabId) {
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.querySelector(`[data-tab="${tabId}"]`).classList.add('active');
-  const tabs = ['tabPredictor', 'tabForecast', 'tabValuation', 'tabAnalytics', 'tabCommodity', 'tabQuarterly', 'tabExchange', 'tabMargins', 'tabMomentum', 'tabOIP'];
-  tabs.forEach(t => {
-    const el = document.getElementById(t);
-    if (el) el.style.display = t === tabId ? 'block' : 'none';
-  });
-  if (tabId === 'tabForecast') { recalcForecast(); MCX.poll.kick('cmp'); }
-  if (tabId === 'tabValuation') loadValuation();
-  if (tabId === 'tabAnalytics') loadAnalytics();
-  if (tabId === 'tabCommodity') { loadCommodity(); loadCmdDashboard(); loadIcomdex(); }
-  if (tabId === 'tabQuarterly') loadQuarterly();
-  if (tabId === 'tabExchange') { loadExchange(); }
-  if (tabId === 'tabMargins') loadMargins();
-  if (tabId === 'tabMomentum') loadMomentum();
-  if (tabId === 'tabOIP') loadOIParticipants();
-}
+// Page switching and each page's loaders live in shell.js (MCX.router).
 
 // ════════════════════════════════════════════════════════════════════════════
 //  FORECAST MODEL — Revenue → EPS → Share Price
@@ -1298,16 +1284,16 @@ async function fetchLiveCMP() {
   const urlCookie = params.get('cookie');
   if (urlCookie) {
     MCX.storage.set('mcxCookie', urlCookie);
-    window.history.replaceState({}, '', window.location.pathname);
+    window.history.replaceState({}, '', window.location.pathname + window.location.hash);
     setTimeout(() => doRefresh(), 1200);
   }
   // Render intraday chart (static fallback, dynamic loads on accordion open)
   renderIntradayChart();
   // Auto-fetch live CMP on page load
   fetchLiveCMP();
-  // Refresh CMP every 60 s, only in NSE hours, while the Forecast tab (the page that shows it) is on screen
+  // Refresh CMP every 60 s, only in NSE hours, while Scenarios (the page that shows it) is on screen
   MCX.poll.every('cmp', fetchLiveCMP, 60 * 1000, () =>
-    MCX.market.nseOpen() && !document.hidden && document.getElementById('tabForecast').style.display === 'block');
+    MCX.market.nseOpen() && !document.hidden && MCX.router.current() === 'val-scen');
 })();
 
 // ════════════════════════════════════════════════════════════════════════════

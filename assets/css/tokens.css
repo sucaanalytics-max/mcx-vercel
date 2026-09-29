@@ -8,3 +8,54 @@
   --bg-card: var(--surface);
   --card-border: var(--border);
 }
+
+/* v2 tokens: monochrome chrome, colour only for data and direction.
+   Contrast checked at 4.5:1 or better for every text colour on bg, rail, surface and surface-2. */
+:root {
+  --mcx-font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mcx-font-serif: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --mcx-bg: #FFFFFF;
+  --mcx-rail: #F7F7F5;
+  --mcx-surface: #FFFFFF;
+  --mcx-surface-2: #F2F2EF;
+  --mcx-border: #E6E6E2;
+  --mcx-border-strong: #CACAC4;
+  --mcx-text: #15181D;
+  --mcx-text-2: #4A5059;
+  --mcx-text-3: #5F6670;
+  --mcx-link: #1D4E9E;
+  --mcx-focus: #1D4E9E;
+  --mcx-up: #11763F;
+  --mcx-up-tint: #E5F2EA;
+  --mcx-down: #B42318;
+  --mcx-caution: #8A5C00;
+  --mcx-fut: #2a78d6;
+  --mcx-opt: #eb6834;
+  --mcx-scrim: rgba(21, 24, 29, 0.40);
+  --mcx-shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --mcx-shadow-lg: 0 -8px 24px rgba(16, 24, 40, 0.10);
+  --mcx-rail-w: 248px;
+}
+html.dark {
+  --mcx-bg: #111317;
+  --mcx-rail: #15181D;
+  --mcx-surface: #181B20;
+  --mcx-surface-2: #20242A;
+  --mcx-border: #2A2E35;
+  --mcx-border-strong: #3C424B;
+  --mcx-text: #E8EAED;
+  --mcx-text-2: #AAB1BA;
+  --mcx-text-3: #8D95A0;
+  --mcx-link: #8DB2F0;
+  --mcx-focus: #8DB2F0;
+  --mcx-up: #45B581;
+  --mcx-up-tint: #16302A;
+  --mcx-down: #F07563;
+  --mcx-caution: #E0B040;
+  --mcx-fut: #3987e5;
+  --mcx-opt: #d95926;
+  --mcx-scrim: rgba(0, 0, 0, 0.55);
+  --mcx-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.30);
+  --mcx-shadow-lg: 0 -8px 24px rgba(0, 0, 0, 0.40);
+  color-scheme: dark;
+}

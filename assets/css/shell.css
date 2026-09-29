@@ -1,0 +1,172 @@
+/* App shell: left rail and top bar on wide screens; top bar, page chips and a
+   bottom bar below 1024 px. Pages are .page elements the router shows one at a time. */
+
+.page[hidden] { display: none !important; }
+/* A chart drawn at one width must not hold its grid column open after the
+   window narrows (e.g. resized while another page was showing). */
+.page canvas { max-width: 100%; }
+html { scroll-padding-top: 76px; }
+
+.skip-link {
+  position: absolute; left: 8px; top: -60px; z-index: 300;
+  padding: 8px 12px; border-radius: 6px; border: 1px solid var(--mcx-border-strong);
+  background: var(--mcx-surface); color: var(--mcx-text);
+  font: 500 14px/1.4 var(--mcx-font-sans); text-decoration: none;
+}
+.skip-link:focus { top: 8px; }
+
+.app { display: grid; grid-template-columns: var(--mcx-rail-w) minmax(0, 1fr); min-height: 100vh; }
+.main-col { min-width: 0; display: flex; flex-direction: column; }
+#main { flex: 1; min-width: 0; outline: none; }
+
+/* ── Rail ───────────────────────────────────────────────────────────────── */
+.rail {
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  display: flex; flex-direction: column;
+  padding: 20px 16px 16px;
+  background: var(--mcx-rail); border-right: 1px solid var(--mcx-border);
+  font-family: var(--mcx-font-sans); color: var(--mcx-text);
+}
+.rail-brand { display: block; padding: 2px 12px 20px; text-decoration: none; }
+.rail-brand-name {
+  display: block; font-family: var(--mcx-font-serif); font-size: 18px; font-weight: 600;
+  line-height: 1.25; letter-spacing: -0.2px; color: var(--mcx-text);
+}
+.rail-brand-org { display: block; margin-top: 2px; font-size: 12px; font-weight: 500; color: var(--mcx-text-3); }
+.rail-nav { display: flex; flex-direction: column; gap: 20px; padding-bottom: 20px; }
+.rail-group { display: flex; flex-direction: column; gap: 2px; }
+.rail-label { padding: 0 12px; margin-bottom: 4px; font-size: 12px; font-weight: 600; color: var(--mcx-text-3); }
+.rail-link {
+  display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 12px;
+  border: 1px solid transparent; border-radius: 6px;
+  font-size: 14px; font-weight: 500; line-height: 1.3; color: var(--mcx-text-2);
+  text-decoration: none; white-space: nowrap;
+}
+.rail-link:hover { background: var(--mcx-surface-2); color: var(--mcx-text); }
+.rail-group--lab .rail-link { color: var(--mcx-text-3); }
+.rail-link[aria-current="page"] {
+  background: var(--mcx-surface); border-color: var(--mcx-border); box-shadow: var(--mcx-shadow-sm);
+  color: var(--mcx-text); font-weight: 600;
+}
+.rail-live {
+  margin-left: auto; display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 500; color: var(--mcx-text-2); font-variant-numeric: tabular-nums;
+}
+.rail-live:empty { display: none; }
+.rail-live::before { content: ''; width: 6px; height: 6px; border-radius: 999px; background: var(--mcx-text-3); }
+.rail-live[data-state="live"]::before { background: var(--mcx-up); }
+.rail-foot {
+  margin-top: auto; padding-top: 14px; border-top: 1px solid var(--mcx-border);
+  display: flex; align-items: center; gap: 6px;
+}
+
+.icon-btn {
+  width: 36px; height: 36px; flex-shrink: 0; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--mcx-border); border-radius: 6px;
+  background: var(--mcx-surface); color: var(--mcx-text-2); cursor: pointer;
+}
+.icon-btn:hover { border-color: var(--mcx-border-strong); color: var(--mcx-text); }
+.icon-btn:disabled { cursor: progress; }
+.icon-btn svg { width: 18px; height: 18px; }
+.icon-btn.loading svg { animation: spin 0.8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .icon-btn.loading svg { animation-duration: 2.4s; } }
+
+/* ── Top bar ────────────────────────────────────────────────────────────── */
+.appbar {
+  position: sticky; top: 0; z-index: 100;
+  height: 60px; padding: 0 24px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  background: var(--mcx-bg); border-bottom: 1px solid var(--mcx-border);
+  font-family: var(--mcx-font-sans); color: var(--mcx-text);
+}
+.appbar-brand {
+  display: none; font-family: var(--mcx-font-serif); font-size: 16px; font-weight: 600;
+  color: var(--mcx-text); text-decoration: none; white-space: nowrap;
+}
+.crumbs { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 14px; white-space: nowrap; }
+.crumbs span { overflow: hidden; text-overflow: ellipsis; }
+.crumb-section { color: var(--mcx-text-2); font-weight: 500; }
+.crumb-sep { color: var(--mcx-text-3); }
+.crumb-page { color: var(--mcx-text); font-weight: 600; }
+.appbar-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.status { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--mcx-text-2); white-space: nowrap; }
+.status::before { content: ''; width: 7px; height: 7px; border-radius: 999px; background: var(--mcx-text-3); }
+.status[data-state="live"]::before { background: var(--mcx-up); box-shadow: 0 0 0 3px var(--mcx-up-tint); }
+.appbar-meta { font-size: 13px; color: var(--mcx-text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* ── Page chips (below 1024 px) ─────────────────────────────────────────── */
+.subnav {
+  display: none; gap: 8px; padding: 10px 16px; overflow-x: auto;
+  background: var(--mcx-bg); border-bottom: 1px solid var(--mcx-border);
+  scrollbar-width: none;
+}
+.subnav::-webkit-scrollbar { display: none; }
+.chip {
+  flex-shrink: 0; height: 32px; padding: 0 14px;
+  display: inline-flex; align-items: center;
+  border: 1px solid var(--mcx-border); border-radius: 999px; background: var(--mcx-surface);
+  font: 500 13px/1 var(--mcx-font-sans); color: var(--mcx-text-2); text-decoration: none; white-space: nowrap;
+}
+.chip[aria-current="page"] { background: var(--mcx-text); border-color: var(--mcx-text); color: var(--mcx-bg); font-weight: 600; }
+
+/* ── Bottom bar and More sheet (below 1024 px) ──────────────────────────── */
+.bottombar {
+  display: none; position: fixed; left: 0; right: 0; bottom: 0; z-index: 150;
+  height: calc(64px + env(safe-area-inset-bottom, 0px)); padding-bottom: env(safe-area-inset-bottom, 0px);
+  background: var(--mcx-surface); border-top: 1px solid var(--mcx-border);
+  font-family: var(--mcx-font-sans);
+}
+.bb-link {
+  flex: 1; min-width: 0; padding: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  border: 0; background: none; cursor: pointer;
+  font: 500 12px/1.2 var(--mcx-font-sans); color: var(--mcx-text-2); text-decoration: none;
+}
+.bb-link svg { width: 22px; height: 22px; }
+.bb-link[aria-current="page"], .bb-link.is-active { color: var(--mcx-text); font-weight: 600; }
+
+.sheet {
+  position: fixed; inset: auto 0 0 0; width: 100%; max-width: none; max-height: 85vh; margin: 0;
+  padding: 0; border: 0; border-top: 1px solid var(--mcx-border); border-radius: 12px 12px 0 0;
+  background: var(--mcx-surface); color: var(--mcx-text); box-shadow: var(--mcx-shadow-lg);
+  font-family: var(--mcx-font-sans);
+}
+.sheet::backdrop { background: var(--mcx-scrim); }
+.sheet-body { padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); }
+.sheet-grip { width: 36px; height: 4px; margin: 0 auto 12px; border-radius: 999px; background: var(--mcx-border-strong); }
+.sheet-label { margin: 12px 0 2px; font-size: 12px; font-weight: 600; color: var(--mcx-text-3); }
+.sheet-grip + .sheet-label { margin-top: 0; }
+.sheet-row {
+  width: 100%; height: 48px; padding: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  border: 0; border-bottom: 1px solid var(--mcx-border); background: none; cursor: pointer;
+  font: 400 15px/1 var(--mcx-font-sans); color: var(--mcx-text); text-decoration: none; text-align: left;
+}
+.sheet-row[aria-current="page"] { font-weight: 600; }
+.sheet-row small { font-size: 13px; color: var(--mcx-text-2); }
+.sheet-row svg { width: 18px; height: 18px; color: var(--mcx-text-3); }
+
+.rail-link:focus-visible, .icon-btn:focus-visible, .chip:focus-visible, .bb-link:focus-visible,
+.sheet-row:focus-visible, .appbar-brand:focus-visible, .rail-brand:focus-visible {
+  outline: 2px solid var(--mcx-focus); outline-offset: 2px;
+}
+
+@media (min-width: 1024px) and (max-width: 1279px) {
+  :root { --mcx-rail-w: 224px; }
+}
+@media (max-width: 1023px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .rail { display: none; }
+  .appbar { height: 52px; padding: 0 16px; }
+  .appbar-brand { display: block; }
+  .crumbs { display: none; }
+  .subnav:not(:empty) { display: flex; }
+  .bottombar { display: flex; }
+  #main { padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+  .toast { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+  html { scroll-padding-top: 108px; }
+}
+@media (max-width: 479px) {
+  .appbar-meta { display: none; }
+}

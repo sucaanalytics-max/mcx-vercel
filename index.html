@@ -3,48 +3,76 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MCX Revenue</title>
+<title>Today · MCX Revenue Monitor</title>
+<script>/* theme before first paint; core.js takes over */try{var m=localStorage.getItem("mcxTheme")||"system";if(m==="dark"||(m!=="light"&&window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches))document.documentElement.classList.add("dark")}catch(e){}</script>
 <script defer src="/_vercel/insights/script.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/legacy.css?v=b44e8a19">
-<link rel="stylesheet" href="/assets/css/tokens.css?v=b44e8a19">
-<link rel="stylesheet" href="/assets/css/components.css?v=b44e8a19">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=DM+Sans:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/legacy.css?v=5fff7f2e">
+<link rel="stylesheet" href="/assets/css/tokens.css?v=5fff7f2e">
+<link rel="stylesheet" href="/assets/css/components.css?v=5fff7f2e">
+<link rel="stylesheet" href="/assets/css/shell.css?v=5fff7f2e">
 </head>
 <body>
 
-<!-- ═══ TOPBAR ═══════════════════════════════════════════════════════════════ -->
-<div class="topbar">
-  <div class="topbar-brand">MCX<span>/</span>REV</div>
-  <div class="topbar-live" id="livePill">● LIVE</div>
-  <div class="topbar-right">
-    <div class="topbar-meta" id="refreshMeta">—</div>
-    <button class="btn btn--accent" id="refreshBtn" onclick="doRefresh()">
-      <span class="btn-label">REFRESH</span>
-      <span class="btn-spin">↻</span>
-    </button>
-    <button class="btn btn--sm" onclick="openCookieModal()">⚙</button>
-    <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">◐</button>
-  </div>
-</div>
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="app">
 
-<!-- ═══ TAB NAVIGATION ══════════════════════════════════════════════════════ -->
-<div class="tab-nav">
-  <button class="tab-btn active" data-tab="tabPredictor" onclick="switchTab('tabPredictor')">Daily Predictor</button>
-  <button class="tab-btn" data-tab="tabForecast" onclick="switchTab('tabForecast')">Interactive Forecast</button>
-  <button class="tab-btn" data-tab="tabValuation" onclick="switchTab('tabValuation')">Fair Value</button>
-  <button class="tab-btn" data-tab="tabAnalytics" onclick="switchTab('tabAnalytics')">Analytics</button>
-  <button class="tab-btn" data-tab="tabCommodity" onclick="switchTab('tabCommodity')">Commodities</button>
-  <button class="tab-btn" data-tab="tabQuarterly" onclick="switchTab('tabQuarterly')">Quarterly P&L</button>
-  <button class="tab-btn" data-tab="tabExchange" onclick="switchTab('tabExchange')">Timeline Dashboard</button>
-  <button class="tab-btn" data-tab="tabMargins" onclick="switchTab('tabMargins')">Margins</button>
-  <button class="tab-btn" data-tab="tabMomentum" onclick="switchTab('tabMomentum')">Momentum</button>
-  <button class="tab-btn" data-tab="tabOIP" onclick="switchTab('tabOIP')">OI Participants</button>
-</div>
+<!-- ═══ RAIL (1024 px and wider) ════════════════════════════════════════════ -->
+<aside class="rail" aria-label="Navigation">
+  <a class="rail-brand" href="#/today"><span class="rail-brand-name">MCX Revenue Monitor</span><span class="rail-brand-org">Tusk Invest</span></a>
+  <nav class="rail-nav" aria-label="Pages">
+    <div class="rail-group">
+      <a class="rail-link" href="#/today" data-route="today">Today<span class="rail-live" id="railLive"></span></a>
+    </div>
+    <div class="rail-group">
+      <div class="rail-label">Revenue</div>
+      <a class="rail-link" href="#/revenue/trends" data-route="rev-trends">Trends</a>
+      <a class="rail-link" href="#/revenue/seasonality" data-route="rev-season">Seasonality</a>
+      <a class="rail-link" href="#/revenue/commodities" data-route="rev-cmd">Commodities</a>
+    </div>
+    <div class="rail-group">
+      <div class="rail-label">Earnings &amp; value</div>
+      <a class="rail-link" href="#/value/quarter" data-route="val-q">Quarter P&amp;L</a>
+      <a class="rail-link" href="#/value/fair-value" data-route="val-fv">Fair value</a>
+      <a class="rail-link" href="#/value/scenarios" data-route="val-scen">Scenarios</a>
+    </div>
+    <div class="rail-group">
+      <div class="rail-label">Signals</div>
+      <a class="rail-link" href="#/signals/momentum" data-route="sig-mom">Momentum</a>
+      <a class="rail-link" href="#/signals/ensemble" data-route="sig-ens">Model ensemble</a>
+    </div>
+    <div class="rail-group rail-group--lab">
+      <div class="rail-label">Lab</div>
+      <a class="rail-link" href="#/lab/diagnostics" data-route="lab-diag">Diagnostics</a>
+      <a class="rail-link" href="#/lab/positioning" data-route="lab-pos">Positioning</a>
+      <a class="rail-link" href="#/lab/margins" data-route="lab-mar">Margins</a>
+    </div>
+  </nav>
+  <div class="rail-foot">
+    <button type="button" class="icon-btn" data-action="theme" aria-label="Theme"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg></button>
+    <button type="button" class="icon-btn" data-action="settings" aria-label="Data source settings" title="Data source settings"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg></button>
+  </div>
+</aside>
+
+<div class="main-col">
+<!-- ═══ TOP BAR ═════════════════════════════════════════════════════════════ -->
+<header class="appbar">
+  <a class="appbar-brand" href="#/today">MCX Revenue Monitor</a>
+  <nav class="crumbs" id="crumbs" aria-label="Breadcrumb"></nav>
+  <div class="appbar-right">
+    <span class="status" id="livePill" data-state="idle">Loading</span>
+    <span class="appbar-meta" id="refreshMeta">—</span>
+    <button type="button" class="icon-btn" id="refreshBtn" onclick="doRefresh()" aria-label="Refresh data" title="Refresh data"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/></svg></button>
+  </div>
+</header>
+<nav class="subnav" id="subnav" aria-label="Section pages"></nav>
+
+<main id="main" tabindex="-1">
 
 <!-- ═══ TAB: DAILY PREDICTOR ════════════════════════════════════════════════ -->
-<div id="tabPredictor">
+<div id="tabPredictor" class="page">
 <div class="wrap">
 
 <!-- ═══ HERO ═════════════════════════════════════════════════════════════════ -->
@@ -293,7 +321,7 @@
 </div><!-- /tabPredictor -->
 
 <!-- ═══ TAB: INTERACTIVE FORECAST ═══════════════════════════════════════════ -->
-<div id="tabForecast" style="display:none">
+<div id="tabForecast" class="page" hidden>
 <div class="wrap">
 
 <!-- ── PAT PREDICTOR (multi-year trend + FY27 scenario) ─────────────────── -->
@@ -631,7 +659,7 @@
 </div><!-- /tabForecast -->
 
 <!-- ═══ TAB: FAIR VALUE (Model A) ══════════════════════════════════════════ -->
-<div id="tabValuation" style="display:none">
+<div id="tabValuation" class="page" hidden>
 <div class="wrap">
 
 <!-- ── HERO: Price / Fair Value / Signal ──────────────────────────────────── -->
@@ -701,6 +729,52 @@
     <span id="valGaugeMax">—</span>
   </div>
 </div>
+
+
+<!-- ── Model Methodology ──────────────────────────────────────────────────── -->
+<div class="accordion" onclick="this.classList.toggle('open')">
+  <div class="acc-header">
+    <span>Model A: EPS-Path Fair Value — Methodology</span>
+    <span class="acc-arrow">▸</span>
+  </div>
+  <div class="acc-body">
+    <div class="kv"><span class="kv-key">Model</span><span class="kv-val">EPS-Path Fair Value (45DMA Revenue → EPS → P/E Bands)</span></div>
+    <div class="kv"><span class="kv-key">Revenue Window</span><span class="kv-val">45-day moving average of daily F&O transaction revenue</span></div>
+    <div class="kv"><span class="kv-key">Annualization</span><span class="kv-val" id="valMethodAnn">45DMA × trading days + non-F&amp;O revenue and other income</span></div>
+    <div class="kv"><span class="kv-key">PAT Margin</span><span class="kv-val" id="valMethodMargin">— of total income</span></div>
+    <div class="kv"><span class="kv-key">Diluted Shares</span><span class="kv-val">25.451 Cr (254.51M, post 1:5 split Jan 2026)</span></div>
+    <div class="kv"><span class="kv-key">P/E Bands</span><span class="kv-val" id="valMethodPE">Dynamic: mean —x ± —x SD (— observations)</span></div>
+    <div class="kv"><span class="kv-key">Signal Logic</span><span class="kv-val">DEEP_VALUE (&lt;Bear) · UNDERVALUED (&lt;Base−5%) · FAIR (±5%) · OVERVALUED (&gt;Base+5%) · STRETCHED (&gt;Bull)</span></div>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:12px">
+      Source: MCX BHAV copy, MCX relay EOD, Yahoo Finance (price). Refreshed daily by valuation_refresh.py → Supabase.
+      Dynamic P/E derived from all dates with paired revenue + price data.
+      Not investment advice — model reflects mechanical fair value from observable revenue trends only.
+    </div>
+  </div>
+</div>
+
+<!-- ── Data Quality ──────────────────────────────────────────────────────── -->
+<div class="accordion" onclick="this.classList.toggle('open')">
+  <div class="acc-header">
+    <span>Data Quality & Diagnostics</span>
+    <span class="acc-arrow">▸</span>
+  </div>
+  <div class="acc-body" id="valDiagnostics">
+    <div class="kv"><span class="kv-key">Valuation Rows</span><span class="kv-val" id="valDQ_rows">—</span></div>
+    <div class="kv"><span class="kv-key">History Returned</span><span class="kv-val" id="valDQ_history">—</span></div>
+    <div class="kv"><span class="kv-key">Revenue Window</span><span class="kv-val" id="valDQ_window">— days</span></div>
+    <div class="kv"><span class="kv-key">Latest Valuation</span><span class="kv-val" id="valDQ_latest">—</span></div>
+    <div class="kv"><span class="kv-key">Model Signal Rows</span><span class="kv-val" id="valDQ_mdlRows">—</span></div>
+    <div class="kv"><span class="kv-key">As Of</span><span class="kv-val" id="valDQ_asof">—</span></div>
+  </div>
+</div>
+
+</div><!-- /wrap -->
+</div><!-- /tabValuation -->
+
+<!-- ═══ SIGNALS › MODEL ENSEMBLE (from the Fair Value tab) ═════════════════ -->
+<div id="pageSigEnsemble" class="page" hidden>
+<div class="wrap">
 
 <!-- ═══ MODELS B + C + ENSEMBLE ════════════════════════════════════════════ -->
 <div class="mdl-divider">Multi-Model Signals</div>
@@ -875,28 +949,6 @@
   <canvas id="ecmChart" style="max-height:220px"></canvas>
 </div>
 
-<!-- ── Model Methodology ──────────────────────────────────────────────────── -->
-<div class="accordion" onclick="this.classList.toggle('open')">
-  <div class="acc-header">
-    <span>Model A: EPS-Path Fair Value — Methodology</span>
-    <span class="acc-arrow">▸</span>
-  </div>
-  <div class="acc-body">
-    <div class="kv"><span class="kv-key">Model</span><span class="kv-val">EPS-Path Fair Value (45DMA Revenue → EPS → P/E Bands)</span></div>
-    <div class="kv"><span class="kv-key">Revenue Window</span><span class="kv-val">45-day moving average of daily F&O transaction revenue</span></div>
-    <div class="kv"><span class="kv-key">Annualization</span><span class="kv-val" id="valMethodAnn">45DMA × trading days + non-F&amp;O revenue and other income</span></div>
-    <div class="kv"><span class="kv-key">PAT Margin</span><span class="kv-val" id="valMethodMargin">— of total income</span></div>
-    <div class="kv"><span class="kv-key">Diluted Shares</span><span class="kv-val">25.451 Cr (254.51M, post 1:5 split Jan 2026)</span></div>
-    <div class="kv"><span class="kv-key">P/E Bands</span><span class="kv-val" id="valMethodPE">Dynamic: mean —x ± —x SD (— observations)</span></div>
-    <div class="kv"><span class="kv-key">Signal Logic</span><span class="kv-val">DEEP_VALUE (&lt;Bear) · UNDERVALUED (&lt;Base−5%) · FAIR (±5%) · OVERVALUED (&gt;Base+5%) · STRETCHED (&gt;Bull)</span></div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:12px">
-      Source: MCX BHAV copy, MCX relay EOD, Yahoo Finance (price). Refreshed daily by valuation_refresh.py → Supabase.
-      Dynamic P/E derived from all dates with paired revenue + price data.
-      Not investment advice — model reflects mechanical fair value from observable revenue trends only.
-    </div>
-  </div>
-</div>
-
 <!-- ── Model B Methodology ─────────────────────────────────────────────── -->
 <div class="accordion" onclick="this.classList.toggle('open')">
   <div class="acc-header">
@@ -935,27 +987,11 @@
   </div>
 </div>
 
-<!-- ── Data Quality ──────────────────────────────────────────────────────── -->
-<div class="accordion" onclick="this.classList.toggle('open')">
-  <div class="acc-header">
-    <span>Data Quality & Diagnostics</span>
-    <span class="acc-arrow">▸</span>
-  </div>
-  <div class="acc-body" id="valDiagnostics">
-    <div class="kv"><span class="kv-key">Valuation Rows</span><span class="kv-val" id="valDQ_rows">—</span></div>
-    <div class="kv"><span class="kv-key">History Returned</span><span class="kv-val" id="valDQ_history">—</span></div>
-    <div class="kv"><span class="kv-key">Revenue Window</span><span class="kv-val" id="valDQ_window">— days</span></div>
-    <div class="kv"><span class="kv-key">Latest Valuation</span><span class="kv-val" id="valDQ_latest">—</span></div>
-    <div class="kv"><span class="kv-key">Model Signal Rows</span><span class="kv-val" id="valDQ_mdlRows">—</span></div>
-    <div class="kv"><span class="kv-key">As Of</span><span class="kv-val" id="valDQ_asof">—</span></div>
-  </div>
-</div>
-
 </div><!-- /wrap -->
-</div><!-- /tabValuation -->
+</div><!-- /pageSigEnsemble -->
 
 <!-- ═══ TAB: ANALYTICS (3D-3) ══════════════════════════════════════════════ -->
-<div id="tabAnalytics" style="display:none">
+<div id="tabAnalytics" class="page" hidden>
 <div class="wrap">
 <h2 style="margin-bottom:16px">Analytics & Factor Decomposition</h2>
 
@@ -1087,7 +1123,7 @@
 </div><!-- /tabAnalytics -->
 
 <!-- ═══ COMMODITY TAB ══════════════════════════════════════════════════════ -->
-<div id="tabCommodity" style="display:none">
+<div id="tabCommodity" class="page" hidden>
 <div class="wrap">
 
 <!-- ── Commodity Revenue Breakdown (from /api/commodity_dashboard) ─── -->
@@ -1198,7 +1234,8 @@
 </div>
 </div><!-- /tabCommodity -->
 <!-- ═══ QUARTERLY P&L TAB ═════════════════════════════════════════════════ -->
-<div id="tabQuarterly" style="display:none">
+<div id="tabQuarterly" class="page" hidden>
+<div class="wrap">
 
   <!-- Hero: Current Quarter Projection -->
   <div class="card" id="qtrHeroCard">
@@ -1264,8 +1301,10 @@
     </div>
   </details>
 
+</div><!-- /wrap -->
 </div><!-- /tabQuarterly -->
-<div id="tabExchange" style="display:none">
+<div id="tabExchange" class="page" hidden>
+<div class="wrap">
   <div class="card" id="exdHeroCard">
     <div class="card-title" id="exdHeroTitle">Timeline Dashboard</div>
     <div id="exdHeroContent" style="opacity:0.4;text-align:center;padding:2rem">Loading exchange data...</div>
@@ -1291,6 +1330,19 @@
     <div class="exd-4up-grid" id="exdTrailGrid"></div>
   </div>
   <div class="card">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Daily Revenue Trend <span id="exdTrendRangeLabel">(60 days)</span></span><span id="exdTrendRange"></span></div>
+    <div style="position:relative;height:320px">
+      <canvas id="exdTrendChart"></canvas>
+    </div>
+  </div>
+
+</div><!-- /wrap -->
+</div><!-- /tabExchange -->
+
+<!-- ═══ REVENUE › SEASONALITY (from the Timeline tab) ══════════════════════ -->
+<div id="pageRevSeason" class="page" hidden>
+<div class="wrap">
+  <div class="card">
     <div class="card-title">Day-of-Week Analysis</div>
     <div style="overflow-x:auto"><table class="exd-table" id="exdDowTable"></table></div>
   </div>
@@ -1298,17 +1350,11 @@
     <div class="card-title" id="exdQdowTitle">Quarter &times; Day-of-Week</div>
     <div style="overflow-x:auto"><table class="exd-table" id="exdQdowTable"></table></div>
   </div>
-  <div class="card">
-    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Daily Revenue Trend <span id="exdTrendRangeLabel">(60 days)</span></span><span id="exdTrendRange"></span></div>
-    <div style="position:relative;height:320px">
-      <canvas id="exdTrendChart"></canvas>
-    </div>
-  </div>
-
-</div><!-- /tabExchange -->
+</div><!-- /wrap -->
+</div><!-- /pageRevSeason -->
 
 <!-- ═══ MARGINS TAB ═════════════════════════════════════════════════════════ -->
-<div id="tabMargins" style="display:none">
+<div id="tabMargins" class="page" hidden>
 <div class="wrap">
   <h2 style="margin-bottom:16px">MCX Margin Requirements</h2>
   <p id="marginAsOf" style="font-size:11px;color:var(--text-secondary);margin-bottom:16px">Loading…</p>
@@ -1350,7 +1396,7 @@
 </div><!-- /tabMargins -->
 
 
-<div id="tabMomentum" style="display:none">
+<div id="tabMomentum" class="page" hidden>
 <div class="wrap">
   <h2 style="margin-bottom:4px">Momentum Entry / Exit Signals</h2>
   <p id="momAsOf" style="font-size:11px;color:var(--text-secondary);margin-bottom:16px">Loading...</p>
@@ -1472,7 +1518,7 @@
 </div><!-- /tabMomentum -->
 
 <!-- ═══ TAB: OI PARTICIPANTS ═══════════════════════════════════════════════ -->
-<div id="tabOIP" style="display:none">
+<div id="tabOIP" class="page" hidden>
 <div class="wrap">
   <h2 style="margin-bottom:8px">Open Interest — Participant Categories</h2>
   <p id="oipAsOf" style="font-size:11px;color:var(--text-secondary);margin-bottom:12px">Loading...</p>
@@ -1608,6 +1654,31 @@
 </div>
 </div><!-- /tabOIP -->
 
+</main>
+</div><!-- /main-col -->
+</div><!-- /app -->
+
+<!-- ═══ BOTTOM BAR AND MORE SHEET (below 1024 px) ══════════════════════════ -->
+<nav class="bottombar" aria-label="Sections">
+  <a class="bb-link" href="#/today" data-section="today"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg><span>Today</span></a>
+  <a class="bb-link" href="#/revenue/trends" data-section="revenue"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Revenue</span></a>
+  <a class="bb-link" href="#/value/quarter" data-section="value"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M17 7H9.5a3 3 0 0 0 0 6h5a3 3 0 0 1 0 6H6"/></svg><span>Value</span></a>
+  <a class="bb-link" href="#/signals/momentum" data-section="signals"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg><span>Signals</span></a>
+  <button type="button" class="bb-link" id="moreBtn" data-section="more" data-action="more" aria-haspopup="dialog" aria-expanded="false" aria-controls="moreSheet"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg><span>More</span></button>
+</nav>
+<dialog class="sheet" id="moreSheet" aria-label="More">
+  <div class="sheet-body">
+    <div class="sheet-grip" aria-hidden="true"></div>
+    <div class="sheet-label">Lab</div>
+    <a class="sheet-row" href="#/lab/diagnostics" data-route="lab-diag">Diagnostics<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></a>
+    <a class="sheet-row" href="#/lab/positioning" data-route="lab-pos">Positioning<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></a>
+    <a class="sheet-row" href="#/lab/margins" data-route="lab-mar">Margins<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></a>
+    <div class="sheet-label">App</div>
+    <button type="button" class="sheet-row" data-action="theme">Theme <small>System</small></button>
+    <button type="button" class="sheet-row" data-action="settings">Data source settings<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
+  </div>
+</dialog>
+
 <!-- ═══ COOKIE MODAL ═══════════════════════════════════════════════════════ -->
 <div class="modal-overlay hidden" id="cookieModal" onclick="if(event.target===this)closeCookieModal()">
   <div class="modal-box">
@@ -1623,7 +1694,8 @@
 </div>
 
 <!-- ═══ JAVASCRIPT ═══════════════════════════════════════════════════════════ -->
-<script src="/assets/js/core.js?v=b44e8a19"></script>
-<script src="/assets/js/legacy.js?v=b44e8a19"></script>
+<script src="/assets/js/core.js?v=5fff7f2e"></script>
+<script src="/assets/js/legacy.js?v=5fff7f2e"></script>
+<script src="/assets/js/shell.js?v=5fff7f2e"></script>
 </body>
 </html>
