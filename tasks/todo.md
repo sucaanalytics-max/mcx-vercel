@@ -102,3 +102,39 @@ Scope: "verify and update all tabs and all data" (all 10 tabs, 16 endpoints,
       GitHub Actions, no duplicate Vercel project. Reliable ~16/18 days and the
       14:00 UTC cron catches up when it misses. Candidates: Supabase pg_cron,
       a Supabase Edge Function, or another machine. Harmless but unexplained.
+
+## Winter close (23:55 IST) — 2026-09-29
+- [x] **Timings verified from MCX circulars.** Non-agri close 23:55 while the
+      US is on standard time: 643/2024 (2024-11-04 → 2025-03-07), 491/2025
+      (2025-11-03 → 2026-03-06); 23:30 again from 071/2025 (2025-03-10) and
+      068/2026 (2026-03-09). Switch = Monday after the US change. No circular
+      yet for 2026-27; expected 23:55 from Mon 2026-11-02 to Fri 2027-03-12.
+      Agri (17:00 / 21:00) doesn't change. CCM after the close adds no trades.
+- [x] **Session end is seasonal** (`lib.mcx_config.session_end(d)`, US DST
+      rule + `SESSION_END_OVERRIDES`). SESSION_END / SESSION_TOTAL /
+      INTRADAY_BUCKETS constants removed; every caller passes the trading date.
+      Winter late bucket 22:00–23:55 gets +4% static share (measured below);
+      adaptive EWMA uses same-season days only.
+- [x] **Relay** wakes 2 min after the close (23:32 / 23:57), so the final
+      snapshot and EOD row land at the real close and before midnight;
+      `capture_eod(date)` takes the session date explicitly.
+- [x] **daily_verify reconciles** mcx_relay_eod / mcx_historical rows against
+      MCX's historical report every morning (default --days 3) and replaces
+      them when >1% apart. Summer relay rows sit within 1% (101 days, worst
+      −0.83%), so this won't churn normal days. Upsert uses
+      on_conflict=trading_date and confirms the row changed.
+- [x] **Last winter audited** (read-only). No relay EOD rows existed then (the
+      first is 2026-03-17); all 88 winter rows match MCX's full-day total to
+      0.01%. Relay *snapshots* on the six full winter days with data (23 Feb –
+      6 Mar 2026) stopped at 23:30 and were 3.3–7.4% (median 4.0%) short.
+- [ ] Before 2 Nov: check MCX's 2026-27 circular matches (add an override if not).
+- [ ] UNVERIFIED: whether the anon key may UPDATE mcx_daily_revenue. If the
+      first replacement reports "write blocked by RLS", set SUPABASE_SERVICE_KEY
+      on the daily_verify machine.
+- [ ] Repo plist runs daily_verify under /usr/bin/python3 (no curl_cffi), where
+      the historical fetch can't load. It now reports this instead of silently
+      skipping; the production plist on the relay Mac should use homebrew python.
+- [ ] Side finding: 46 excel_calibrated rows (2025-12-22 → 2026-02-25) have the
+      right total_rev_cr but opt_prem_cr off MCX by median 4.8% (max 53%).
+- [ ] Side finding: recompute backtest (no drift) under-projects ~15–18% over
+      the last 5 days on HEAD too — pre-existing, unrelated to this change.
