@@ -39,13 +39,14 @@ check('holds the first value before the grid', M.gridAt(grid, 100, 'p90_abs_pct'
 check('holds the last value after the grid', M.gridAt(grid, 800, 'p90_abs_pct'), 29);
 check('empty grid', M.gridAt([], 300, 'p90_abs_pct'), null);
 
-// Likely range: the final lies in [P/(1+p), P/(1−p)]
-const rg = M.likelyRange(15.32, 31.1);
-check('range from a 31.1% miss', [r2(rg.lo), r2(rg.hi)], [11.69, 22.24]);
-check('no upper bound when the miss is 95% or more', M.likelyRange(15, 96).hi, null);
-check('no range without a measured error', M.likelyRange(15, null), null);
-const ms = M.missSplit(31.1);
-check('a miss of 31% of the final is 24% below or 45% above the projection', [Math.round(ms.below), Math.round(ms.above)], [24, 45]);
+// Likely range from signed percentiles: the final lies in [P/(1+q90), P/(1+q10)]
+const rg = M.likelyRange(13.68, -24.5, 40.9);
+check('12:00 today: 10th/90th percentiles −24.5% / +40.9% give ₹9.71–18.12 Cr', [r2(rg.lo), r2(rg.hi)], [9.71, 18.12]);
+check('the old size-of-miss method would have topped out at ₹24.8 (for the record)', r2(13.68 / (1 - 0.448)), 24.78);
+check('no upper bound when projections have run 95% or more too low', M.likelyRange(15, -96, 20).hi, null);
+check('no range without measured percentiles', M.likelyRange(15, null, 20), null);
+const fb = M.finalBand(-24.5, 40.9);
+check('final landed 29% below to 32% above the projection', [Math.round(fb.below), Math.round(fb.above)], [29, 32]);
 
 // Headline: claims only what the whole range supports
 const avgs = [10, 11, 12, 13, 11.5, 10.5].map((value, i) => ({ key: ['d5', 'd10', 'd20', 'd45', 'qtd', 'fytd'][i], value }));
@@ -63,7 +64,7 @@ check('before 09:30 there is no range to lean on',
 // Deck
 check('before 17:00 the rest comes mostly in the evening',
   M.deckLive(15.32, 5.28, 342, avgs, 9.7),
-  '₹5.28 Cr is booked so far. The projection expects the other ₹10.04 Cr later in the day, mostly in the evening hours (17:00–23:30), when trading is usually heaviest. At ₹15.3 Cr today would beat every average below. By 21:00, projections are within 10% of the final figure on 9 days in 10.');
+  '₹5.28 Cr is booked so far. The projection expects the other ₹10.04 Cr later in the day, mostly in the evening hours (17:00–23:30), when trading is usually heaviest. At ₹15.3 Cr today would beat every average below. By 21:00, the final has landed within 10% of the projection on 8 days in 10.');
 check('after 21:00: no evening claim and no 21:00 sentence',
   M.deckLive(12, 11.2, 760, avgs, 9.7), '₹11.20 Cr is booked so far. The projection expects the other ₹0.80 Cr before the close.');
 
@@ -97,6 +98,11 @@ const sp = M.spread([{ y: 100, s: 'a' }, { y: 104, s: 'b' }, { y: 106, s: 'c' }]
 check('labels pushed at least 15 px apart', sp, [100, 115, 130]);
 check('pulled back inside the bottom edge', M.spread([{ y: 390, s: 'a' }, { y: 395, s: 'b' }], 15, 0, 400).map(x => x.y), [385, 400]);
 check('nice ticks', M.niceTicks(21.7, 6), [0, 5, 10, 15, 20]);
+check('nice ticks across zero', M.niceTicks(40, 6, -30), [-20, 0, 20, 40]);
+
+// Rolling averages move with the data (the old 45-day line was one flat value)
+const rows = [1, 2, 3, 4, 5, 6].map(t => ({ total: t }));
+check('rolling 3-day mean, empty until 3 rows exist', M.rolling(rows, 3), [null, null, 2, 3, 4, 5]);
 
 console.log(failed ? `\n${failed} FAILED` : '\nAll Today model tests passed.');
 process.exit(failed ? 1 : 0);

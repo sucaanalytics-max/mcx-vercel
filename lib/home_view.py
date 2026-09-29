@@ -9,9 +9,11 @@ Figures for the Today page (/api/exchange_dashboard?view=home).
   against.
 - How far past live projections landed from the final figure, by time of day,
   measured from the projections users actually saw (mcx_snapshots.proj_total_rev).
-  error = projection / final - 1, so the final lies in
-  [P / (1 + p90), P / (1 - p90)] on 9 past days in 10, where p90 is the 90th
-  percentile of |error| at that time.
+  error = projection / final - 1. With q10 and q90 the 10th and 90th percentiles
+  of the signed error at that time, the final lay in [P / (1 + q90), P / (1 + q10)]
+  on 8 past days in 10. Signed percentiles matter: at midday the projection has
+  mostly run high, so mirroring the size of those misses onto the upside (as a
+  |error| percentile does) overstates how far above the projection the final goes.
 """
 from datetime import date, datetime, timedelta
 
@@ -29,7 +31,18 @@ except ImportError:                             # older lib: fixed 23:30 close
 
 FINAL_ROW_SOURCES = {"mcx_relay_eod", "mcx_historical"}
 THIN_SESSIONS = MCX_MORNING_CLOSE | MCX_EVENING_CLOSE    # part-day sessions: not typical days
-DAILY_KEEP = 260            # completed days returned for the revenue strip (about a year)
+# US market holidays (NYSE). MCX's evening session is thin when US markets are shut, so the
+# projection runs high on these days; they are known in advance, so they are left out of the
+# error measurement and flagged on the day. Add each year's dates when NYSE publishes them.
+US_MARKET_HOLIDAYS = {
+    "2025-01-01", "2025-01-09", "2025-01-20", "2025-02-17", "2025-04-18", "2025-05-26", "2025-06-19",
+    "2025-07-04", "2025-09-01", "2025-11-27", "2025-12-25",
+    "2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03", "2026-05-25", "2026-06-19", "2026-07-03",
+    "2026-09-07", "2026-11-26", "2026-12-25",
+    "2027-01-01", "2027-01-18", "2027-02-15", "2027-03-26", "2027-05-31", "2027-06-18", "2027-07-05",
+    "2027-09-06", "2027-11-25", "2027-12-24",
+}
+DAILY_KEEP = 300            # completed days returned: a year of bars plus a 45-day average's lead-in
 ACCURACY_SESSIONS = 90      # past normal sessions used to measure projection error
 ACCURACY_GRID = list(range(30, 841, 30))    # minutes after 09:00: 09:30 to 23:00
 ACCURACY_WINDOW = 20        # use the last snapshot in the 20 minutes up to each grid time
@@ -179,14 +192,16 @@ def projection_accuracy(snaps, days, today):
     """
     finals = {r["date"].isoformat(): r["total"] for r in days}
     by_day = {}
+    skip = THIN_SESSIONS | US_MARKET_HOLIDAYS
     for s in snaps:
         p, m, d = s.get("proj_total_rev"), s.get("elapsed_min"), s.get("trading_date")
         if not p or m is None or d not in finals or d >= today.isoformat():
             continue
         by_day.setdefault(d, []).append((m, p))
     all_days = sorted(by_day)
-    thin = [d for d in all_days if d in THIN_SESSIONS]
-    use = [d for d in all_days if d not in THIN_SESSIONS][-ACCURACY_SESSIONS:]
+    use = [d for d in all_days if d not in skip][-ACCURACY_SESSIONS:]
+    thin = [d for d in all_days if d in THIN_SESSIONS and use and d >= use[0]]
+    us = [d for d in all_days if d in US_MARKET_HOLIDAYS and d not in THIN_SESSIONS and use and d >= use[0]]
     for d in use:
         by_day[d].sort()
 
@@ -197,16 +212,20 @@ def projection_accuracy(snaps, days, today):
             inside = [p for (em, p) in by_day[d] if m - ACCURACY_WINDOW <= em <= m]
             if inside:
                 errs.append(inside[-1] / finals[d] - 1)
-        row = {"min": m, "time": minutes_to_clock(m), "n": len(errs), "p90_abs_pct": None, "median_pct": None}
+        row = {"min": m, "time": minutes_to_clock(m), "n": len(errs),
+               "q10_pct": None, "median_pct": None, "q90_pct": None, "p90_abs_pct": None}
         if len(errs) >= ACCURACY_MIN_N:
-            row["p90_abs_pct"] = round(_quantile([abs(e) for e in errs], 0.9) * 100, 2)
+            row["q10_pct"] = round(_quantile(errs, 0.1) * 100, 2)
             row["median_pct"] = round(_quantile(errs, 0.5) * 100, 2)
+            row["q90_pct"] = round(_quantile(errs, 0.9) * 100, 2)
+            row["p90_abs_pct"] = round(_quantile([abs(e) for e in errs], 0.9) * 100, 2)
         grid.append(row)
     return {
         "sessions": len(use),
         "first": use[0] if use else None,
         "last": use[-1] if use else None,
-        "excluded_part_day": len([d for d in thin if use and d >= use[0]]),
+        "excluded_part_day": len(thin),
+        "excluded_us_holiday": len(us),
         "window_min": ACCURACY_WINDOW,
         "grid": grid,
     }
@@ -239,6 +258,7 @@ def generate_home(now=None, rows=None, snaps=None):
         "as_of": now.strftime("%Y-%m-%d %H:%M IST"),
         "today": today.isoformat(),
         "today_is_session": is_trading_day(today),
+        "today_us_holiday": today.isoformat() in US_MARKET_HOLIDAYS,
         "today_final": days[-1]["date"] == today,
         "sessions_through": days[-1]["date"].isoformat(),
         "ma45": round(_mean(last45), 4),

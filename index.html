@@ -9,11 +9,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=DM+Sans:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/legacy.css?v=61b480ca">
-<link rel="stylesheet" href="/assets/css/tokens.css?v=61b480ca">
-<link rel="stylesheet" href="/assets/css/components.css?v=61b480ca">
-<link rel="stylesheet" href="/assets/css/shell.css?v=61b480ca">
-<link rel="stylesheet" href="/assets/css/v2.css?v=61b480ca">
+<link rel="stylesheet" href="/assets/css/legacy.css?v=189bc7f5">
+<link rel="stylesheet" href="/assets/css/tokens.css?v=189bc7f5">
+<link rel="stylesheet" href="/assets/css/components.css?v=189bc7f5">
+<link rel="stylesheet" href="/assets/css/shell.css?v=189bc7f5">
+<link rel="stylesheet" href="/assets/css/v2.css?v=189bc7f5">
 </head>
 <body>
 
@@ -104,7 +104,7 @@
 
 <section class="sec" aria-labelledby="tdTrustTitle">
   <div class="sec-head"><div><h2 id="tdTrustTitle">How far to trust the projection</h2>
-    <div class="sec-sub">How far past projections made at each time of day ended up from the final figure, as a share of that figure: 9 days in 10 stayed within this</div></div></div>
+    <div class="sec-sub">Where the final figure landed relative to the projection made at each time of day, on 8 of 10 past days. The line is the median: below zero means projections ran high</div></div></div>
   <div class="trust">
     <div class="chart-box" id="tdTrust"></div>
     <div id="tdTrustSide"></div>
@@ -112,9 +112,13 @@
 </section>
 
 <section class="sec" aria-labelledby="tdDailyTitle">
-  <div class="sec-head"><div><h2 id="tdDailyTitle">Revenue per trading day <span id="tdDailyRangeLabel">(60 days)</span></h2><div class="sec-sub">₹ crore</div></div>
+  <div class="sec-head"><div><h2 id="tdDailyTitle">Revenue per trading day <span id="tdDailyRangeLabel">(60 days)</span></h2>
+    <div class="sec-sub">₹ crore: each day’s futures and options, with the rolling 20-day average (the trend) and 45-day average</div></div>
     <span id="tdDailyRange"></span></div>
   <div class="chart-box" id="tdDaily"></div>
+  <div class="legend"><span><i class="sw sw--soft-fut"></i>Futures</span><span><i class="sw sw--soft-opt"></i>Options</span>
+    <span><i class="sw sw--line"></i>20-day average</span><span><i class="sw sw--typical"></i>45-day average</span>
+    <span id="tdDailyTodayKey"><i class="sw sw--hatch"></i>Today, projected</span><span id="tdDailyRangeKey"><i class="sw sw--whisker"></i>Likely range (8 in 10)</span></div>
 </section>
 
 <div class="two-col">
@@ -1547,9 +1551,9 @@
 </div>
 
 <!-- ═══ JAVASCRIPT ═══════════════════════════════════════════════════════════ -->
-<script src="/assets/js/core.js?v=61b480ca"></script>
-<script src="/assets/js/legacy.js?v=61b480ca"></script>
-<script src="/assets/js/today.js?v=61b480ca"></script>
-<script src="/assets/js/shell.js?v=61b480ca"></script>
+<script src="/assets/js/core.js?v=189bc7f5"></script>
+<script src="/assets/js/legacy.js?v=189bc7f5"></script>
+<script src="/assets/js/today.js?v=189bc7f5"></script>
+<script src="/assets/js/shell.js?v=189bc7f5"></script>
 </body>
 </html>

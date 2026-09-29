@@ -232,6 +232,88 @@
     run(r.mount, r.id);
   }
 
+  // ── SVG charts: small string builders shared by the v2 pages ────────────
+  // Colours come from CSS classes (v2.css), so charts follow the theme without redrawing.
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  function niceStep(span, n) {
+    const raw = span / Math.max(n, 1), mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const f = raw / mag;
+    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * mag;
+  }
+  MCX.svg = {
+    esc,
+    // pad: [left, right, top, bottom]; y() maps a value in [vmin, vmax] to pixels
+    frame(w, h, vmax, pad, vmin = 0) {
+      const f = { w, h, pl: pad[0], pr: pad[1], pt: pad[2], pb: pad[3], vmin, vmax };
+      f.iw = w - f.pl - f.pr; f.ih = h - f.pt - f.pb;
+      f.y = v => f.pt + f.ih * (1 - (v - vmin) / (vmax - vmin));
+      return f;
+    },
+    niceTicks(vmax, n, vmin = 0) {
+      const step = niceStep(vmax - vmin, n), out = [];
+      for (let v = Math.ceil(vmin / step) * step; v <= vmax + 1e-9; v += step) out.push(+v.toFixed(6));
+      return out;
+    },
+    // A bar with rounded top corners, anchored at yBot
+    barPath(x, yTop, yBot, w, r) {
+      const hgt = yBot - yTop;
+      if (hgt <= 0) return '';
+      r = Math.min(r, hgt, w / 2);
+      const f = v => v.toFixed(1);
+      return `M${f(x)},${f(yBot)}L${f(x)},${f(yTop + r)}Q${f(x)},${f(yTop)} ${f(x + r)},${f(yTop)}`
+           + `L${f(x + w - r)},${f(yTop)}Q${f(x + w)},${f(yTop)} ${f(x + w)},${f(yTop + r)}L${f(x + w)},${f(yBot)}Z`;
+    },
+    hatch: id => `<pattern id="${id}" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="5" class="c-hatch-line"/></pattern>`,
+    text: (x, y, cls, s, anchor, halo) => `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="${cls}${halo ? ' c-halo' : ''}"${anchor ? ` text-anchor="${anchor}"` : ''}>${s}</text>`,
+    open: (w, h, label) => `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(label)}">`,
+    // Horizontal gridlines with ₹/% tick labels on the left
+    grid(f, ticks, label) {
+      return ticks.map(v => {
+        const y = f.y(v);
+        return `<line x1="${f.pl}" x2="${f.w - f.pr}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" class="${v === f.vmin ? 'c-axis' : 'c-grid'}"/>`
+             + MCX.svg.text(f.pl - 8, y + 4, 'c-tick', label(v), 'end');
+      }).join('');
+    },
+    // Push labels apart so none sit closer than `gap` px, staying inside [top, bottom]
+    spread(items, gap, top, bottom) {
+      const out = items.map(x => ({ ...x })).sort((a, b) => a.y - b.y);
+      for (let i = 1; i < out.length; i++) if (out[i].y - out[i - 1].y < gap) out[i].y = out[i - 1].y + gap;
+      const over = out.length ? out[out.length - 1].y - bottom : 0;
+      if (over > 0) out.forEach(x => { x.y -= over; });
+      for (let i = out.length - 2; i >= 0; i--) if (out[i + 1].y - out[i].y < gap) out[i].y = out[i + 1].y - gap;
+      if (out.length && out[0].y < top) { const d = top - out[0].y; out.forEach(x => { x.y += d; }); }
+      return out;
+    },
+    // Crosshair + tooltip for time-series charts. xs: pixel x of each point; tip(i) returns HTML (escaped by the caller).
+    hover(box, f, xs, tip) {
+      const svg = box.querySelector('svg');
+      if (!svg || !xs.length) return;
+      let tt = box.querySelector('.c-tip');
+      if (!tt) { tt = document.createElement('div'); tt.className = 'c-tip'; tt.hidden = true; box.appendChild(tt); }
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('class', 'c-cross'); line.setAttribute('y1', f.pt); line.setAttribute('y2', f.h - f.pb); line.style.display = 'none';
+      svg.appendChild(line);
+      const hit = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      hit.setAttribute('x', f.pl); hit.setAttribute('y', f.pt); hit.setAttribute('width', f.iw); hit.setAttribute('height', f.ih);
+      hit.setAttribute('fill', 'transparent');
+      svg.appendChild(hit);
+      const move = e => {
+        const r = svg.getBoundingClientRect();
+        const x = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
+        let i = 0, best = Infinity;
+        xs.forEach((px, k) => { const d = Math.abs(px - x); if (d < best) { best = d; i = k; } });
+        line.setAttribute('x1', xs[i]); line.setAttribute('x2', xs[i]); line.style.display = '';
+        tt.innerHTML = tip(i); tt.hidden = false;
+        const left = xs[i] + 12 + tt.offsetWidth > box.clientWidth ? xs[i] - 12 - tt.offsetWidth : xs[i] + 12;
+        tt.style.left = Math.max(0, left) + 'px'; tt.style.top = f.pt + 'px';
+      };
+      const leave = () => { line.style.display = 'none'; tt.hidden = true; };
+      hit.addEventListener('mousemove', move); hit.addEventListener('touchstart', move, { passive: true });
+      hit.addEventListener('touchmove', move, { passive: true });
+      hit.addEventListener('mouseleave', leave); hit.addEventListener('touchend', leave);
+    },
+  };
+
   // ── Chart.js reference line ──────────────────────────────────────────────
   // options.plugins.refLine = { value, label, color, dash, scale }. Replaces
   // options.plugins.annotation, whose plugin was never loaded, so nothing drew.

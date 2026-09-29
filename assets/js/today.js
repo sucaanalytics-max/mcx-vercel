@@ -38,17 +38,17 @@
     return null;
   }
 
-  // error = projection / final − 1, so |error| ≤ p puts the final in [P/(1+p), P/(1−p)]
-  function likelyRange(P, p90pct) {
-    if (!(P > 0) || p90pct === null || p90pct === undefined) return null;
-    const p = p90pct / 100;
-    return { lo: P / (1 + p), hi: p < 0.95 ? P / (1 - p) : null, p90: p90pct };
+  // error = projection / final − 1. With q10/q90 the 10th and 90th percentiles of past
+  // errors at this time of day, the final lay in [P/(1+q90), P/(1+q10)] on 8 days in 10.
+  function likelyRange(P, q10pct, q90pct) {
+    if (!(P > 0) || q10pct === null || q10pct === undefined || q90pct === null || q90pct === undefined) return null;
+    const lo = 1 + q90pct / 100, hi = 1 + q10pct / 100;
+    return { lo: P / lo, hi: hi > 0.05 ? P / hi : null, q10: q10pct, q90: q90pct };
   }
 
-  // How far below or above the projection the final can land for a miss of p90pct of the final
-  function missSplit(p90pct) {
-    const p = p90pct / 100;
-    return { below: (1 - 1 / (1 + p)) * 100, above: p < 1 ? (1 / (1 - p) - 1) * 100 : null };
+  // Where the final landed relative to the projection, in %: below (negative side) and above
+  function finalBand(q10pct, q90pct) {
+    return { below: (1 - 1 / (1 + q90pct / 100)) * 100, above: q10pct > -95 ? (1 / (1 + q10pct / 100) - 1) * 100 : null };
   }
 
   const mean = xs => xs.reduce((a, b) => a + b, 0) / xs.length;
@@ -66,7 +66,7 @@
                            : `Today is tracking towards ${p1}; the likely range is ${r}.`;
   }
 
-  function deckLive(P, B, min, avgs, p21) {
+  function deckLive(P, B, min, avgs, w21) {
     const vals = avgs.filter(a => a.value !== null).map(a => a.value);
     const rest = P - B;
     let s = `₹${num(B, 2)} Cr is booked so far. `;
@@ -76,7 +76,7 @@
         : `The projection expects the other ₹${num(rest, 2)} Cr before the close. `;
     }
     if (vals.length && P > Math.max(...vals)) s += `At ₹${num(P, 1)} Cr today would beat every average below. `;
-    if (min < 720 && p21 !== null) s += `By 21:00, projections are within ${Math.round(p21)}% of the final figure on 9 days in 10.`;
+    if (min < 720 && w21 !== null) s += `By 21:00, the final has landed within ${Math.round(w21)}% of the projection on 8 days in 10.`;
     return s.trim();
   }
 
@@ -124,37 +124,23 @@
     return { dir: a.chg_pct > 0 ? 'up' : 'down', pct: Math.abs(a.chg_pct), vs };
   }
 
-  // Push labels apart so none sit closer than `gap` px; keeps the input order of equal y
-  function spread(items, gap, top, bottom) {
-    const out = items.map(x => ({ ...x })).sort((a, b) => a.y - b.y);
-    for (let i = 1; i < out.length; i++) if (out[i].y - out[i - 1].y < gap) out[i].y = out[i - 1].y + gap;
-    const over = out.length ? out[out.length - 1].y - bottom : 0;
-    if (over > 0) out.forEach(x => { x.y -= over; });
-    for (let i = out.length - 2; i >= 0; i--) if (out[i + 1].y - out[i].y < gap) out[i].y = out[i + 1].y - gap;
-    if (out.length && out[0].y < top) { const d = top - out[0].y; out.forEach(x => { x.y += d; }); }
-    return out;
+  const spread = MCX.svg.spread, niceTicks = MCX.svg.niceTicks;
+
+  // Rolling mean of the last n totals ending at each row (null until n rows exist)
+  function rolling(rows, n) {
+    let sum = 0;
+    return rows.map((r, i) => { sum += r.total; if (i >= n) sum -= rows[i - n].total; return i >= n - 1 ? sum / n : null; });
   }
 
-  function niceStep(span, n) {
-    const raw = span / Math.max(n, 1), mag = Math.pow(10, Math.floor(Math.log10(raw)));
-    const f = raw / mag;
-    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * mag;
-  }
-  function niceTicks(vmax, n) {
-    const step = niceStep(vmax, n), out = [];
-    for (let v = 0; v <= vmax + 1e-9; v += step) out.push(+v.toFixed(6));
-    return out;
-  }
-
-  MCX.todayModel = { sessionState, gridAt, likelyRange, missSplit, headlineLive, deckLive, vsPrev45, rankText,
-                     takeaway, change, spread, niceTicks };
+  MCX.todayModel = { sessionState, gridAt, likelyRange, finalBand, headlineLive, deckLive, vsPrev45, rankText,
+                     takeaway, change, spread, niceTicks, rolling };
   if (window.MCX_TEST) return;
 
   // ════════════════════════════════════════════════════════════════════════
   //  Page
   // ════════════════════════════════════════════════════════════════════════
   const $ = id => document.getElementById(id);
-  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const esc = MCX.svg.esc;
   const INFO = '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>';
   const HOME_TTL = 10 * 60 * 1000, QTR_TTL = 5 * 60 * 1000;
   const GROUPS = [
@@ -191,11 +177,19 @@
     const state = sessionState(r, ist.iso);
     const d = { ist, state, r, h, avgs: (h && h.averages) || [], daily: (h && h.daily) || [] };
     const grid = h && h.accuracy ? h.accuracy.grid : [];
-    d.p = key => (grid.find(g => g.min === key) || {}).p90_abs_pct ?? null;
+    // Where the final landed relative to the projection made at `min`, on 8 days in 10
+    d.band = min => {
+      const a = gridAt(grid, min, 'q10_pct'), b = gridAt(grid, min, 'q90_pct');
+      return a === null || b === null ? null : finalBand(a, b);
+    };
+    d.bandAt = key => { const g = grid.find(x => x.min === key); return g && g.q10_pct !== null ? finalBand(g.q10_pct, g.q90_pct) : null; };
     if (state === 'live') {
       d.P = r.proj_rev_cr; d.B = r.booked_rev_cr; d.min = r.elapsed_min;
-      d.p90 = d.min >= FIRST_RANGE_MIN ? gridAt(grid, d.min, 'p90_abs_pct') : null;
-      d.range = likelyRange(d.P, d.p90);
+      const early = d.min < FIRST_RANGE_MIN;
+      d.q10 = early ? null : gridAt(grid, d.min, 'q10_pct');
+      d.q90 = early ? null : gridAt(grid, d.min, 'q90_pct');
+      d.range = likelyRange(d.P, d.q10, d.q90);
+      d.nowBand = d.range ? finalBand(d.q10, d.q90) : null;
       d.clock = clock(d.min);
     }
     if (state === 'closed' || state === 'pre') {
@@ -226,7 +220,9 @@
     if (d.state === 'live') {
       kicker = `${date} · live session, ${Math.round(d.r.elapsed_pct)}% of trading hours gone`;
       head = headlineLive(d.P, d.range, d.avgs, d.r.elapsed_pct);
-      deck = deckLive(d.P, d.B, d.min, d.avgs, d.p(720));
+      const b21 = d.bandAt(720);
+      deck = deckLive(d.P, d.B, d.min, d.avgs, b21 ? Math.max(b21.below, b21.above ?? 0) : null);
+      if (d.h && d.h.today_us_holiday) deck += ' US markets are closed today; evenings are usually quieter on such days, so the projection may run high.';
       if (d.r.opening_artifact) deck += ' The first snapshot of the day looks stale, so treat this projection with care until the next update.';
     } else if (d.last) {
       const provisional = d.last.provisional;
@@ -266,8 +262,8 @@
          + `<div class="stat-value">${value}</div>${sub ? `<div class="stat-sub">${sub}</div>` : ''}</div>`;
   }
   const rangeText = rg => !rg ? 'Too early for a measured range: the first check is at 09:30'
-    : rg.hi !== null ? `Likely range ${nb(`${cr(rg.lo, 1)} to ${cr(rg.hi, 1)} Cr`)} (held on 9&nbsp;in&nbsp;10 past&nbsp;days)`
-    : `Likely ${cr(rg.lo, 1)} Cr or more (held on 9&nbsp;in&nbsp;10 past&nbsp;days)`;
+    : rg.hi !== null ? `Likely range ${nb(`${cr(rg.lo, 1)} to ${cr(rg.hi, 1)} Cr`)} (held on 8&nbsp;in&nbsp;10 past&nbsp;days)`
+    : `Likely ${cr(rg.lo, 1)} Cr or more (held on 8&nbsp;in&nbsp;10 past&nbsp;days)`;
 
   function statsHtml(d) {
     const ma = d.h ? d.h.ma45 : null;
@@ -286,23 +282,9 @@
     return stat('&nbsp;', '<span class="skel"></span>', '', true);
   }
 
-  // ── SVG helpers ──────────────────────────────────────────────────────────
-  function frame(w, h, vmax, pad) {
-    const f = { w, h, pl: pad[0], pr: pad[1], pt: pad[2], pb: pad[3] };
-    f.iw = w - f.pl - f.pr; f.ih = h - f.pt - f.pb;
-    f.y = v => f.pt + f.ih * (1 - v / vmax);
-    return f;
-  }
-  function barPath(x, yTop, yBot, w, r) {
-    const hgt = yBot - yTop;
-    if (hgt <= 0) return '';
-    r = Math.min(r, hgt, w / 2);
-    return `M${x.toFixed(1)},${yBot.toFixed(1)}L${x.toFixed(1)},${(yTop + r).toFixed(1)}Q${x.toFixed(1)},${yTop.toFixed(1)} ${(x + r).toFixed(1)},${yTop.toFixed(1)}`
-         + `L${(x + w - r).toFixed(1)},${yTop.toFixed(1)}Q${(x + w).toFixed(1)},${yTop.toFixed(1)} ${(x + w).toFixed(1)},${(yTop + r).toFixed(1)}L${(x + w).toFixed(1)},${yBot.toFixed(1)}Z`;
-  }
-  const hatch = id => `<pattern id="${id}" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="5" class="c-hatch-line"/></pattern>`;
-  const txt = (x, y, cls, s, anchor, halo) => `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="${cls}${halo ? ' c-halo' : ''}"${anchor ? ` text-anchor="${anchor}"` : ''}>${s}</text>`;
-  const svgOpen = (w, h, label) => `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(label)}">`;
+  // ── SVG helpers (core.js) ────────────────────────────────────────────────
+  const { frame, barPath, hatch, open: svgOpen } = MCX.svg;
+  const txt = MCX.svg.text;
 
   // Revenue per day for the last completed days, then today (booked, projected rest, likely range)
   function sessionsSvg(o) {
@@ -382,41 +364,41 @@
     const items = ['<span><i class="sw sw--fut"></i>Futures</span>', '<span><i class="sw sw--opt"></i>Options</span>'];
     if (live) {
       items.push(`<span><i class="sw sw--hatch"></i>${compact ? 'Rest of today (projected)' : 'Rest of today, projected'}</span>`);
-      if (live.range) items.push(`<span><i class="sw sw--band"></i>${compact ? 'Likely range' : 'Likely range for today (held on 9 in 10 past days)'}</span>`);
+      if (live.range) items.push(`<span><i class="sw sw--band"></i>${compact ? 'Likely range' : 'Likely range for today (held on 8 in 10 past days)'}</span>`);
     }
     items.push('<span><i class="sw sw--typical"></i>45-day average</span>');
     return items.join('');
   }
 
-  // How the projection's measured error narrows through the session
-  function trustSvg(w, grid, nowMin) {
+  // Where past finals landed relative to the projection made at each time of day (8 days in 10),
+  // with the median as a line: a lean below zero means projections have run high.
+  function trustSvg(w, grid, nowMin, nowBand) {
     const compact = w < 520;
-    const all = grid.filter(g => g.p90_abs_pct !== null);
-    const pts = all.filter(g => g.p90_abs_pct <= 100);         // wider misses (the first minutes) are named in the note instead
+    const pts = grid.filter(g => g.q10_pct !== null).map(g => {
+      const b = finalBand(g.q10_pct, g.q90_pct);
+      return { min: g.min, time: g.time, n: g.n, lo: -b.below, hi: b.above, med: (1 / (1 + g.median_pct / 100) - 1) * 100 };
+    }).filter(p => p.hi !== null);
     if (!pts.length) return '';
-    const peak = Math.max(...pts.map(g => g.p90_abs_pct));
-    const ymax = Math.max(40, Math.ceil(peak / 10) * 10);
-    const h = compact ? 180 : 210;
-    const f = frame(w, h, ymax, [48, compact ? 10 : 16, 22, 30]);
-    const X = m => f.pl + f.iw * m / 870;
-    const Y = v => f.y(Math.min(v, ymax));
-    const s = [svgOpen(w, h, 'Error of past projections by time of day: the size of miss that 9 in 10 past days stayed within. '
-      + all.map(g => `${g.time} ±${Math.round(g.p90_abs_pct)}%`).join(', '))];
-    for (const v of niceTicks(ymax, compact ? 3 : 5)) {
-      const y = f.y(v);
-      s.push(`<line x1="${f.pl}" x2="${f.w - f.pr}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" class="${v ? 'c-grid' : 'c-axis'}"/>`);
-      s.push(txt(f.pl - 8, y + 4, 'c-tick', `±${v}%`, 'end'));
-    }
-    const line = pts.map(g => `${X(g.min).toFixed(1)},${Y(g.p90_abs_pct).toFixed(1)}`).join(' L');
-    s.push(`<path d="M${line} L${X(pts[pts.length - 1].min).toFixed(1)},${f.y(0).toFixed(1)} L${X(pts[0].min).toFixed(1)},${f.y(0).toFixed(1)}Z" class="c-band"/>`);
-    s.push(`<path d="M${line}" class="c-line"/>`);
-    pts.forEach(g => s.push(`<g><title>${g.time}: ±${num(g.p90_abs_pct, 0)}% (${g.n} days)</title><circle cx="${X(g.min).toFixed(1)}" cy="${Y(g.p90_abs_pct).toFixed(1)}" r="3" class="c-dot"/></g>`));
-    if (nowMin !== null && nowMin >= pts[0].min) {
-      const pn = gridAt(grid, nowMin, 'p90_abs_pct'), xn = X(nowMin);
-      s.push(`<line x1="${xn.toFixed(1)}" x2="${xn.toFixed(1)}" y1="${f.pt - 8}" y2="${f.y(0).toFixed(1)}" class="c-now"/>`);
-      s.push(`<circle cx="${xn.toFixed(1)}" cy="${Y(pn).toFixed(1)}" r="5" class="c-dot c-dot--now"/>`);
-      const right = xn < f.w - f.pr - 90;
-      s.push(txt(xn + (right ? 10 : -10), Y(pn) - 10, 'c-label', `Now ±${Math.round(pn)}%`, right ? null : 'end', true));
+    const hiMax = Math.min(100, Math.max(...pts.map(p => p.hi))), loMin = Math.max(-100, Math.min(...pts.map(p => p.lo)));
+    const top = Math.ceil(hiMax / 10) * 10, bot = Math.floor(loMin / 10) * 10;
+    const h = compact ? 190 : 220;
+    const f = frame(w, h, top, [52, compact ? 10 : 16, 18, 30], bot);
+    const X = m => f.pl + f.iw * m / 870, Y = v => f.y(Math.max(bot, Math.min(top, v)));
+    const s = [svgOpen(w, h, 'Where the final landed relative to the projection made at each time of day, on 8 of 10 past days: '
+      + pts.map(p => `${p.time} ${num(p.lo, 0)}% to +${num(p.hi, 0)}%`).join(', '))];
+    s.push(MCX.svg.grid(f, niceTicks(top, compact ? 4 : 6, bot), v => (v > 0 ? '+' : '') + num(v, 0) + '%'));
+    const zero = f.y(0);
+    s.push(`<line x1="${f.pl}" x2="${f.w - f.pr}" y1="${zero.toFixed(1)}" y2="${zero.toFixed(1)}" class="c-axis"/>`);
+    const up = pts.map(p => `${X(p.min).toFixed(1)},${Y(p.hi).toFixed(1)}`), dn = pts.map(p => `${X(p.min).toFixed(1)},${Y(p.lo).toFixed(1)}`).reverse();
+    s.push(`<path d="M${up.join('L')}L${dn.join('L')}Z" class="c-band"/>`);
+    s.push(`<path d="M${pts.map(p => `${X(p.min).toFixed(1)},${Y(p.med).toFixed(1)}`).join('L')}" class="c-line"/>`);
+    pts.forEach(p => s.push(`<g><title>${p.time}: final ${num(p.lo, 0)}% to +${num(p.hi, 0)}% of the projection; median ${p.med >= 0 ? '+' : ''}${num(p.med, 0)}% (${p.n} days)</title>`
+      + `<rect x="${(X(p.min) - 6).toFixed(1)}" y="${Y(p.hi).toFixed(1)}" width="12" height="${(Y(p.lo) - Y(p.hi)).toFixed(1)}" fill="transparent"/></g>`));
+    if (nowMin !== null && nowBand && nowMin >= pts[0].min) {
+      const xn = X(nowMin);
+      s.push(`<line x1="${xn.toFixed(1)}" x2="${xn.toFixed(1)}" y1="${f.pt - 6}" y2="${(f.h - f.pb).toFixed(1)}" class="c-now"/>`);
+      const right = xn < f.w - f.pr - 150;
+      s.push(txt(xn + (right ? 8 : -8), f.pt + 8, 'c-label', `Now: −${num(nowBand.below, 0)}% to +${num(nowBand.above, 0)}%`, right ? null : 'end', true));
     }
     [[0, '09:00'], [180, '12:00'], [360, '15:00'], [540, '18:00'], [720, '21:00'], [870, '23:30']].forEach(([m, lab]) => {
       if (compact && (m === 180 || m === 540)) return;
@@ -426,47 +408,65 @@
     return s.join('');
   }
 
-  // Revenue per completed day over the chosen range, then today
-  function dailySvg(w, rows, today, ma45, uid) {
+  // Revenue per completed day over the chosen range: futures and options stacked (context),
+  // a rolling 20-day average (the trend, solid) and a rolling 45-day average (typical, dashed);
+  // today as booked + projected rest with a thin range marker.
+  function dailySvg(w, all, n, today, uid) {
     const compact = w < 520;
-    const n = rows.length + (today ? 1 : 0);
-    if (!n) return '';
-    const top = Math.max(...rows.map(r => r.total), today ? (today.hi || today.value) : 0, ma45 || 0);
-    const vmax = top * 1.08, h = compact ? 140 : 160;
-    const f = frame(w, h, vmax, [44, compact ? 8 : 172, 22, 26]);
-    const bw = f.iw / n, gap = bw > 4 ? 1.5 : 0.5;
-    const s = [svgOpen(w, h, `Revenue per trading day for the last ${rows.length} completed days${today ? ', and today' : ''}; 45-day average ₹${num(ma45, 2)} crore`),
-               `<defs>${hatch('dh-' + uid)}</defs>`];
-    for (const v of niceTicks(vmax, 2)) {
-      const y = f.y(v);
-      s.push(`<line x1="${f.pl}" x2="${f.w - f.pr}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}" class="${v ? 'c-grid' : 'c-axis'}"/>`);
-      s.push(txt(f.pl - 8, y + 4, 'c-tick', `₹${num(v, 0)}`, 'end'));
-    }
-    if (today && today.lo) {
-      const yTop = today.hi ? f.y(today.hi) : f.pt;
-      s.push(`<rect x="${(f.pl + bw * (n - 1) - 2).toFixed(1)}" y="${yTop.toFixed(1)}" width="${(bw + 4).toFixed(1)}" height="${(f.y(today.lo) - yTop).toFixed(1)}" rx="2" class="c-band"/>`);
-    }
-    rows.forEach((r, i) => {
-      const x = f.pl + bw * i + gap / 2;
-      s.push(`<path d="${barPath(x, f.y(r.total), f.y(0), Math.max(bw - gap, 0.8), bw > 6 ? 2 : 0)}" class="c-bar"><title>${fmt.day(r.date)}: ₹${num(r.total, 2)} Cr</title></path>`);
+    const r20 = rolling(all, 20), r45 = rolling(all, 45);
+    const k0 = Math.max(0, all.length - n);
+    const rows = all.slice(k0), a20 = r20.slice(k0), a45 = r45.slice(k0);
+    const m = rows.length + (today ? 1 : 0);
+    if (!m) return { svg: '' };
+    const top = Math.max(...rows.map(r => r.total), today ? (today.hi || today.value) : 0);
+    const vmax = top * 1.08, h = compact ? 170 : 220;
+    const f = frame(w, h, vmax, [44, compact ? 8 : 156, 12, 26]);
+    const bw = f.iw / m, gap = bw > 5 ? 1.5 : bw > 2.5 ? 0.6 : 0;
+    const cx = i => f.pl + bw * i + bw / 2;
+    const s = [svgOpen(w, h, `Revenue per trading day for the last ${rows.length} days, with rolling 20-day and 45-day averages`
+      + (today ? `; today ₹${num(today.value, 2)} crore ${today.label}` : '')), `<defs>${hatch('dh-' + uid)}</defs>`];
+    s.push(MCX.svg.grid(f, niceTicks(vmax, compact ? 3 : 5), v => `₹${num(v, 0)}`));
+    const r = bw > 6 ? 2 : 0, bwid = Math.max(bw - gap, 0.6);
+    rows.forEach((d, i) => {
+      const x = f.pl + bw * i + gap / 2, yf = f.y(d.fut);
+      s.push(`<g class="c-soft"><rect x="${x.toFixed(2)}" y="${yf.toFixed(1)}" width="${bwid.toFixed(2)}" height="${Math.max(f.y(0) - yf, 0).toFixed(1)}" class="c-fut"/>`
+        + `<path d="${barPath(x, f.y(d.total), yf - (bw > 4 ? 1 : 0), bwid, r)}" class="c-opt"/></g>`);
     });
+    const line = (vals, cls) => {
+      const pts = vals.map((v, i) => v === null ? null : `${cx(i).toFixed(1)},${f.y(v).toFixed(1)}`).filter(Boolean);
+      return pts.length > 1 ? `<path d="M${pts.join('L')}" class="${cls}"/>` : '';
+    };
+    s.push(line(a45, 'c-typical'), line(a20, 'c-line'));
     if (today) {
-      const x = f.pl + bw * (n - 1) + gap / 2;
-      s.push(`<path d="${barPath(x, f.y(today.value), f.y(0), Math.max(bw - gap, 0.8), bw > 6 ? 2 : 0)}" fill="url(#dh-${uid})" class="c-proj"><title>Today: ₹${num(today.value, 2)} Cr ${today.label}</title></path>`);
-    }
-    if (ma45) {
-      const y45 = f.y(ma45);
-      s.push(`<line x1="${f.pl}" x2="${f.w - f.pr}" y1="${y45.toFixed(1)}" y2="${y45.toFixed(1)}" class="c-typical"/>`);
-      if (!compact) {
-        const items = [{ y: y45 + 4, s: `45-day average ₹${num(ma45, 2)}`, cls: 'c-label2' }];
-        if (today) items.push({ y: f.y(today.value) - 2, s: `Today ₹${num(today.value, 2)} ${today.label}`, cls: 'c-label' });
-        spread(items, 15, f.pt + 4, f.y(0)).forEach(it => s.push(txt(f.w - f.pr + 10, it.y, it.cls, it.s)));
+      const i = rows.length, x = f.pl + bw * i + gap / 2, xc = cx(i);
+      if (today.booked !== undefined) {
+        s.push(`<path d="${barPath(x, f.y(today.value), f.y(today.booked), bwid, r)}" fill="url(#dh-${uid})" class="c-proj"/>`);
+        s.push(`<rect x="${x.toFixed(2)}" y="${f.y(today.booked).toFixed(1)}" width="${bwid.toFixed(2)}" height="${(f.y(0) - f.y(today.booked)).toFixed(1)}" class="c-bar"/>`);
+      } else {
+        s.push(`<path d="${barPath(x, f.y(today.value), f.y(0), bwid, r)}" fill="url(#dh-${uid})" class="c-proj"/>`);
       }
+      if (today.lo) {
+        const y1 = f.y(today.hi || vmax), y2 = f.y(today.lo);
+        s.push(`<line x1="${xc.toFixed(1)}" x2="${xc.toFixed(1)}" y1="${y1.toFixed(1)}" y2="${y2.toFixed(1)}" class="c-whisker"/>`
+          + (today.hi ? `<line x1="${(xc - 4).toFixed(1)}" x2="${(xc + 4).toFixed(1)}" y1="${y1.toFixed(1)}" y2="${y1.toFixed(1)}" class="c-whisker"/>` : '')
+          + `<line x1="${(xc - 4).toFixed(1)}" x2="${(xc + 4).toFixed(1)}" y1="${y2.toFixed(1)}" y2="${y2.toFixed(1)}" class="c-whisker"/>`);
+      }
+    }
+    if (!compact) {
+      const last = rows.length - 1, items = [];
+      if (today) items.push({ y: f.y(today.value) + 4, s: `Today ₹${num(today.value, 2)} ${today.label}`, cls: 'c-label' });
+      if (today && today.hi) items.push({ y: f.y(today.hi) + 4, s: `range to ₹${num(today.hi, 1)}`, cls: 'c-label2' });
+      if (a20[last] !== null) items.push({ y: f.y(a20[last]) + 4, s: `20-day avg ₹${num(a20[last], 2)}`, cls: 'c-label' });
+      if (a45[last] !== null) items.push({ y: f.y(a45[last]) + 4, s: `45-day avg ₹${num(a45[last], 2)}`, cls: 'c-label2' });
+      spread(items, 15, f.pt + 4, f.y(0)).forEach(it => s.push(txt(f.w - f.pr + 12, it.y, it.cls, it.s)));
     }
     if (rows.length) s.push(txt(f.pl, h - 8, 'c-tick', fmt.dayMonth(rows[0].date)));
     s.push(txt(f.w - f.pr, h - 8, 'c-tick', today ? 'Today' : fmt.dayMonth(rows[rows.length - 1].date), 'end'));
     s.push('</svg>');
-    return s.join('');
+    const xs = rows.map((_, i) => cx(i));
+    const tip = i => `<strong>${fmt.day(rows[i].date)}</strong><br>₹${num(rows[i].total, 2)} Cr<span class="c-tip-sub"> · futures ₹${num(rows[i].fut, 2)}, options ₹${num(rows[i].opt, 2)}</span>`
+      + (a20[i] !== null ? `<br><span class="c-tip-sub">20-day avg ₹${num(a20[i], 2)}${a45[i] !== null ? ` · 45-day ₹${num(a45[i], 2)}` : ''}</span>` : '');
+    return { svg: s.join(''), f, xs, tip };
   }
 
   // ── Sections ─────────────────────────────────────────────────────────────
@@ -491,8 +491,8 @@
       : d.state === 'closed' ? 'Today and the four trading days before it' : 'The last five trading days';
     box.innerHTML = sessionsSvg({ w, rows, live, ma45: d.h.ma45, uid: 's', todayIso: d.ist.iso });
     $('tdSessionsLegend').innerHTML = sessionsLegend(live, w < 520);
-    $('tdSessionsBasis').innerHTML = INFO + '<span>' + (live && live.range
-      ? 'The range reaches further up than down because past misses are measured against the final figure.'
+    $('tdSessionsBasis').innerHTML = INFO + '<span>' + (live && live.range && d.nowBand && d.nowBand.above !== null
+      ? `On 8 of 10 past days, the final landed between ${num(d.nowBand.below, 0)}% below and ${num(d.nowBand.above, 0)}% above the projection made at this time of day.`
       : 'Futures and options transaction fees only. MCX’s reported revenue also includes other items.') + '</span>';
   }
 
@@ -536,36 +536,46 @@
   function renderTrust(d) {
     const box = $('tdTrust'), side = $('tdTrustSide');
     const acc = d.h && d.h.accuracy;
-    if (!acc || !acc.grid.some(g => g.p90_abs_pct !== null)) { box.innerHTML = ''; side.innerHTML = d.h ? '<p class="note">Not enough past projections to measure yet.</p>' : ''; return; }
+    if (!acc || !acc.grid.some(g => g.q10_pct !== null)) { box.innerHTML = ''; side.innerHTML = d.h ? '<p class="note">Not enough past projections to measure yet.</p>' : ''; return; }
     const w = Math.round(box.clientWidth) || 700;
-    box.innerHTML = trustSvg(w, acc.grid, d.state === 'live' ? d.min : null);
+    box.innerHTML = trustSvg(w, acc.grid, d.state === 'live' ? d.min : null, d.nowBand);
     const row = (a, b) => `<div class="kv-row"><span>${a}</span><strong>${b}</strong></div>`;
-    const at = m => { const v = d.p(m); return v === null ? '—' : `±${Math.round(v)}%`; };
-    let rows = '', note = '';
-    if (d.state === 'live' && d.p90 !== null) {
-      rows = row(`Now, ${d.clock}`, `±${Math.round(d.p90)}%`) + (d.min < 600 ? row('By 19:00', at(600)) : '') + (d.min < 720 ? row('By 21:00', at(720)) : '') + row('By 23:00', at(840));
-      const m = missSplit(d.p90);
-      note = `A miss of ${Math.round(d.p90)}% of the final figure means the final can be ${Math.round(m.below)}% below `
-        + (m.above !== null ? `or ${Math.round(m.above)}% above the projection, so the likely range reaches further up than down.` : 'the projection, or well above it.');
+    const fb = b => !b || b.above === null ? '—' : `−${num(b.below, 0)}% to +${num(b.above, 0)}%`;
+    let rows, lean;
+    if (d.state === 'live' && d.nowBand) {
+      rows = row(`Now, ${d.clock}`, fb(d.nowBand)) + (d.min < 600 ? row('By 19:00', fb(d.bandAt(600))) : '')
+        + (d.min < 720 ? row('By 21:00', fb(d.bandAt(720))) : '') + row('By 23:00', fb(d.bandAt(840)));
+      lean = gridAt(acc.grid, d.min, 'median_pct');
     } else {
-      rows = row('At 11:00', at(120)) + row('At 15:00', at(360)) + row('At 19:00', at(600)) + row('At 21:00', at(720));
-      note = 'Projections start rough and tighten through the evening, when most of the day’s trading has happened.';
+      rows = row('At 11:00', fb(d.bandAt(120))) + row('At 15:00', fb(d.bandAt(360))) + row('At 19:00', fb(d.bandAt(600))) + row('At 21:00', fb(d.bandAt(720)));
+      lean = null;
     }
-    const off = acc.grid.filter(g => g.p90_abs_pct !== null && g.p90_abs_pct > 100);
-    if (off.length) note += ` ${off.map(g => `At ${g.time} the miss was ±${Math.round(g.p90_abs_pct)}%`).join('; ')}, too wide to plot.`;
+    let note = 'Where the final figure landed relative to the projection, on 8 of 10 past days.';
+    if (lean !== null) {
+      const medFinal = (1 / (1 + lean / 100) - 1) * 100;       // the median final, relative to the projection
+      note += Math.abs(medFinal) < 3 ? ' At this time of day the projection has shown no clear lean either way.'
+        : ` At this time of day the projection has tended to run ${medFinal < 0 ? 'high' : 'low'}: the median final was ${num(Math.abs(medFinal), 0)}% ${medFinal < 0 ? 'below' : 'above'} it.`;
+    } else {
+      note += ' The range starts wide and narrows through the evening, as more of the day’s trading is booked.';
+    }
+    const left = [acc.excluded_part_day ? `${acc.excluded_part_day} part-day session${acc.excluded_part_day === 1 ? '' : 's'}` : '',
+                  acc.excluded_us_holiday ? `${acc.excluded_us_holiday} US market holiday${acc.excluded_us_holiday === 1 ? '' : 's'}` : ''].filter(Boolean);
     side.innerHTML = rows + `<p class="note">${note} Measured on the last ${acc.sessions} normal trading days (${fmt.span(acc.first, acc.last)})`
-      + (acc.excluded_part_day ? `; ${acc.excluded_part_day} part-day session${acc.excluded_part_day === 1 ? '' : 's'} left out` : '') + '.</p>';
+      + (left.length ? `; ${left.join(' and ')} left out` : '') + '.</p>';
   }
 
   function renderDaily(d) {
     const box = $('tdDaily');
     if (!d.h) { box.innerHTML = ''; return; }
     const n = RANGE_TRADING_DAYS[rangeState.spark || '60D'] || 60;
-    const rows = d.daily.slice(-n);
     let today = null;
-    if (d.state === 'live') today = { value: d.P, lo: d.range && d.range.lo, hi: d.range && d.range.hi, label: 'projected' };
+    if (d.state === 'live') today = { value: d.P, booked: d.B, lo: d.range && d.range.lo, hi: d.range && d.range.hi, label: 'projected' };
     else if (d.state === 'closed' && d.last && d.last.provisional) today = { value: d.last.total, label: 'last projection' };
-    box.innerHTML = dailySvg(Math.round(box.clientWidth) || 900, rows, today, d.h.ma45, 'd');
+    const c = dailySvg(Math.round(box.clientWidth) || 900, d.daily, n, today, 'd');
+    $('tdDailyTodayKey').hidden = !today;
+    $('tdDailyRangeKey').hidden = !(today && today.lo);
+    box.innerHTML = c.svg;
+    if (c.f) MCX.svg.hover(box, c.f, c.xs, c.tip);
   }
 
   function renderDrivers(d) {
@@ -707,7 +717,7 @@
       box.innerHTML = sessionsSvg({ w, rows, live, ma45: d.h.ma45, uid: 'p', todayIso: d.ist.iso, scale: 1.3, h: Math.max(320, Math.min(520, window.innerHeight - 360)) });
       el.querySelector('#presentLegend').innerHTML = sessionsLegend(live, false);
       el.querySelector('#presentNote').textContent = live && live.range
-        ? 'The range comes from how far past projections made at this time of day missed, and narrows through the evening.' : '';
+        ? 'The range is where the final landed on 8 of 10 past days, relative to the projection made at this time of day. It narrows through the evening.' : '';
     }
   }
 

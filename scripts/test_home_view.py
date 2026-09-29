@@ -108,7 +108,7 @@ check("holidays and weekends are not missing", hv.missing_sessions(hv.completed_
 
 # ── Projection accuracy ────────────────────────────────────────────────────
 # 30 normal days (no part-day sessions): at 14:00 (m=300) the projection is final × (1 + e), e = −0.14 … +0.15.
-acc_days = [d for d in q2 if d.isoformat() not in hv.THIN_SESSIONS][-31:-1]
+acc_days = [d for d in q2 if d.isoformat() not in hv.THIN_SESSIONS | hv.US_MARKET_HOLIDAYS][-31:-1]
 finals = hv.completed_days(rows_for(acc_days, total=10.0), mid)
 errs = [(-14 + i) / 100 for i in range(30)]
 snaps = []
@@ -117,12 +117,20 @@ for d, e in zip(acc_days, errs):
     snaps.append({"trading_date": d.isoformat(), "elapsed_min": 295, "proj_total_rev": 10.0 * (1 + e)})
 thin_day = sorted(hv.THIN_SESSIONS)[0]
 snaps.append({"trading_date": thin_day, "elapsed_min": 295, "proj_total_rev": 50.0})
+us_day = "2026-09-07"                                   # Labor Day: MCX open, US markets shut
+snaps.append({"trading_date": us_day, "elapsed_min": 295, "proj_total_rev": 40.0})
+finals = hv.completed_days(rows_for(acc_days + [date(2026, 9, 7)], total=10.0), mid)
 acc = hv.projection_accuracy(snaps, finals, TODAY)
 at = {g["min"]: g for g in acc["grid"]}
 abs_errs = sorted(abs(e) for e in errs)
 want_p90 = round(hv._quantile(abs_errs, 0.9) * 100, 2)
 check("p90 of |error| uses the last snapshot in the window", (at[300]["n"], at[300]["p90_abs_pct"]), (30, want_p90))
 check("median signed error", at[300]["median_pct"], round(hv._quantile(errs, 0.5) * 100, 2))
+q10, q90 = hv._quantile(errs, 0.1), hv._quantile(errs, 0.9)
+check("10th and 90th percentiles of the signed error", (at[300]["q10_pct"], at[300]["q90_pct"]), (round(q10 * 100, 2), round(q90 * 100, 2)))
+check("8 in 10 past finals fall inside [P/(1+q90), P/(1+q10)]",
+      sum(1 for e in errs if 10 * (1 + e) / (1 + q90) <= 10 + 1e-9 <= 10 * (1 + e) / (1 + q10) + 2e-9) / len(errs) >= 0.8, True)
+check("a US market holiday is left out and counted", (acc["excluded_us_holiday"], all(g["n"] <= 30 for g in acc["grid"])), (1, True))
 check("9 in 10 past days fall inside [P/(1+p), P/(1−p)]",
       sum(1 for e in errs if abs(e) <= want_p90 / 100 + 1e-9) / len(errs) >= 0.9, True)
 check("a time with too few days has no figure", (at[330]["n"], at[330]["p90_abs_pct"]), (0, None))
@@ -131,8 +139,9 @@ check("part-day sessions are not measured", all(g["n"] <= 30 for g in acc["grid"
 
 # ── Whole payload from fixtures ────────────────────────────────────────────
 home = hv.generate_home(now=mid, rows=rows, snaps=snaps)
-check("payload basics", (home["success"], home["today"], home["today_final"], home["sessions_through"], len(home["averages"])),
-      (True, "2026-09-29", False, "2026-09-28", 6))
+check("payload basics", (home["success"], home["today"], home["today_final"], home["sessions_through"], len(home["averages"]), home["today_us_holiday"]),
+      (True, "2026-09-29", False, "2026-09-28", 6, False))
+check("US holiday flag for today", hv.generate_home(now=datetime(2026, 9, 7, 12, 0), rows=rows, snaps=snaps)["today_us_holiday"], True)
 check("45-day average is the d45 window", home["ma45"], [a for a in home["averages"] if a["key"] == "d45"][0]["value"])
 check("daily strip keeps about a year", (len(home["daily"]), home["daily"][-1]["date"]), (hv.DAILY_KEEP, "2026-09-28"))
 
