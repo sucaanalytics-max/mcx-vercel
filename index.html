@@ -9,11 +9,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=DM+Sans:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/legacy.css?v=0caffb10">
-<link rel="stylesheet" href="/assets/css/tokens.css?v=0caffb10">
-<link rel="stylesheet" href="/assets/css/components.css?v=0caffb10">
-<link rel="stylesheet" href="/assets/css/shell.css?v=0caffb10">
-<link rel="stylesheet" href="/assets/css/v2.css?v=0caffb10">
+<link rel="stylesheet" href="/assets/css/legacy.css?v=fa69a335">
+<link rel="stylesheet" href="/assets/css/tokens.css?v=fa69a335">
+<link rel="stylesheet" href="/assets/css/components.css?v=fa69a335">
+<link rel="stylesheet" href="/assets/css/shell.css?v=fa69a335">
+<link rel="stylesheet" href="/assets/css/v2.css?v=fa69a335">
 </head>
 <body>
 
@@ -587,221 +587,55 @@
 </div><!-- /tabValuation -->
 
 <!-- ═══ SIGNALS › MODEL ENSEMBLE (from the Fair Value tab) ═════════════════ -->
-<div id="pageSigEnsemble" class="page" hidden>
-<div class="wrap">
+<div id="pageSigEnsemble" class="page page--v2" hidden>
+<div class="v2" id="ensemble">
+<header class="lede">
+  <div class="kicker" id="enKicker"><span class="skel"></span></div>
+  <h1 class="headline" id="enHead">Loading the model ensemble&hellip;</h1>
+  <p class="deck" id="enDeck"></p>
+</header>
 
-<!-- ═══ MODELS B + C + ENSEMBLE ════════════════════════════════════════════ -->
-<div class="mdl-divider">Multi-Model Signals</div>
-
-<!-- ── Ensemble Banner ──────────────────────────────────────────────────── -->
-<div class="mdl-ensemble-banner" id="mdlEnsembleBanner">
-  <div>
-    <div class="mdl-ensemble-label">Ensemble Recommendation</div>
-    <div class="mdl-ensemble-desc">
-      Blended signal: ECM reversion (30%) + Multi-Factor momentum (70%). Expands to: Revenue 30% + Turnover 40% + ECM 30%.
-    </div>
-    <div style="display:flex;align-items:center;margin-top:8px">
-      <div id="mdlEnsembleSignalBadge"></div>
-      <span class="mdl-info-btn" tabindex="0">i
-        <span class="mdl-info-tip">
-          <strong>Score Ranges</strong><br>
-          &gt; 1.5 → Strong Buy · &gt; 0.5 → Buy · ±0.5 → Neutral · &lt; −0.5 → Sell · &lt; −1.5 → Strong Sell<br><br>
-          <strong>Blend</strong><br>
-          ECM reversion 30% + Multi-Factor momentum 70% (Rev 43% · TO 57%).
-          Positive score = net bullish. Negative = net bearish.
-        </span>
-      </span>
-    </div>
+<div class="td-hero sg-hero">
+  <div class="td-stats" id="enStats">
+    <div class="stat stat--lead"><div class="stat-label">&nbsp;</div><div class="stat-value"><span class="skel"></span></div></div>
   </div>
-  <div class="mdl-ensemble-right">
-    <div class="mdl-ensemble-label">Score</div>
-    <div class="mdl-ensemble-score" id="mdlEnsembleScore">—</div>
-  </div>
+  <figure class="td-figure">
+    <figcaption><strong>What builds today&rsquo;s score</strong> · each part&rsquo;s contribution, on the scale the signal is read from</figcaption>
+    <div class="chart-box" id="enBuild"><div class="skel skel--block"></div></div>
+    <div id="enWeights"></div>
+  </figure>
 </div>
 
-<!-- ── Ensemble Score Gauge ─────────────────────────────────────────────── -->
-<div class="mdl-ens-gauge">
-  <div class="val-chart-title">Ensemble Score Positioning</div>
-  <div class="val-gauge-bar" id="mdlEnsGaugeBar">
-    <div class="val-gauge-zone z-stretch" style="width:25%">Strong Sell</div>
-    <div class="val-gauge-zone z-over" style="width:16.7%">Sell</div>
-    <div class="val-gauge-zone z-fair" style="width:16.6%">Neutral</div>
-    <div class="val-gauge-zone z-under" style="width:16.7%">Buy</div>
-    <div class="val-gauge-zone z-deep" style="width:25%">Strong Buy</div>
-    <div class="val-gauge-needle" id="mdlEnsNeedle" style="left:50%"></div>
-  </div>
-  <div class="val-gauge-labels">
-    <span>−3</span>
-    <span>−1.5</span>
-    <span>−0.5</span>
-    <span>+0.5</span>
-    <span>+1.5</span>
-    <span>+3</span>
-  </div>
+<section class="sec" aria-labelledby="enHistTitle">
+  <div class="sec-head"><div><h2 id="enHistTitle">Score and price gap over time <span id="enRangeLabel">(60 days)</span></h2>
+    <div class="sec-sub">The ensemble score against its signal bands, and the price&rsquo;s gap to fair value against its own 60-day average</div></div>
+    <span id="enRange"></span></div>
+  <div class="chart-box" id="enHist"></div>
+  <div class="legend" id="enLegend"></div>
+</section>
+
+<div class="two-col">
+  <section class="sec" aria-labelledby="enEcmTitle">
+    <div class="sec-head"><div><h2 id="enEcmTitle">Price gap to fair value</h2><div class="sec-sub">Model B, error correction: 30% of the score</div></div><span id="enEcmPill"></span></div>
+    <div id="enEcm"></div>
+  </section>
+  <section class="sec" aria-labelledby="enMfTitle">
+    <div class="sec-head"><div><h2 id="enMfTitle">Exchange activity</h2><div class="sec-sub">Model C, multi-factor: 70% of the score</div></div><span id="enMfPill"></span></div>
+    <div id="enMf"></div>
+  </section>
 </div>
 
-<!-- ── Position & Conviction Panel (3D-2) ─────────────────────────────── -->
-<div class="mdl-position-panel" id="mdlPositionPanel">
-  <div class="val-chart-title">Continuous Position & Conviction</div>
-  <div class="mdl-position-gauge-wrap">
-    <div class="mdl-pos-gauge-bar">
-      <div class="mdl-pos-fill mdl-pos-sell"></div>
-      <div class="mdl-pos-fill mdl-pos-neutral"></div>
-      <div class="mdl-pos-fill mdl-pos-buy"></div>
-      <div class="mdl-pos-needle" id="mdlPosNeedle" style="left:50%"></div>
-    </div>
-    <div class="mdl-pos-gauge-labels">
-      <span>−1.0</span><span>−0.6</span><span>−0.25</span><span>0</span><span>+0.25</span><span>+0.6</span><span>+1.0</span>
-    </div>
-  </div>
-  <div class="mdl-position-metrics">
-    <table class="dtable" style="margin:0">
-      <tbody>
-        <tr><td>Position Score</td><td id="mdlPosScore" style="font-weight:700;font-family:var(--mono)">—</td></tr>
-        <tr><td>Conviction</td><td id="mdlPosConviction" style="font-weight:700;font-family:var(--mono)">—</td></tr>
-        <tr><td>Signal Momentum</td><td id="mdlPosMomentum" style="font-family:var(--mono)">—</td></tr>
-        <tr><td>1-Day Velocity</td><td id="mdlPosVelocity" style="font-family:var(--mono)">—</td></tr>
-        <tr><td>Conviction 2D MA</td><td id="mdlPosConvMA" style="font-family:var(--mono)">—</td></tr>
-      </tbody>
-    </table>
-  </div>
+<section class="sec" aria-labelledby="enEvTitle">
+  <div class="sec-head"><div><h2 id="enEvTitle">What followed each signal</h2>
+    <div class="sec-sub" id="enEvSub">Share price change over the next 10 trading days</div></div></div>
+  <div id="enEvidence"><button type="button" class="more-btn" id="enEvBtn">Load the full history</button></div>
+</section>
+
+<footer class="v2-foot">
+  <span id="enFoot">Computed after each close by the model job, after the fair-value job.</span>
+  <a href="#/signals/momentum">Momentum</a>
+</footer>
 </div>
-
-<!-- ── ECM + Multi-Factor Side by Side ─────────────────────────────────── -->
-<div class="mdl-two-col">
-
-  <!-- ECM Panel -->
-  <div class="mdl-card">
-    <div class="mdl-card-header">
-      <div class="mdl-card-title">Model B: Error Correction (ECM)</div>
-      <div style="display:flex;align-items:center">
-        <div id="mdlEcmSignalBadge"></div>
-        <span class="mdl-info-btn" tabindex="0">i
-          <span class="mdl-info-tip">
-            <strong>Z-Score Ranges</strong><br>
-            &lt; −1.5 → Strong Revert Up · &lt; −0.5 → Mild Revert Up · ±0.5 → Neutral · &gt; 0.5 → Mild Extend Down · &gt; 1.5 → Strong Extend Down<br><br>
-            Negative z = price below fair value, reversion upward likely.
-            Positive z = price above fair value, correction risk.
-          </span>
-        </span>
-      </div>
-    </div>
-    <div class="mdl-ecm-stats">
-      <div class="mdl-ecm-stat">
-        <div class="mdl-ecm-stat-label">Spread %</div>
-        <div class="mdl-ecm-stat-val" id="mdlEcmSpreadPct">—</div>
-      </div>
-      <div class="mdl-ecm-stat">
-        <div class="mdl-ecm-stat-label">Z-Score</div>
-        <div class="mdl-ecm-stat-val" id="mdlEcmZscore">—</div>
-      </div>
-      <div class="mdl-ecm-stat">
-        <div class="mdl-ecm-stat-label">Half-Life</div>
-        <div class="mdl-ecm-stat-val" id="mdlEcmHalfLife">—</div>
-      </div>
-    </div>
-    <div style="font-family:var(--mono);font-size:9px;color:var(--text-secondary)">
-      Price deviation from fair value, z-scored over 60 days.<br>
-      Extreme negative z → undervalued reversion. Extreme positive z → overvalued extension.
-    </div>
-  </div>
-
-  <!-- Multi-Factor Panel -->
-  <div class="mdl-card">
-    <div class="mdl-card-header">
-      <div class="mdl-card-title">Model C: Multi-Factor</div>
-      <div style="display:flex;align-items:center">
-        <div id="mdlMfSignalBadge"></div>
-        <span class="mdl-info-btn" tabindex="0">i
-          <span class="mdl-info-tip">
-            <strong>Composite Ranges</strong><br>
-            &gt; 1.5 → Strong Buy · &gt; 0.5 → Buy · ±0.5 → Neutral · &lt; −0.5 → Sell · &lt; −1.5 → Strong Sell<br><br>
-            <strong>Weights</strong><br>
-            Revenue 43% · Turnover 57% (Vol &amp; Inv.Vol displayed but excluded from composite per Phase 3 factor decomposition).
-            Positive composite = bullish exchange activity.
-          </span>
-        </span>
-      </div>
-    </div>
-    <div id="mdlFactorBars">
-      <div class="mdl-factor-row">
-        <div class="mdl-factor-label">Revenue</div>
-        <div class="mdl-factor-bar-wrap"><div class="mdl-factor-bar-center"></div><div class="mdl-factor-bar-fill" id="mdlBar_rev"></div></div>
-        <div class="mdl-factor-val" id="mdlVal_rev">—</div>
-      </div>
-      <div class="mdl-factor-row">
-        <div class="mdl-factor-label">Turnover</div>
-        <div class="mdl-factor-bar-wrap"><div class="mdl-factor-bar-center"></div><div class="mdl-factor-bar-fill" id="mdlBar_turn"></div></div>
-        <div class="mdl-factor-val" id="mdlVal_turn">—</div>
-      </div>
-      <div class="mdl-factor-row" style="opacity:0.45">
-        <div class="mdl-factor-label">Volume <span style="font-size:8px;color:var(--text-secondary)">(ref)</span></div>
-        <div class="mdl-factor-bar-wrap"><div class="mdl-factor-bar-center"></div><div class="mdl-factor-bar-fill" id="mdlBar_vol"></div></div>
-        <div class="mdl-factor-val" id="mdlVal_vol">—</div>
-      </div>
-      <div class="mdl-factor-row" style="opacity:0.45">
-        <div class="mdl-factor-label">Inv. Vol <span style="font-size:8px;color:var(--text-secondary)">(ref)</span></div>
-        <div class="mdl-factor-bar-wrap"><div class="mdl-factor-bar-center"></div><div class="mdl-factor-bar-fill" id="mdlBar_ivol"></div></div>
-        <div class="mdl-factor-val" id="mdlVal_ivol">—</div>
-      </div>
-    </div>
-    <div class="mdl-factor-composite">
-      <div class="mdl-factor-composite-label">Composite</div>
-      <div class="mdl-factor-composite-val" id="mdlMfComposite">—</div>
-    </div>
-    <div style="font-family:var(--mono);font-size:9px;color:var(--text-secondary);margin-top:8px">
-      Weights: Rev 43% · Turn 57%. Vol &amp; Inv.Vol shown for reference only. Rolling 60-day z-scores.
-    </div>
-  </div>
-
-</div><!-- /mdl-two-col -->
-
-<!-- ── ECM Spread Chart ────────────────────────────────────────────────── -->
-<div class="val-chart-wrap">
-  <div class="val-chart-title">ECM Spread % <span id="ecmChartRangeLabel">(60 days)</span> (with ±1σ / ±1.5σ bands)</div>
-  <div id="ecmChartRange" style="display:inline-block;margin-left:12px;vertical-align:middle"></div>
-  <canvas id="ecmChart" style="max-height:220px"></canvas>
-</div>
-
-<!-- ── Model B Methodology ─────────────────────────────────────────────── -->
-<div class="accordion" onclick="this.classList.toggle('open')">
-  <div class="acc-header">
-    <span>Model B: Error Correction Model (ECM) — Methodology</span>
-    <span class="acc-arrow">▸</span>
-  </div>
-  <div class="acc-body">
-    <div class="kv"><span class="kv-key">Model</span><span class="kv-val">Error Correction Model — price deviation from Model A fair value</span></div>
-    <div class="kv"><span class="kv-key">Spread</span><span class="kv-val">(Close Price − Fair Value Base) / Fair Value Base × 100</span></div>
-    <div class="kv"><span class="kv-key">Z-Score Window</span><span class="kv-val">60-day rolling (population std dev, min 30 observations)</span></div>
-    <div class="kv"><span class="kv-key">Half-Life</span><span class="kv-val">Estimated days to mean-revert: 60 / (1 + |z|)</span></div>
-    <div class="kv"><span class="kv-key">Signal Logic</span><span class="kv-val">z &lt; -1.5 → STRONG_REVERT_UP · z &lt; -0.5 → MILD_REVERT_UP · |z| ≤ 0.5 → NEUTRAL · z &gt; 0.5 → MILD_EXTEND_DOWN · z &gt; 1.5 → STRONG_EXTEND_DOWN</span></div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:12px">
-      Concept: When price deviates far from fair value, a correcting force pulls it back. Large negative z-scores = undervalued, likely to revert upward.
-    </div>
-  </div>
-</div>
-
-<!-- ── Model C Methodology ─────────────────────────────────────────────── -->
-<div class="accordion" onclick="this.classList.toggle('open')">
-  <div class="acc-header">
-    <span>Model C: Multi-Factor Momentum — Methodology</span>
-    <span class="acc-arrow">▸</span>
-  </div>
-  <div class="acc-body">
-    <div class="kv"><span class="kv-key">Model</span><span class="kv-val">Composite z-score from 4 exchange-level activity factors</span></div>
-    <div class="kv"><span class="kv-key">Factor 1</span><span class="kv-val">Daily Revenue z-score (weight: 40%) — MCX F&O transaction revenue</span></div>
-    <div class="kv"><span class="kv-key">Factor 2</span><span class="kv-val">Turnover z-score (weight: 25%) — futures notional + options premium</span></div>
-    <div class="kv"><span class="kv-key">Factor 3</span><span class="kv-val">Share Volume z-score (weight: 20%) — MCX share trading volume</span></div>
-    <div class="kv"><span class="kv-key">Factor 4</span><span class="kv-val">Inverse Intraday Volatility z-score (weight: 15%) — lower intraday range = bullish</span></div>
-    <div class="kv"><span class="kv-key">Z-Score Window</span><span class="kv-val">60-day rolling (population std dev, min 30 observations)</span></div>
-    <div class="kv"><span class="kv-key">Signal Logic</span><span class="kv-val">composite &gt; 1.5 → STRONG_BUY · &gt; 0.5 → BUY · ±0.5 → NEUTRAL · &lt; -0.5 → SELL · &lt; -1.5 → STRONG_SELL</span></div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:12px">
-      Rising revenue + turnover + volume with low intraday price volatility = bullish exchange activity momentum for MCX stock.
-    </div>
-  </div>
-</div>
-
-</div><!-- /wrap -->
 </div><!-- /pageSigEnsemble -->
 
 <!-- ═══ TAB: ANALYTICS (3D-3) ══════════════════════════════════════════════ -->
@@ -1117,124 +951,50 @@
 </div><!-- /tabMargins -->
 
 
-<div id="tabMomentum" class="page" hidden>
-<div class="wrap">
-  <h2 style="margin-bottom:4px">Momentum Entry / Exit Signals</h2>
-  <p id="momAsOf" style="font-size:11px;color:var(--text-secondary);margin-bottom:16px">Loading...</p>
+<div id="tabMomentum" class="page page--v2" hidden>
+<div class="v2" id="momentum">
+<header class="lede">
+  <div class="kicker" id="moKicker"><span class="skel"></span></div>
+  <h1 class="headline" id="moHead">Loading momentum&hellip;</h1>
+  <p class="deck" id="moDeck"></p>
+</header>
 
-  <!-- Hero Row: 3 cards -->
-  <div class="mom-hero-grid">
-    <div class="mom-hero-card mom-hero-card--signal">
-      <div class="mom-hero-label">Composite Signal</div>
-      <div id="momSignalBadge"></div>
-      <div class="mom-hero-sub" id="momSignalDesc">--</div>
-    </div>
-    <div class="mom-hero-card">
-      <div class="mom-hero-label">Revenue Regime</div>
-      <div id="momRegimeBadge"></div>
-      <div class="mom-hero-sub" id="momRatioText">10D/45D Ratio: --</div>
-      <div class="mom-hero-sub" id="momMaText">MA10: -- vs MA45: --</div>
-    </div>
-    <div class="mom-hero-card">
-      <div class="mom-hero-label">ADR Signal</div>
-      <div id="momAdrBadge"></div>
-      <div class="mom-hero-sub" id="momAdrRatioText">ADR Ratio: --</div>
-      <div class="mom-hero-sub" id="momPriceMomText">Price Mom 5D: --</div>
-    </div>
+<div class="td-hero sg-hero">
+  <div class="td-stats" id="moStats">
+    <div class="stat stat--lead"><div class="stat-label">&nbsp;</div><div class="stat-value"><span class="skel"></span></div></div>
   </div>
+  <figure class="td-figure">
+    <div class="fig-head">
+      <figcaption><strong>Regime, revenue and price</strong> <span id="moRangeLabel">(60 days)</span> · ₹ crore per day and ₹ per share</figcaption>
+      <span id="moRange"></span>
+    </div>
+    <div class="chart-box" id="moChart"><div class="skel skel--block"></div></div>
+    <div class="legend" id="moLegend"></div>
+  </figure>
+</div>
 
-  <!-- Regime Streak + Price -->
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;margin-bottom:20px">
-    <div class="card" style="text-align:center;padding:16px">
-      <div style="font-size:10px;font-family:var(--mono);color:var(--text-secondary);text-transform:uppercase;letter-spacing:1px">MCX Price</div>
-      <div id="momPrice" style="font-size:24px;font-weight:800;font-family:var(--mono);margin-top:4px">--</div>
-    </div>
-    <div class="card" style="text-align:center;padding:16px">
-      <div style="font-size:10px;font-family:var(--mono);color:var(--text-secondary);text-transform:uppercase;letter-spacing:1px">Regime Streak</div>
-      <div id="momStreak" style="font-size:24px;font-weight:800;font-family:var(--mono);margin-top:4px">--</div>
-    </div>
-    <div class="card" style="text-align:center;padding:16px">
-      <div style="font-size:10px;font-family:var(--mono);color:var(--text-secondary);text-transform:uppercase;letter-spacing:1px">F&O Revenue</div>
-      <div id="momRevenue" style="font-size:24px;font-weight:800;font-family:var(--mono);margin-top:4px">--</div>
-    </div>
-    <div class="card" style="text-align:center;padding:16px">
-      <div style="font-size:10px;font-family:var(--mono);color:var(--text-secondary);text-transform:uppercase;letter-spacing:1px">Daily Range</div>
-      <div id="momDailyRange" style="font-size:24px;font-weight:800;font-family:var(--mono);margin-top:4px">--</div>
-    </div>
-  </div>
+<div class="sg-lower">
+  <section class="sec" aria-labelledby="moLogTitle">
+    <div class="sec-head"><div><h2 id="moLogTitle">Signal changes</h2>
+      <div class="sec-sub">Only the days the composite changed, most recent first, with the share price over each signal&rsquo;s run</div></div></div>
+    <div id="moLog"></div>
+  </section>
+  <section class="sec" aria-labelledby="moRulesTitle">
+    <div class="sec-head"><div><h2 id="moRulesTitle">How it is formed</h2><div class="sec-sub">The rules in the daily momentum job</div></div></div>
+    <div id="moRules"></div>
+  </section>
+</div>
 
-  <!-- Revenue Regime Chart -->
-  <div class="mom-chart-wrap">
-    <div class="mom-chart-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-      <span>Revenue Regime: MA10 vs MA45 &amp; 10D/45D Ratio <span id="momRangeLabel">(60 days)</span></span>
-      <span style="display:flex;align-items:center;gap:12px;font-family:var(--mono);flex-wrap:wrap">
-        <span id="momRegimeRange"></span>
-        <span id="momBandsToggle" class="margin-chip" onclick="setMomShowBands(!momShowBands)" title="Toggle &plusmn;1&sigma; / &plusmn;2&sigma; control lines">Bands</span>
-      </span>
-    </div>
-    <div id="momRegimeStats" class="mom-bands-stats" style="display:none;font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin:-4px 0 8px 0;letter-spacing:0.3px"></div>
-    <div style="position:relative;height:300px">
-      <canvas id="momRegimeChart"></canvas>
-    </div>
-  </div>
+<section class="sec" aria-labelledby="moEvTitle">
+  <div class="sec-head"><div><h2 id="moEvTitle">What followed each signal</h2>
+    <div class="sec-sub" id="moEvSub">Share price change over the next 10 trading days</div></div></div>
+  <div id="moEvidence"><button type="button" class="more-btn" id="moEvBtn">Load the full history</button></div>
+</section>
 
-  <!-- Price + Signal Chart -->
-  <div class="mom-chart-wrap">
-    <div class="mom-chart-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Price &amp; Composite Signal <span id="momPriceRangeLabel">(60 days)</span></span><span id="momPriceRange"></span></div>
-    <div id="momPriceStats" class="mom-bands-stats" style="display:none;font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin:-4px 0 8px 0;letter-spacing:0.3px"></div>
-    <div style="position:relative;height:300px">
-      <canvas id="momPriceChart"></canvas>
-    </div>
-  </div>
-
-  <!-- Signal History Table -->
-  <div class="card" style="margin-bottom:20px">
-    <div class="card-title" style="font-family:var(--mono);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Signal History <span id="momTableRangeLabel">(30 days)</span></span><span id="momTableRange"></span></div>
-    <div style="overflow-x:auto" class="scroll-table-wrap">
-      <table class="exd-table" id="momSignalTable">
-        <thead>
-          <tr>
-            <th>Date</th><th>F&O Rev</th><th>Price</th><th>10D/45D</th><th>Regime</th><th>ADR Signal</th><th>Signal</th>
-          </tr>
-        </thead>
-        <tbody id="momSignalTableBody"></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Methodology Accordion -->
-  <div class="mom-method-card">
-    <div class="mom-method-toggle" onclick="this.nextElementSibling.classList.toggle('open');this.querySelector('span').textContent=this.nextElementSibling.classList.contains('open')?'[-]':'[+]'">
-      <span>[+]</span> Methodology & Signal Rules
-    </div>
-    <div class="mom-method-body">
-      <p style="margin-bottom:12px"><strong>Layer 1 — Revenue Regime (10D/45D Ratio):</strong> Compares trailing 10-day avg F&O revenue against 45-day baseline. Ratio > 1.05 = HOT, < 0.95 = COLD.</p>
-      <table>
-        <tr><th>Regime</th><th>Threshold</th><th>Avg 10D Return</th><th>Win Rate</th><th>Action</th></tr>
-        <tr><td style="color:#D4380D;font-weight:700">HOT</td><td>> 1.05</td><td>+5.44%</td><td>82.5%</td><td>Buy / Accumulate</td></tr>
-        <tr><td>NEUTRAL</td><td>0.95 -- 1.05</td><td>+1.90%</td><td>61.3%</td><td>Hold</td></tr>
-        <tr><td style="color:#0958D9;font-weight:700">COLD</td><td>< 0.95</td><td>-1.07%</td><td>35.3%</td><td>Sell / Avoid</td></tr>
-      </table>
-      <p style="margin:12px 0"><strong>Layer 2 — ADR Divergence Overlay:</strong> Detects price/volatility divergence to time entries.</p>
-      <table>
-        <tr><th>ADR Signal</th><th>Condition</th><th>Avg 10D Return</th></tr>
-        <tr><td>BREAKOUT</td><td>PriceMom5D > +1.5% AND ADR Ratio > 1.50</td><td>+8.2%</td></tr>
-        <tr><td>BULL_CONT</td><td>PriceMom5D > +1.0% AND ADR Ratio < 0.80</td><td>+6.1%</td></tr>
-        <tr><td>OVERSOLD</td><td>PriceMom5D < -1.0% AND ADR Ratio > 1.30</td><td>+5.2%</td></tr>
-        <tr><td>NEUTRAL</td><td>None of the above</td><td>+2.1%</td></tr>
-      </table>
-      <p style="margin:12px 0"><strong>Composite Signal Matrix:</strong></p>
-      <table>
-        <tr><th>Signal</th><th>Condition</th></tr>
-        <tr><td style="color:var(--positive);font-weight:700">STRONG BUY</td><td>HOT + (BULL_CONT / BREAKOUT / NEUTRAL)</td></tr>
-        <tr><td style="color:#0958D9;font-weight:700">BUY</td><td>HOT + OVERSOLD  or  NEUTRAL + (BULL_CONT / BREAKOUT)</td></tr>
-        <tr><td>HOLD</td><td>NEUTRAL + No special ADR signal</td></tr>
-        <tr><td style="color:var(--warning);font-weight:700">WATCH</td><td>COLD + OVERSOLD (possible reversal)</td></tr>
-        <tr><td style="color:var(--negative);font-weight:700">SELL</td><td>COLD + (NEUTRAL / BREAKOUT / BULL_CONT)</td></tr>
-      </table>
-    </div>
-  </div>
-
+<footer class="v2-foot">
+  <span id="moFoot">Computed after each close from MCX&rsquo;s daily F&amp;O revenue and the NSE share price.</span>
+  <a href="#/signals/ensemble">Model ensemble</a>
+</footer>
 </div>
 </div><!-- /tabMomentum -->
 
@@ -1415,11 +1175,12 @@
 </div>
 
 <!-- ═══ JAVASCRIPT ═══════════════════════════════════════════════════════════ -->
-<script src="/assets/js/core.js?v=0caffb10"></script>
-<script src="/assets/js/legacy.js?v=0caffb10"></script>
-<script src="/assets/js/today.js?v=0caffb10"></script>
-<script src="/assets/js/revenue.js?v=0caffb10"></script>
-<script src="/assets/js/value.js?v=0caffb10"></script>
-<script src="/assets/js/shell.js?v=0caffb10"></script>
+<script src="/assets/js/core.js?v=fa69a335"></script>
+<script src="/assets/js/legacy.js?v=fa69a335"></script>
+<script src="/assets/js/today.js?v=fa69a335"></script>
+<script src="/assets/js/revenue.js?v=fa69a335"></script>
+<script src="/assets/js/value.js?v=fa69a335"></script>
+<script src="/assets/js/signals.js?v=fa69a335"></script>
+<script src="/assets/js/shell.js?v=fa69a335"></script>
 </body>
 </html>
