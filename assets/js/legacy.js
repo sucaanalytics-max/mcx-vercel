@@ -1410,6 +1410,12 @@ function renderValuation(data) {
   document.getElementById('valPeMeta').textContent = `mean ${pe.mean}x · sd ${pe.sd}x · ${pe.data_points} obs`;
   document.getElementById('valMethodPE').textContent =
     `Dynamic: mean ${pe.mean}x ± ${pe.sd}x SD (${pe.data_points} observations)`;
+  if (c) {
+    document.getElementById('valMethodAnn').textContent =
+      `45DMA × ${c.trading_days} trading days + ₹${c.non_fo_rev_cr} Cr non-F&O revenue and other income`;
+    document.getElementById('valMethodMargin').textContent =
+      `${Math.round(c.pat_margin * 100)}% of total income (PAT ÷ total income, FY26 and Q1 FY27)`;
+  }
 
   renderPEGauge(s, pe);
 

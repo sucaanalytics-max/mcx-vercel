@@ -11,7 +11,7 @@ from collections import defaultdict
 FUTURES_RATE = 210.0        # ₹ per crore, both sides
 OPTIONS_RATE = 4180.0       # ₹ per crore of premium, both sides
 NONTX_DAILY  = float(os.environ.get("MCX_NONTX_DAILY", "0.00"))  # removed from daily predictor
-TRADING_DAYS = int(os.environ.get("MCX_TRADING_DAYS", "252"))      # F-04: MCX actual calendar (Excel uses 254)
+TRADING_DAYS = int(os.environ.get("MCX_TRADING_DAYS", "256"))      # FY27 MCX sessions: 261 weekdays − 5 full closures (FY28: 260). Annualises daily revenue for valuation and the Annualized KPI.
 
 # ─── Alpha Vantage (F-07: from env var, not hardcoded) ───────────────────────
 AV_KEY = os.environ.get("ALPHA_VANTAGE_KEY", "")
@@ -803,8 +803,10 @@ def supabase_upsert(table, data, timeout=10):
 
 # ─── EPS-PATH VALUATION MODEL (Model A) ────────────────────────────────────
 # Economic chain: 45DMA F&O Rev → Annualized → (+Non-F&O) → PAT → EPS → Fair Value
-PAT_MARGIN           = float(os.environ.get("MCX_PAT_MARGIN", "0.55"))        # 55% PAT margin (Excel Triangulation)
-NON_FO_REV_ANNUAL_CR = float(os.environ.get("MCX_NON_FO_REV", "527.0"))      # FY27 non-F&O revenue (₹ Cr/year)
+PAT_MARGIN           = float(os.environ.get("MCX_PAT_MARGIN", "0.55"))        # PAT ÷ total income: FY26 54.8%, Q1 FY27 55.0%
+NON_FO_REV_ANNUAL_CR = float(os.environ.get("MCX_NON_FO_REV", "374.5"))      # ₹ Cr/yr outside F&O fees, last four reported quarters (Q2 FY26–Q1 FY27):
+                                                                              # non-F&O operating revenue 230.3 (reported revenue − daily F&O sums) + other income 144.2.
+                                                                              # Refresh each quarter. Replaces an undocumented 527.
 DILUTED_SHARES_CR    = float(os.environ.get("MCX_DILUTED_SHARES", "25.451"))  # 254.51M diluted shares
 PE_MEAN_DEFAULT      = float(os.environ.get("MCX_PE_MEAN", "34.79"))          # Dynamic PE median (trailing 252 obs)
 PE_SD_DEFAULT        = float(os.environ.get("MCX_PE_SD", "3.49"))             # Scaled MAD (robust PE dispersion)

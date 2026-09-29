@@ -8,7 +8,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/legacy.css?v=66042430">
+<link rel="stylesheet" href="/assets/css/legacy.css?v=97b73904">
 </head>
 <body>
 
@@ -882,8 +882,8 @@
   <div class="acc-body">
     <div class="kv"><span class="kv-key">Model</span><span class="kv-val">EPS-Path Fair Value (45DMA Revenue → EPS → P/E Bands)</span></div>
     <div class="kv"><span class="kv-key">Revenue Window</span><span class="kv-val">45-day moving average of daily F&O transaction revenue</span></div>
-    <div class="kv"><span class="kv-key">Annualization</span><span class="kv-val">45DMA × 252 trading days + ₹527 Cr non-F&O revenue</span></div>
-    <div class="kv"><span class="kv-key">PAT Margin</span><span class="kv-val">55% (MCX long-term structural margin)</span></div>
+    <div class="kv"><span class="kv-key">Annualization</span><span class="kv-val" id="valMethodAnn">45DMA × trading days + non-F&amp;O revenue and other income</span></div>
+    <div class="kv"><span class="kv-key">PAT Margin</span><span class="kv-val" id="valMethodMargin">— of total income</span></div>
     <div class="kv"><span class="kv-key">Diluted Shares</span><span class="kv-val">25.451 Cr (254.51M, post 1:5 split Jan 2026)</span></div>
     <div class="kv"><span class="kv-key">P/E Bands</span><span class="kv-val" id="valMethodPE">Dynamic: mean —x ± —x SD (— observations)</span></div>
     <div class="kv"><span class="kv-key">Signal Logic</span><span class="kv-val">DEEP_VALUE (&lt;Bear) · UNDERVALUED (&lt;Base−5%) · FAIR (±5%) · OVERVALUED (&gt;Base+5%) · STRETCHED (&gt;Bull)</span></div>
@@ -1621,6 +1621,6 @@
 </div>
 
 <!-- ═══ JAVASCRIPT ═══════════════════════════════════════════════════════════ -->
-<script src="/assets/js/legacy.js?v=66042430"></script>
+<script src="/assets/js/legacy.js?v=97b73904"></script>
 </body>
 </html>
