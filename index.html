@@ -3317,7 +3317,7 @@ function sliceTailByCount(arr, n) {
   return (n == null) ? arr : arr.slice(-n);
 }
 
-function fmt(n) { return parseFloat(n).toLocaleString('en-IN', {maximumFractionDigits:0}); }
+function fmtInt(n) { return parseFloat(n).toLocaleString('en-IN', {maximumFractionDigits:0}); }
 function fmtDec(n,d=2) { return parseFloat(n).toFixed(d); }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -3383,7 +3383,7 @@ function renderTables() {
   const ftb = document.getElementById('futTable');
   ftb.innerHTML = futData.slice(0, 10).map(f => {
     const pct = TOTAL_FUT > 0 ? (f.notl / TOTAL_FUT * 100).toFixed(1) : '—';
-    return `<tr><td>${f.sym}</td><td class="num">₹${fmt(f.notl)}</td><td class="num">${pct}%</td></tr>`;
+    return `<tr><td>${f.sym}</td><td class="num">₹${fmtNum1(f.notl)}</td><td class="num">${pct}%</td></tr>`;
   }).join('');
 
   const otb = document.getElementById('optTable');
@@ -3681,14 +3681,14 @@ function updateSnapshotFromAPI(d) {
 
   // ── Snapshot accordion ───────────────────────────────────────────────
   document.getElementById('snBadgeRev').textContent = '₹' + fmtDec(totalRev) + ' Cr';
-  document.getElementById('snFutNotl').textContent = '₹' + fmt(d.fut_notl_cr) + ' Cr';
-  document.getElementById('snOptNotl').textContent = '₹' + fmt(d.opt_notl_cr) + ' Cr';
-  document.getElementById('snOptPrem').textContent = '₹' + fmt(d.opt_prem_cr) + ' Cr';
-  document.getElementById('snTotalNotl').textContent = '₹' + fmt((d.fut_notl_cr||0) + (d.opt_notl_cr||0)) + ' Cr';
+  document.getElementById('snFutNotl').textContent = '₹' + fmtNum1(d.fut_notl_cr) + ' Cr';
+  document.getElementById('snOptNotl').textContent = '₹' + fmtNum1(d.opt_notl_cr) + ' Cr';
+  document.getElementById('snOptPrem').textContent = '₹' + fmtNum1(d.opt_prem_cr) + ' Cr';
+  document.getElementById('snTotalNotl').textContent = '₹' + fmtNum1((d.fut_notl_cr||0) + (d.opt_notl_cr||0)) + ' Cr';
   document.getElementById('snFutContracts').textContent = d.active_futures + ' contracts';
   document.getElementById('snOptContracts').textContent = d.active_options + ' contracts';
-  document.getElementById('snFutFormula').textContent = `(2×₹${fmt(d.proj_fut_cr)}×210)`;
-  document.getElementById('snOptFormula').textContent = `(2×₹${fmt(d.proj_opt_cr)}×4180)`;
+  document.getElementById('snFutFormula').textContent = `(2×₹${fmtNum1(d.proj_fut_cr)}×210)`;
+  document.getElementById('snOptFormula').textContent = `(2×₹${fmtNum1(d.proj_opt_cr)}×4180)`;
   document.getElementById('snFutRev').textContent = '₹' + fmtDec(futRevVal, 2) + ' Cr';
   document.getElementById('snOptRev').textContent = '₹' + fmtDec(optRevVal, 2) + ' Cr';
   document.getElementById('snTotalLabel').textContent = isLive ? 'Projected Total' : 'Actual Total';
@@ -6084,11 +6084,11 @@ function renderQuarterly(data) {
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1rem">
       <div>
         <div style="font-size:0.75rem;color:var(--muted)">Projected Revenue</div>
-        <div style="font-size:1.5rem;font-weight:700;color:var(--accent)">${fmt(cq.revenue_projected_cr)} Cr</div>
+        <div style="font-size:1.5rem;font-weight:700;color:var(--accent)">${fmtNum1(cq.revenue_projected_cr)} Cr</div>
       </div>
       <div>
         <div style="font-size:0.75rem;color:var(--muted)">Projected PAT</div>
-        <div style="font-size:1.5rem;font-weight:700;color:var(--success)">${fmt(cq.pat_projected_cr)} Cr</div>
+        <div style="font-size:1.5rem;font-weight:700;color:var(--success)">${fmtNum1(cq.pat_projected_cr)} Cr</div>
       </div>
       <div>
         <div style="font-size:0.75rem;color:var(--muted)">PAT Margin</div>
@@ -6099,12 +6099,12 @@ function renderQuarterly(data) {
       <div style="background:linear-gradient(90deg,var(--accent),var(--success));height:100%;width:${barFill}%;border-radius:6px;transition:width 0.5s"></div>
     </div>
     <div style="display:flex;justify-content:space-between;font-size:0.78rem;color:var(--muted)">
-      <span>Actual: <strong>${fmt(cq.revenue_actual_cr)} Cr</strong> (${cq.trading_days_elapsed} days)</span>
+      <span>Actual: <strong>${fmtNum1(cq.revenue_actual_cr)} Cr</strong> (${cq.trading_days_elapsed} days)</span>
       <span>${pct}% complete</span>
-      <span>PAT Range: <strong>${fmt(cq.pat_low_cr)} – ${fmt(cq.pat_high_cr)} Cr</strong></span>
+      <span>PAT Range: <strong>${fmtNum1(cq.pat_low_cr)} – ${fmtNum1(cq.pat_high_cr)} Cr</strong></span>
     </div>
     <div style="font-size:0.75rem;color:var(--muted);margin-top:0.4rem">
-      Daily avg: ${fmt(cq.revenue_daily_avg_cr)} Cr &middot; MA10: ${fmt(cq.revenue_ma10_cr)} Cr &middot;
+      Daily avg: ${fmtNum1(cq.revenue_daily_avg_cr)} Cr &middot; MA10: ${fmtNum1(cq.revenue_ma10_cr)} Cr &middot;
       Remaining: ${cq.trading_days_remaining} trading days &middot; Uncertainty: &plusmn;${cq.uncertainty_pct}%
     </div>
   `;
@@ -6122,16 +6122,16 @@ function renderQuarterly(data) {
   document.getElementById('qtrFyTitle').textContent = fy.fy + (fy.is_complete
     ? ' Full Year (Actual)'
     : (isPartial ? ' \u2014 ' + nQ + ' of 4 Quarters (Partial)' : ' Full Year Projection'));
-  const qParts = fy.quarters_actual.map(q => `<span>${q.quarter}: ${fmt(q.pat_cr)} Cr</span>`).join(' + ');
+  const qParts = fy.quarters_actual.map(q => `<span>${q.quarter}: ${fmtNum1(q.pat_cr)} Cr</span>`).join(' + ');
   const projQ = fy.projected_quarter || fy.q4_projected;
   const projPart = projQ
-    ? ` + <strong>${projQ.quarter}: ${fmt(projQ.pat_cr)} Cr (P)</strong>`
+    ? ` + <strong>${projQ.quarter}: ${fmtNum1(projQ.pat_cr)} Cr (P)</strong>`
     : ` &middot; <strong>final</strong>`;
   document.getElementById('qtrFyContent').innerHTML = `
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:0.8rem">
-      <div><div style="font-size:0.75rem;color:var(--muted)">${scope} Revenue</div><div style="font-size:1.3rem;font-weight:700">${fmt(fy.fy_revenue_cr)} Cr</div></div>
-      <div><div style="font-size:0.75rem;color:var(--muted)">${scope} PAT</div><div style="font-size:1.3rem;font-weight:700;color:var(--success)">${fmt(fy.fy_pat_cr)} Cr</div></div>
-      <div><div style="font-size:0.75rem;color:var(--muted)">${scope} EPS</div><div style="font-size:1.3rem;font-weight:700">${fmt(fy.fy_eps)}</div></div>
+      <div><div style="font-size:0.75rem;color:var(--muted)">${scope} Revenue</div><div style="font-size:1.3rem;font-weight:700">${fmtNum1(fy.fy_revenue_cr)} Cr</div></div>
+      <div><div style="font-size:0.75rem;color:var(--muted)">${scope} PAT</div><div style="font-size:1.3rem;font-weight:700;color:var(--success)">${fmtNum1(fy.fy_pat_cr)} Cr</div></div>
+      <div><div style="font-size:0.75rem;color:var(--muted)">${scope} EPS</div><div style="font-size:1.3rem;font-weight:700">${fmtNum1(fy.fy_eps)}</div></div>
     </div>
     <div style="font-size:0.78rem;color:var(--muted)">${qParts}${projPart}</div>
   `;
@@ -6144,7 +6144,7 @@ function renderQuarterly(data) {
   renderQtrTable(data);
 }
 
-function fmt(v) { return v != null ? Number(v).toLocaleString('en-IN', {maximumFractionDigits:1}) : '—'; }
+function fmtNum1(v) { return v != null ? Number(v).toLocaleString('en-IN', {maximumFractionDigits:1}) : '—'; }
 
 function sliceQuartersKeepProjection(list, rangeKey) {
   const n = { '4Q': 4, '8Q': 8, 'All': null }[rangeKey];
@@ -6289,9 +6289,9 @@ function renderQtrTable(data) {
     const tag = projected ? ' <span style="font-size:0.7rem;color:var(--accent)">(P)</span>' : '';
     rows += `<tr${style}>
       <td>${a.label || a.quarter}${tag}</td>
-      <td>${fmt(a.revenue_cr)}</td>
-      <td>${fmt(a.expenses_cr)}</td>
-      <td style="color:var(--success);font-weight:600">${fmt(a.pat_cr)}</td>
+      <td>${fmtNum1(a.revenue_cr)}</td>
+      <td>${fmtNum1(a.expenses_cr)}</td>
+      <td style="color:var(--success);font-weight:600">${fmtNum1(a.pat_cr)}</td>
       <td>${a.pat_margin_pct}%</td>
       <td>${a._yoy}</td>
     </tr>`;
