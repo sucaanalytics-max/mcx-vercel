@@ -6105,7 +6105,7 @@ function renderQuarterly(data) {
     </div>
     <div style="font-size:0.75rem;color:var(--muted);margin-top:0.4rem">
       Daily avg: ${fmt(cq.revenue_daily_avg_cr)} Cr &middot; MA10: ${fmt(cq.revenue_ma10_cr)} Cr &middot;
-      Remaining: ${cq.trading_days_remaining} trading days &middot; Uncertainty: &plusmn;${cq.uncertainty_pct}%
+      Remaining: ${cq.trading_days_remaining} trading days${cq.today_in_remaining ? ' incl. today' : ''}${(cq.missing_dates || []).length ? ` (${cq.missing_dates.length} past day${cq.missing_dates.length > 1 ? 's' : ''} without data)` : ''} &middot; Uncertainty: &plusmn;${cq.uncertainty_pct}%
     </div>
   `;
 
