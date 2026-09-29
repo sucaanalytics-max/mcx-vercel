@@ -8,7 +8,7 @@
   // pages: the .page elements shown for the route. legacy: the old tab id that links here.
   const ROUTES = [
     { id: 'today', path: '/today', section: 'today', title: 'Today', pages: ['tabPredictor'], legacy: 'tabPredictor',
-      mount: () => MCX.today.mount(), retheme: () => rethemeToday() },
+      mount: () => MCX.today.mount() },
     { id: 'rev-trends', path: '/revenue/trends', section: 'revenue', title: 'Trends', pages: ['tabExchange'], legacy: 'tabExchange',
       mount: () => MCX.revenue.trends.mount() },
     { id: 'rev-season', path: '/revenue/seasonality', section: 'revenue', title: 'Seasonality', pages: ['pageRevSeason'],
@@ -119,7 +119,7 @@
     const b = e.target.closest && e.target.closest('[data-action]');
     if (!b) return;
     if (b.dataset.action === 'theme') { MCX.theme.cycle(); syncThemeButtons(); }
-    if (b.dataset.action === 'settings') { closeSheet(); openCookieModal(); }
+    if (b.dataset.action === 'settings') { closeSheet(); openSettings(); }
     if (b.dataset.action === 'more') openSheet();
   });
   MCX.theme.onChange(() => MCX.router.retheme());
@@ -141,5 +141,89 @@
     if (e.target === sheet || (e.target.closest && e.target.closest('a'))) closeSheet();   // backdrop, or a page link
   });
 
+  // ── Live snapshot: the refresh button, a refresh every 2 minutes in trading hours, the header time ──
+  const AUTO_REFRESH_MS = 2 * 60 * 1000;
+  let autoTimer = null, refreshing = false;
+  const inTradingHours = () => { const t = MCX.market.ist(); return t.dow >= 1 && t.dow <= 5 && t.min >= 535 && t.min <= 1415; };
+  function showSnapshotTime(d) {
+    const meta = $('refreshMeta'), t = MCX.parseTs(d.timestamp);   // ISO on GET, "HH:MM IST, DD Mon YYYY" after a manual refresh
+    if (!t) { meta.textContent = '—'; return; }
+    const tz = { timeZone: 'Asia/Kolkata' };
+    const hhmm = t.toLocaleTimeString('en-GB', { ...tz, hour: '2-digit', minute: '2-digit' });
+    const day = t.toLocaleDateString('en-GB', { ...tz, day: '2-digit', month: 'short' });
+    const today = new Date().toLocaleDateString('en-GB', { ...tz, day: '2-digit', month: 'short' });
+    meta.textContent = 'as of ' + hhmm + ' IST' + (day === today ? '' : ' · ' + day);
+    meta.title = 'Data as of the last snapshot: ' + t.toLocaleString('en-GB', tz);
+  }
+  async function refresh(manual) {
+    if (refreshing) return;
+    refreshing = true;
+    const btn = $('refreshBtn');
+    btn.classList.add('loading'); btn.disabled = true; btn.setAttribute('aria-busy', 'true');
+    try {
+      let data;
+      if (manual) {             // a manual refresh asks the server to fetch from MCX first, with the saved cookie if any
+        try {
+          const cookie = MCX.storage.get('mcxCookie');
+          data = await fetch('/api/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cookie ? { cookie } : {}) }).then(r => r.json());
+          if (!data.success) throw new Error(data.error);
+        } catch (e) { data = await fetch('/api/refresh').then(r => r.json()); }
+      } else {
+        data = await fetch('/api/refresh').then(r => r.json());
+      }
+      MCX.store.set('refresh', data);
+      if (data.success) {
+        clearRangedCache();
+        MCX.store.set('liveRevenue', { value: data.proj_rev_cr, live: !data.session_closed });
+        showSnapshotTime(data);
+        if (manual) MCX.ui.toast('Data refreshed');
+        if (!autoTimer && inTradingHours()) autoTimer = setInterval(() => { if (inTradingHours() && !document.hidden) refresh(false); }, AUTO_REFRESH_MS);
+      } else if (manual) {
+        MCX.ui.toast('Refresh failed' + (data.error ? ': ' + data.error : ''), 'error');
+      }
+    } catch (e) {
+      MCX.store.set('refresh', { success: false, error: 'Network error' });
+      if (manual) MCX.ui.toast('Network error', 'error');
+    } finally {
+      refreshing = false;
+      btn.classList.remove('loading'); btn.disabled = false; btn.removeAttribute('aria-busy');
+    }
+  }
+  $('refreshBtn').addEventListener('click', () => refresh(true));
+  MCX.refresh = refresh;
+
+  // ── Share price: at load, then every minute in NSE hours on the pages that show it ──
+  function fetchPrice() {
+    return fetch('/api/mcxprice').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(d => { if (d.error) throw new Error(d.error); MCX.store.set('price', d); })
+      .catch(e => { console.warn('Share price:', e.message); MCX.store.set('priceStale', true); });
+  }
+  MCX.poll.every('cmp', fetchPrice, 60 * 1000, () => MCX.market.nseOpen() && !document.hidden && ['val-scen', 'val-fv'].includes(MCX.router.current()));
+
+  // ── Data source settings: an MCX session cookie for the manual refresh ──
+  const dlg = $('settingsDialog');
+  function openSettings() {
+    const c = MCX.storage.get('mcxCookie');
+    $('cookieText').value = c || '';
+    $('cookieStatus').textContent = c ? `A cookie is saved in this browser (${c.length} characters).` : 'No cookie saved; the server tries to get one itself.';
+    if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', '');
+  }
+  $('settingsSave').addEventListener('click', () => {
+    const v = $('cookieText').value.trim();
+    MCX.storage.set('mcxCookie', v);
+    dlg.close();
+    MCX.ui.toast(v ? 'Cookie saved in this browser' : 'Cookie cleared');
+  });
+  $('settingsCancel').addEventListener('click', () => dlg.close());
+  dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });     // the backdrop
+  // ?cookie=… in the URL: save it, drop it from the address bar, refresh from MCX
+  const urlCookie = new URLSearchParams(location.search).get('cookie');
+  if (urlCookie) {
+    MCX.storage.set('mcxCookie', urlCookie);
+    history.replaceState({}, '', location.pathname + location.hash);
+  }
+
   MCX.router.start({ fallback: 'today', legacy: LEGACY });
+  setTimeout(() => refresh(!!urlCookie), 300);     // the first snapshot
+  fetchPrice();
 })();

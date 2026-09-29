@@ -186,6 +186,36 @@ html.dark .c-soft { opacity: 0.72; }
 .house-sheet tr.sub td { font-weight: 600; }
 .house-sheet tr.total td { font-size: 15px; }
 
+/* ── Scenarios ──────────────────────────────────────────────────────────── */
+.sc-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px; margin-bottom: 28px; }
+.sc-label { display: block; font-size: 13px; font-weight: 600; }
+.sc-slider-row { display: flex; align-items: center; gap: 14px; margin-top: 8px; }
+.sc-slider-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--mcx-text); height: 24px; }
+.sc-slider-row input[type="range"]:focus-visible { outline: 2px solid var(--mcx-focus); outline-offset: 2px; }
+.sc-slider-row .hin-box input { width: 96px; padding: 5px 8px; border: 1px solid var(--mcx-border-strong); border-radius: 6px; background: var(--mcx-surface);
+  font: 500 15px/1.3 var(--mcx-font-sans); font-variant-numeric: tabular-nums; text-align: right; }
+.sc-note { margin-top: 4px; font-size: 12px; color: var(--mcx-text-2); }
+.sc-h3 { margin: 28px 0 8px; font-size: 14px; font-weight: 600; }
+.sc-adjust { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 10px; font-size: 13px; color: var(--mcx-text-2); }
+.cell-input { width: 72px; padding: 3px 6px; border: 1px solid var(--mcx-border-strong); border-radius: 4px; background: var(--mcx-surface);
+  font: 500 13px/1.3 var(--mcx-font-sans); font-variant-numeric: tabular-nums; text-align: right; color: var(--mcx-text); }
+.cell-input:focus-visible, .sc-slider-row .hin-box input:focus-visible { outline: 2px solid var(--mcx-focus); outline-offset: 1px; }
+.two-col.sc-tables { grid-template-columns: minmax(0, 1fr); row-gap: 28px; max-width: 880px; }
+.table-scroll .sc-table { min-width: 0; }
+.sc-table caption { caption-side: top; padding-bottom: 6px; text-align: left; font-size: 13px; font-weight: 600; }
+.sc-table td { vertical-align: middle; }
+.sc-assump { grid-template-columns: repeat(3, minmax(0, 1fr)); display: grid; column-gap: 32px; }
+
+/* ── Session profile ───────────────────────────────────────────────────── */
+.prof-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 40px; align-items: start; margin-top: 8px; }
+.prof-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 52px; gap: 12px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--mcx-border); }
+.prof-name { font-size: 13px; font-weight: 500; }
+.prof-track { position: relative; height: 16px; }
+.prof-range { position: absolute; top: 0; bottom: 0; background: var(--mcx-band); border-radius: 2px; }
+.prof-bar { position: absolute; left: 0; top: 4px; height: 8px; border-radius: 0 2px 2px 0; background: var(--mcx-text); }
+.prof-fixed { position: absolute; top: -1px; bottom: -1px; width: 2px; margin-left: -1px; background: var(--mcx-typical); }
+.prof-val { text-align: right; font-size: 13px; font-weight: 600; }
+
 /* ── Lab ──────────────────────────────────────────────────────────────── */
 .dg-stats { margin-top: 0; }
 .dg-stats--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -414,6 +444,8 @@ html.dark .td-panel { box-shadow: none; }
   .trust { grid-template-columns: minmax(0, 1fr); gap: 20px; }
   .two-col { grid-template-columns: minmax(0, 1fr); }
   .sg-lower { grid-template-columns: minmax(0, 1fr); }
+  .sc-controls, .prof-grid { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .sc-assump { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dg-stats--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .house-grid { grid-template-columns: minmax(0, 1fr); gap: 20px; }
   .house-inputs { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); column-gap: 32px; }
@@ -465,6 +497,9 @@ html.dark .td-panel { box-shadow: none; }
   .table-scroll .sg-weights { min-width: 0; }
   .dg-stats--3 { grid-template-columns: minmax(0, 1fr); }
   .table-scroll .mg-changes { min-width: 0; }
+  .sc-assump { grid-template-columns: minmax(0, 1fr); }
+  .table-scroll .sc-table { min-width: 0; }
+  .cell-input { width: 60px; }
   .table-scroll .house-sheet { min-width: 0; font-size: 13px; }
   .house-sheet td small { display: none; }
   .house-sheet th:first-child { font-size: 0; }

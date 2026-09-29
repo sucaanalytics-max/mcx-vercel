@@ -122,7 +122,34 @@
     return { eps: last.reduce((a, q) => a + q.pat_cr, 0) / shares, from: last[0].quarter, to: last[3].quarter };
   }
 
-  MCX.valueModel = { quarterLede, adjusted, missStory, words, ddSignal, houseCalc, breakevenAdr, houseState, HOUSE_STATE, revenuePricedIn, fvLede, ttm };
+  // ── Scenarios (moved from legacy.js, same arithmetic) ────────────────────
+  // One year at a revenue per day: revenue − costs = EBITDA, + other income = PBT, − tax = PAT,
+  // ÷ shares = EPS, × P/E = price. a: { days, opex, other, tax (%), shares }
+  function yearModel(dailyRev, pe, a) {
+    const annualRev = dailyRev * a.days, ebitda = annualRev - a.opex, pbt = ebitda + a.other;
+    const tax = pbt > 0 ? pbt * a.tax / 100 : 0, pat = pbt > 0 ? pbt - tax : 0;
+    const eps = a.shares > 0 ? pat / a.shares : 0, price = eps * pe;
+    return { annualRev, ebitda, pbt, tax, pat, eps, price, mcap: price * a.shares };
+  }
+  // What the price implies: the revenue per day at your P/E, and the P/E at your revenue per day
+  function impliedBy(price, dailyRev, pe, a) {
+    const eps = pe > 0 ? price / pe : 0, pat = eps * a.shares, pbt = a.tax < 100 ? pat / (1 - a.tax / 100) : 0;
+    const annualRev = pbt - a.other + a.opex, m = yearModel(dailyRev, pe, a);
+    return { eps, pat, pbt, annualRev, rev: a.days > 0 ? annualRev / a.days : 0, pe: m.eps > 0 ? price / m.eps : null };
+  }
+  // A year in the FY table: revenue per day × sessions + other revenue, × margin = PAT, ÷ shares, × P/E
+  function trendRow(r, shares) {
+    const op = r.adr * r.days, tot = op + r.other, pat = tot * r.margin / 100, eps = shares > 0 ? pat / shares : 0;
+    return { op, tot, pat, eps, px: eps * r.pe };
+  }
+  // An FY27 case: revenue per day grown by `growth`, × FY27 sessions + other income, × margin → EPS → price,
+  // and that price discounted by `disc` %
+  function caseRow(c, days, shares, disc, cmp) {
+    const tot = c.adr * (1 + c.growth / 100) * days + c.other, pat = tot * c.margin / 100, eps = shares > 0 ? pat / shares : 0, px = eps * c.pe;
+    return { tot, pat, eps, px, upside: cmp > 0 ? (px / cmp - 1) * 100 : null, target: px / (1 + disc / 100) };
+  }
+
+  MCX.valueModel = { yearModel, impliedBy, trendRow, caseRow, quarterLede, adjusted, missStory, words, ddSignal, houseCalc, breakevenAdr, houseState, HOUSE_STATE, revenuePricedIn, fvLede, ttm };
   if (window.MCX_TEST) return;
 
   // ════════════════════════════════════════════════════════════════════════
@@ -134,8 +161,8 @@
   function stat(label, value, sub, lead) {
     return `<div class="stat${lead ? ' stat--lead' : ''}"><div class="stat-label">${label}</div><div class="stat-value">${value}</div>${sub ? `<div class="stat-sub">${sub}</div>` : ''}</div>`;
   }
-  function table(head, rows) {
-    return `<div class="table-scroll"><table class="v2-table"><thead><tr>${head.map(h => `<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>`
+  function table(head, rows, cls) {
+    return `<div class="table-scroll"><table class="v2-table${cls ? ' ' + cls : ''}"><thead><tr>${head.map(h => `<th scope="col">${h}</th>`).join('')}</tr></thead><tbody>`
       + rows.map(r => `<tr${r.cls ? ` class="${r.cls}"` : ''}>${(r.cells || r).map(c => `<td>${c}</td>`).join('')}</tr>`).join('') + '</tbody></table></div>';
   }
   function onResize(el, fn) {
@@ -623,44 +650,118 @@
   onResize($('fairvalue'), () => FV.data && renderFairValue());
 
   // ════════════════════════════════════════════════════════════════════════
-  //  Scenarios (the interactive model's logic lives in legacy.js: getFcInputs, calcModel,
-  //  recalcForecast, recomputePatPredictor). This fills its backend inputs and writes the lede.
+  //  Scenarios
   // ════════════════════════════════════════════════════════════════════════
-  const BACKEND_INPUTS = ['fcAdvShares', 'fcAdvDays', 'fcAdvCMP'];
-  const setIfUntouched = (el, val) => { if (el && !el.dataset.userSet && val !== null && val !== undefined) el.value = val; };
+  // Editable house defaults; shares, sessions and the price come from the backend unless the user edits them
+  const SC = { rev: 12.62, pe: 42, opex: 700, other: 126, tax: 20.3, shares: null, days: null, cmp: null,
+               adj: { bearRev: -15, bearPe: -10, bullRev: 15, bullPe: 10 }, touched: new Set(), ready: false,
+               trend: { 26: { adr: 9.1, days: 257, other: 280, margin: 51.5, pe: 55 }, 27: { adr: 11.2, days: 256, other: 336, margin: 60, pe: 42 }, 28: { adr: 13.5, days: 260, other: 403, margin: 60, pe: 55 } },
+               cases: { bear: { growth: 0, adr: 11.2, other: 336, margin: 60, pe: 36 }, base: { growth: 0, adr: 11.2, other: 336, margin: 60, pe: 42 }, bull: { growth: 0, adr: 11.2, other: 336, margin: 60, pe: 48 } },
+               disc: 18 };
+  const ASSUMP = [['opex', 'Operating costs, a year', '₹ Cr', 10], ['other', 'Other income, a year', '₹ Cr', 10], ['tax', 'Tax rate', '%', 0.1],
+                  ['shares', 'Diluted shares', 'Cr', 0.001], ['days', 'Trading days in the year', 'days', 1], ['cmp', 'Share price', '₹', 1]];
+  const inputBox = (attrs, val, unit, step, label) => `<span class="hin-box"><input type="number" inputmode="decimal" step="${step}" ${attrs} value="${val ?? ''}" aria-label="${esc(label)}"><small>${unit}</small></span>`;
+  const cellInput = (attrs, val, step, label) => `<input type="number" inputmode="decimal" class="cell-input" step="${step}" ${attrs} value="${val}" aria-label="${esc(label)}">`;
+  const scA = () => ({ days: SC.days, opex: SC.opex, other: SC.other, tax: SC.tax, shares: SC.shares });
+
+  // Built once, so typing never loses focus; outputs update in place
+  function buildScenarios() {
+    $('scAssumpForm').innerHTML = ASSUMP.map(([k, lab, unit, step]) => `<label class="hin"><span>${lab}</span>${inputBox(`data-sc="${k}"`, SC[k], unit, step, lab)}</label>`).join('');
+    $('scAdjust').innerHTML = `<span>Bear: revenue ${cellInput('data-adj="bearRev"', SC.adj.bearRev, 1, 'Bear case: change in revenue per day, %')}% and P/E ${cellInput('data-adj="bearPe"', SC.adj.bearPe, 1, 'Bear case: change in P/E, %')}%</span>`
+      + `<span>Bull: revenue ${cellInput('data-adj="bullRev"', SC.adj.bullRev, 1, 'Bull case: change in revenue per day, %')}% and P/E ${cellInput('data-adj="bullPe"', SC.adj.bullPe, 1, 'Bull case: change in P/E, %')}%</span>`;
+    const yrs = ['26', '27', '28'];
+    const tRow = (lab, k, step) => `<tr><td>${lab}</td>${yrs.map(y => `<td>${cellInput(`data-pt="${k}" data-yr="${y}"`, SC.trend[y][k], step, `FY${y} ${lab}`)}</td>`).join('')}</tr>`;
+    const tOut = (lab, k, cls) => `<tr${cls ? ` class="${cls}"` : ''}><td>${lab}</td>${yrs.map(y => `<td data-pt-out="${k}" data-yr="${y}">—</td>`).join('')}</tr>`;
+    $('patTrend').innerHTML = `<div class="table-scroll"><table class="v2-table house-sheet sc-table"><caption>Based on the latest trend</caption><thead><tr><th scope="col"></th>${yrs.map(y => `<th scope="col">FY${y}</th>`).join('')}</tr></thead><tbody>`
+      + tRow('Revenue per day, ₹ Cr', 'adr', 0.1) + tRow('Trading days', 'days', 1) + tOut('Operating revenue', 'op') + tRow('Other revenue, ₹ Cr', 'other', 1)
+      + tOut('Total revenue', 'tot', 'sub') + tRow('PAT margin, %', 'margin', 0.1) + tOut('PAT', 'pat') + tOut('EPS', 'eps') + tRow('P/E', 'pe', 0.5) + tOut('Price target', 'px', 'total')
+      + '</tbody></table></div>';
+    const cs = ['bear', 'base', 'bull'];
+    const cRow = (lab, k, step) => `<tr><td>${lab}</td>${cs.map(c => `<td>${cellInput(`data-ps="${k}" data-case="${c}"`, SC.cases[c][k], step, `${c} case ${lab}`)}</td>`).join('')}</tr>`;
+    const cOut = (lab, k, cls) => `<tr${cls ? ` class="${cls}"` : ''}><td>${lab}</td>${cs.map(c => `<td data-ps-out="${k}" data-case="${c}">—</td>`).join('')}</tr>`;
+    $('patCases').innerHTML = `<div class="table-scroll"><table class="v2-table house-sheet sc-table"><caption>FY27: bear, base and bull</caption><thead><tr><th scope="col"></th>${cs.map(c => `<th scope="col">${c[0].toUpperCase() + c.slice(1)}</th>`).join('')}</tr></thead><tbody>`
+      + cRow('Growth in revenue per day, %', 'growth', 1) + cRow('Revenue per day, ₹ Cr', 'adr', 0.1) + cRow('Other income, ₹ Cr', 'other', 1) + cOut('Total income', 'tot', 'sub')
+      + cRow('PAT margin, %', 'margin', 0.1) + cOut('EPS', 'eps') + cRow('P/E', 'pe', 0.5) + cOut('Price, FY27', 'px') + cOut('Against the price', 'upside')
+      + `<tr><td>Discount, % ${cellInput('id="patDisc"', SC.disc, 0.5, 'Discount, %')}</td><td></td><td></td><td></td></tr>` + cOut('Target price', 'target', 'total')
+      + '</tbody></table></div>';
+  }
+
+  function syncSliders() {
+    $('fcRevSlider').value = SC.rev; $('fcRevInput').value = SC.rev;
+    $('fcPeSlider').value = SC.pe; $('fcPeInput').value = SC.pe;
+  }
+
+  function renderScenarios() {
+    if (!SC.shares || !SC.days || !SC.cmp) return;             // waiting for the backend figures
+    const a = scA(), base = yearModel(SC.rev, SC.pe, a), cmp = SC.cmp, gap = (base.price / cmp - 1) * 100;
+    const cp = currentPrice(), t = MCX.store.get('ttmEps');
+    $('scKicker').textContent = `Scenarios · price ₹${num(cmp, 0)}${cp ? `, ${cp.label}` : ''} · revenue per day starts at today’s projection`;
+    $('scHead').textContent = `At ₹${num(SC.rev, 2)} Cr a day and ${num(SC.pe, 1)}×, a year of earnings supports ₹${num(base.price, 0)} a share, `
+      + (Math.abs(gap) < 0.5 ? 'level with the price.' : `${Math.abs(gap).toFixed(0)}% ${gap > 0 ? 'above' : 'below'} the price.`);
+    $('scDeck').textContent = `That is EPS of ₹${num(base.eps, 2)} on ${num(SC.shares, 3)} Cr shares and ${Math.round(SC.days)} sessions, after ₹${num(SC.opex, 0)} Cr of costs and ${num(SC.tax, 1)}% tax. `
+      + (t ? `Reported EPS over the last four quarters (${t.from} to ${t.to}) is ₹${num(t.eps, 2)}. ` : '')
+      + 'Move the sliders or open the assumptions; the FY27 tables below work from revenue per day and margin instead.';
+    $('fcRevAnnual').textContent = `₹${num(base.annualRev, 0)} Cr over ${Math.round(SC.days)} sessions`;
+    const im = impliedBy(cmp, SC.rev, SC.pe, a);
+    $('scStats').innerHTML = stat('Share price', `₹${num(cmp, 0)}`, `${t ? `EPS (last four quarters) ₹${num(t.eps, 2)} · P/E ${num(cmp / t.eps, 1)}× · ` : ''}market cap ₹${num(cmp * SC.shares, 0)} Cr`, true)
+      + stat('A year of earnings supports', `₹${num(base.price, 0)}`, `${pct(gap)} against the price`)
+      + stat('Revenue the price implies', `₹${num(im.rev, 2)}<small>Cr/day</small>`, `at ${num(SC.pe, 1)}×; ${pct((im.rev / SC.rev - 1) * 100)} against your ₹${num(SC.rev, 2)} Cr`)
+      + stat('P/E the price implies', im.pe ? `${num(im.pe, 1)}×` : '—', `at ₹${num(SC.rev, 2)} Cr a day; your P/E is ${num(SC.pe, 1)}×`);
+    $('scChain').innerHTML = chain([
+      ['Revenue', `₹${num(base.annualRev, 0)} Cr`, `₹${num(SC.rev, 2)} Cr a day × ${Math.round(SC.days)} sessions`],
+      ['Less operating costs', `₹${num(SC.opex, 0)} Cr`, ''],
+      ['EBITDA', `₹${num(base.ebitda, 0)} Cr`, ''],
+      ['Plus other income', `₹${num(SC.other, 0)} Cr`, ''],
+      ['Profit before tax', `₹${num(base.pbt, 0)} Cr`, ''],
+      ['Less tax', `₹${num(base.tax, 0)} Cr`, `${num(SC.tax, 2)}%`],
+      ['Profit after tax', `₹${num(base.pat, 0)} Cr`, ''],
+      ['EPS', `₹${num(base.eps, 2)}`, `÷ ${num(SC.shares, 3)} Cr shares`],
+      ['Price', `₹${num(base.price, 0)}`, `EPS × ${num(SC.pe, 1)}`],
+    ]);
+    const cases = [['Bear', SC.adj.bearRev, SC.adj.bearPe], ['Base', 0, 0], ['Bull', SC.adj.bullRev, SC.adj.bullPe]].map(([n, dr, dp]) => {
+      const rv = SC.rev * (1 + dr / 100), p = SC.pe * (1 + dp / 100);
+      return { n, rv, p, m: yearModel(rv, p, a) };
+    });
+    $('scCases').innerHTML = table(['', ...cases.map(c => c.n)], [
+      ['Revenue per day', ...cases.map(c => `₹${num(c.rv, 2)} Cr`)], ['Revenue, a year', ...cases.map(c => `₹${num(c.m.annualRev, 0)} Cr`)],
+      ['P/E', ...cases.map(c => `${num(c.p, 1)}×`)], ['EPS', ...cases.map(c => `₹${num(c.m.eps, 2)}`)], ['Profit after tax', ...cases.map(c => `₹${num(c.m.pat, 0)} Cr`)],
+      { cls: 'total', cells: ['Price', ...cases.map(c => `₹${num(c.m.price, 0)}`)] },
+      ['Against the price', ...cases.map(c => { const g = (c.m.price / cmp - 1) * 100; return `<span class="${g >= 0 ? 'up' : 'down'}">${pct(g)}</span>`; })],
+    ], 'dg-fit');
+    renderEarningsTables();
+  }
+
+  function renderEarningsTables() {
+    const sh = SC.shares, cmp = SC.cmp;
+    const set = (sel, v) => { const el = document.querySelector(sel); if (el) el.innerHTML = v; };
+    ['26', '27', '28'].forEach(y => {
+      const r = trendRow(SC.trend[y], sh);
+      set(`[data-pt-out="op"][data-yr="${y}"]`, num(r.op, 0)); set(`[data-pt-out="tot"][data-yr="${y}"]`, num(r.tot, 0));
+      set(`[data-pt-out="pat"][data-yr="${y}"]`, num(r.pat, 0)); set(`[data-pt-out="eps"][data-yr="${y}"]`, sh ? `₹${num(r.eps, 2)}` : '—');
+      set(`[data-pt-out="px"][data-yr="${y}"]`, sh ? `₹${num(r.px, 0)}` : '—');
+    });
+    ['bear', 'base', 'bull'].forEach(c => {
+      const r = caseRow(SC.cases[c], SC.trend[27].days, sh, SC.disc, cmp);
+      set(`[data-ps-out="tot"][data-case="${c}"]`, num(r.tot, 0)); set(`[data-ps-out="eps"][data-case="${c}"]`, sh ? `₹${num(r.eps, 2)}` : '—');
+      set(`[data-ps-out="px"][data-case="${c}"]`, sh ? `₹${num(r.px, 0)}` : '—');
+      set(`[data-ps-out="upside"][data-case="${c}"]`, r.upside === null || !sh ? '—' : `<span class="${r.upside >= 0 ? 'up' : 'down'}">${pct(r.upside)}</span>`);
+      set(`[data-ps-out="target"][data-case="${c}"]`, sh ? `₹${num(r.target, 0)}` : '—');
+    });
+  }
 
   function fillScenarioInputs(v, q) {
     const c = v.snapshot.eps_chain;
-    setIfUntouched($('fcAdvShares'), c.diluted_shares_cr);
-    setIfUntouched($('fcAdvDays'), c.trading_days);
-    FC.shares = c.diluted_shares_cr;
-    FC.tradingDays = c.trading_days;
+    const put = (k, val) => { if (!SC.touched.has(k) && val !== null && val !== undefined) { SC[k] = val; const el = document.querySelector(`[data-sc="${k}"]`); if (el) el.value = val; } };
+    put('shares', c.diluted_shares_cr); put('days', c.trading_days);
     const cp = currentPrice();
-    if (cp) { setIfUntouched($('fcAdvCMP'), Math.round(cp.price)); FC.currentPrice = Math.round(cp.price); }
+    if (cp) put('cmp', Math.round(cp.price));
     const t = ttm(q && q.actuals, c.diluted_shares_cr);
     if (t) MCX.store.set('ttmEps', t);
-    if (v.house) {                                   // the FY27 table's session counts: the calendar, as in the house model
-      document.querySelectorAll('[data-pt-input="days"]').forEach(el => {
-        const fy = 'FY' + el.dataset.ptYr;
-        if (v.house.assumptions.days[fy]) setIfUntouched(el, v.house.assumptions.days[fy]);
-      });
-    }
-    if (typeof renderCmpMeta === 'function') renderCmpMeta();
-  }
-
-  function renderScenarioLede() {
-    const inp = getFcInputs();
-    if (!inp.shares || !inp.tradingDays || !inp.currentPrice) return;
-    const m = calcModel(inp.dailyRev, inp.pe, inp);
-    const gap = (m.price / inp.currentPrice - 1) * 100;
-    const cp = currentPrice();
-    $('scKicker').textContent = `Scenarios · price ₹${num(inp.currentPrice, 0)}${cp ? `, ${cp.label}` : ''} · revenue per day starts at today’s projection`;
-    $('scHead').textContent = `At ₹${num(inp.dailyRev, 2)} Cr a day and ${num(inp.pe, 1)}×, a year of earnings supports ₹${num(m.price, 0)} a share, `
-      + (Math.abs(gap) < 0.5 ? 'level with the price.' : `${Math.abs(gap).toFixed(0)}% ${gap > 0 ? 'above' : 'below'} the price.`);
-    const t = MCX.store.get('ttmEps');
-    $('scDeck').textContent = `That is EPS of ₹${num(m.eps, 2)} on ${num(inp.shares, 3)} Cr shares and ${Math.round(inp.tradingDays)} sessions, after ₹${num(inp.opex, 0)} Cr of costs and ${num(inp.taxRate, 1)}% tax. `
-      + (t ? `Reported EPS over the last four quarters (${t.from} to ${t.to}) is ₹${num(t.eps, 2)}. ` : '')
-      + 'Move the sliders or edit the assumptions; the FY27 table works from revenue per day and margin instead.';
+    if (v.house) ['27', '28'].forEach(y => {           // the FY table's sessions: the calendar, as in the house model
+      const d = v.house.assumptions.days['FY' + y], k = 'days' + y;
+      if (d && !SC.touched.has(k)) { SC.trend[y].days = d; const el = document.querySelector(`[data-pt="days"][data-yr="${y}"]`); if (el) el.value = d; }
+    });
+    SC.ready = true;
   }
 
   function mountScenarios() {
@@ -669,24 +770,37 @@
       if (!v.success) throw new Error(v.error || 'No valuation data');
       if (!FV.data) FV.data = v;
       fillScenarioInputs(v, qd);
-      recalcForecast();
-      recomputePatPredictor();
-      renderScenarioLede();
+      renderScenarios();
+      renderEarningsTables();
     }).catch(e => MCX.ui.error($('scDeck'), 'Could not load the backend figures: ' + e.message, mountScenarios));
     MCX.poll.kick('cmp');
   }
 
-  BACKEND_INPUTS.forEach(id => { const el = $(id); if (el) el.addEventListener('input', () => { el.dataset.userSet = '1'; }); });
-  document.querySelectorAll('[data-pt-input="days"]').forEach(el => el.addEventListener('input', () => { el.dataset.userSet = '1'; }));
-  let ledeQueued = false;
-  $('scenarios').addEventListener('input', () => {
-    if (ledeQueued) return; ledeQueued = true;
-    setTimeout(() => { ledeQueued = false; renderScenarioLede(); }, 0);    // not rAF: it pauses in background tabs
+  buildScenarios();
+  const num0 = el => { const v = parseFloat(el.value); return isFinite(v) ? v : null; };
+  $('scenarios').addEventListener('input', e => {
+    const el = e.target;
+    if (el.id === 'fcRevSlider' || el.id === 'fcRevInput') { const v = num0(el); if (v !== null && v >= 0) { SC.rev = v; SC.touched.add('rev'); (el.id === 'fcRevSlider' ? $('fcRevInput') : $('fcRevSlider')).value = v; } }
+    else if (el.id === 'fcPeSlider' || el.id === 'fcPeInput') { const v = num0(el); if (v !== null && v > 0) { SC.pe = v; (el.id === 'fcPeSlider' ? $('fcPeInput') : $('fcPeSlider')).value = v; } }
+    else if (el.dataset.sc) { const v = num0(el); if (v !== null && v >= 0) { SC[el.dataset.sc] = v; SC.touched.add(el.dataset.sc); } }
+    else if (el.dataset.adj) { const v = num0(el); if (v !== null) SC.adj[el.dataset.adj] = v; }
+    else if (el.dataset.pt) { const v = num0(el); if (v !== null) { SC.trend[el.dataset.yr][el.dataset.pt] = v; if (el.dataset.pt === 'days') SC.touched.add('days' + el.dataset.yr); } }
+    else if (el.dataset.ps) { const v = num0(el); if (v !== null) SC.cases[el.dataset.case][el.dataset.ps] = v; }
+    else if (el.id === 'patDisc') { const v = num0(el); if (v !== null) SC.disc = v; }
+    else return;
+    renderScenarios();
+    if (!SC.shares) renderEarningsTables();
+  });
+  // Revenue per day starts at today's projection until the user moves it
+  MCX.store.on('refresh', r => {
+    if (!r || !r.success || !(r.proj_rev_cr > 0) || SC.touched.has('rev')) return;
+    SC.rev = +r.proj_rev_cr.toFixed(2); syncSliders();
+    if (MCX.router.current() === 'val-scen') renderScenarios();
   });
   MCX.store.on('price', p => {
     if (!p || !p.price) return;
-    if (!$('fcAdvCMP').dataset.userSet) { FC.currentPrice = Math.round(p.price); $('fcAdvCMP').value = FC.currentPrice; }
-    if (MCX.router.current() === 'val-scen') renderScenarioLede();
+    if (!SC.touched.has('cmp')) { SC.cmp = Math.round(p.price); const el = document.querySelector('[data-sc="cmp"]'); if (el) el.value = SC.cmp; }
+    if (MCX.router.current() === 'val-scen') renderScenarios();
   });
 
   MCX.value = { quarter: { mount: mountQuarter }, fairValue: { mount: mountFairValue }, scenarios: { mount: mountScenarios } };

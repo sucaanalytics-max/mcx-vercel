@@ -1,5 +1,5 @@
 /* MCX Revenue Monitor: shared helpers on window.MCX.
-   A plain script loaded after Chart.js and before the page scripts, so every page can use it. */
+   A plain script loaded before the page scripts, so every page can use it. */
 (function () {
   'use strict';
   const MCX = window.MCX = window.MCX || {};
@@ -314,38 +314,64 @@
     },
   };
 
-  // ── Chart.js reference line ──────────────────────────────────────────────
-  // options.plugins.refLine = { value, label, color, dash, scale }. Replaces
-  // options.plugins.annotation, whose plugin was never loaded, so nothing drew.
-  if (window.Chart) {
-    Chart.register({
-      id: 'refLine',
-      afterDatasetsDraw(chart, args, opts) {
-        if (!opts || opts.value === undefined || opts.value === null) return;
-        const scale = chart.scales[opts.scale || 'y'];
-        if (!scale) return;
-        const y = scale.getPixelForValue(opts.value);
-        const { left, right, top, bottom } = chart.chartArea;
-        if (y < top || y > bottom) return;
-        const ctx = chart.ctx;
-        ctx.save();
-        ctx.strokeStyle = opts.color || '#8A857D';
-        ctx.lineWidth = opts.width || 1;
-        ctx.setLineDash(opts.dash || [6, 4]);
-        ctx.beginPath();
-        ctx.moveTo(left, y);
-        ctx.lineTo(right, y);
-        ctx.stroke();
-        if (opts.label) {
-          ctx.setLineDash([]);
-          ctx.fillStyle = opts.labelColor || opts.color || '#8A857D';
-          ctx.font = opts.font || '11px sans-serif';
-          ctx.textAlign = 'right';
-          ctx.textBaseline = 'bottom';
-          ctx.fillText(opts.label, right - 4, y - 3);
-        }
-        ctx.restore();
-      },
-    });
+  // ── Time ranges and cached fetches, shared by every page ────────────────
+  // Page scripts use these as globals: makeRangeToggle, fetchRanged, rangeState, RANGE_TRADING_DAYS.
+  const RANGE_TRADING_DAYS = { '30D': 30, '60D': 60, 'Q': 63, '1Y': 252, '2Y': 504, 'Max': null };
+  const RANGE_LABELS = { '30D': '(30 days)', '60D': '(60 days)', 'Q': '(quarter)', '1Y': '(1 year)', '2Y': '(2 years)', 'Max': '(all history)' };
+  const RANGE_LONG = { '30D': '30 days', '60D': '60 days', 'Q': 'quarter', '1Y': '1 year', '2Y': '2 years', 'Max': 'all history',
+                       '4Q': '4 quarters', '8Q': '8 quarters', '3M': '3 months', '6M': '6 months', '12M': '12 months', '24M': '24 months' };
+  const rangeState = {};          // control key -> selected range
+  const fetchCache = {};          // URL -> promise of parsed JSON
+
+  function updateRangeLabels(cfg, r) {
+    (cfg.labelIds || []).forEach(id => { const el = document.getElementById(id); if (el) el.textContent = RANGE_LABELS[r] || `(${r})`; });
   }
+  // A group of buttons choosing a time range; the choice is stored under mcx.range.<key>
+  function makeRangeToggle(cfg) {
+    const saved = MCX.storage.get('mcx.range.' + cfg.key);
+    const initial = saved && cfg.ranges.indexOf(saved) !== -1 ? saved : cfg.defaultRange;
+    rangeState[cfg.key] = initial;
+    const el = document.getElementById(cfg.containerId);
+    if (!el) return initial;
+    el.classList.add('range-chips');
+    el.setAttribute('role', 'group');
+    if (!el.hasAttribute('aria-label')) el.setAttribute('aria-label', 'Time range');
+    el.innerHTML = cfg.ranges.map(r => `<button type="button" class="margin-chip${r === initial ? ' active' : ''}" data-range="${r}" aria-pressed="${r === initial}"`
+      + `${RANGE_LONG[r] ? ` title="${RANGE_LONG[r]}"` : ''}>${r}</button>`).join('');
+    el.addEventListener('click', e => {
+      const chip = e.target.closest('button[data-range]');
+      if (!chip) return;
+      const r = chip.dataset.range;
+      if (rangeState[cfg.key] === r) return;
+      rangeState[cfg.key] = r;
+      MCX.storage.set('mcx.range.' + cfg.key, r);
+      el.querySelectorAll('button[data-range]').forEach(c => { const on = c.dataset.range === r; c.classList.toggle('active', on); c.setAttribute('aria-pressed', String(on)); });
+      updateRangeLabels(cfg, r);
+      try {
+        const ret = cfg.onChange(r);
+        if (ret && typeof ret.catch === 'function') ret.catch(err => console.warn('[range] ' + cfg.key, err));
+      } catch (err) { console.warn('[range] ' + cfg.key, err); }
+    });
+    updateRangeLabels(cfg, initial);
+    return initial;
+  }
+  // One request per URL until the cache is cleared (a refresh clears it)
+  function fetchRanged(url) {
+    if (!fetchCache[url]) fetchCache[url] = fetch(url).then(r => r.json()).catch(e => { delete fetchCache[url]; throw e; });
+    return fetchCache[url];
+  }
+  const clearRangedCache = () => Object.keys(fetchCache).forEach(k => { delete fetchCache[k]; });
+  Object.assign(window, { RANGE_TRADING_DAYS, rangeState, makeRangeToggle, fetchRanged, clearRangedCache });
+  MCX.range = { toggle: makeRangeToggle, fetch: fetchRanged, clear: clearRangedCache, state: rangeState, days: RANGE_TRADING_DAYS };
+
+  // ── Toast: a short message that announces itself to screen readers ──────
+  MCX.ui.toast = function (msg, kind) {
+    let host = document.getElementById('toasts');
+    if (!host) { host = document.createElement('div'); host.id = 'toasts'; host.setAttribute('role', 'status'); host.setAttribute('aria-live', 'polite'); document.body.appendChild(host); }
+    const t = document.createElement('div');
+    t.className = 'toast' + (kind ? ' toast--' + kind : '');
+    t.textContent = msg;
+    host.appendChild(t);
+    setTimeout(() => t.remove(), 3200);
+  };
 })();

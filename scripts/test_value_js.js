@@ -95,5 +95,19 @@ const tt = M.ttm(acts, 25.451);
 check('TTM EPS = (197 + 401 + 530 + 413) / 25.451', [Math.round(tt.eps * 100) / 100, tt.from, tt.to], [60.55, 'Q2 FY26', 'Q1 FY27']);
 check('no TTM with under four quarters', M.ttm(acts.slice(0, 3), 25.451), null);
 
+// Scenarios: the arithmetic moved from legacy.js
+const A = { days: 256, opex: 700, other: 126, tax: 20.3, shares: 25.451 };
+const y = M.yearModel(12.62, 42, A);
+check('a year at ₹12.62 Cr a day: revenue, PAT, EPS, price', [Math.round(y.annualRev * 100) / 100, Math.round(y.pat * 100) / 100, Math.round(y.eps * 100) / 100, Math.round(y.price * 10) / 10],
+  [3230.72, 2117.41, 83.2, 3494.2]);
+check('a loss year books no tax and no profit', [M.yearModel(1, 42, A).tax, M.yearModel(1, 42, A).pat], [0, 0]);
+const im = M.impliedBy(3232, 12.62, 42, A);
+check('what ₹3,232 implies: revenue per day at 42×, P/E at ₹12.62 Cr', [Math.round(im.rev * 1000) / 1000, Math.round(im.pe * 100) / 100], [11.841, 38.85]);
+const tr = M.trendRow({ adr: 11.2, days: 256, other: 336, margin: 60, pe: 42 }, 25.451);
+check('FY27 trend row', [Math.round(tr.op * 10) / 10, Math.round(tr.tot * 10) / 10, Math.round(tr.eps * 100) / 100, Math.round(tr.px)], [2867.2, 3203.2, 75.51, 3172]);
+const cr = M.caseRow({ growth: 10, adr: 11.2, other: 336, margin: 60, pe: 48 }, 256, 25.451, 18, 3232);
+check('FY27 case with 10% growth, 48×, discounted 18%', [Math.round(cr.tot * 10) / 10, Math.round(cr.eps * 100) / 100, Math.round(cr.px), Math.round(cr.upside * 10) / 10, Math.round(cr.target)],
+  [3489.9, 82.27, 3949, 22.2, 3347]);
+
 console.log(failed ? `\n${failed} FAILED` : '\nAll value model tests passed.');
 process.exit(failed ? 1 : 0);

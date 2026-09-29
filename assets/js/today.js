@@ -1,6 +1,6 @@
 /* MCX Revenue Monitor: the Today page.
-   Data: /api/refresh (the live snapshot, via MCX.store 'refresh', published by legacy.js's
-   doRefresh), /api/exchange_dashboard?view=home (completed days, averages, measured
+   Data: /api/refresh (the live snapshot, via MCX.store 'refresh', published by shell.js's
+   refresh), /api/exchange_dashboard?view=home (completed days, averages, measured
    projection error) and /api/quarterly (the quarter so far).
    Charts are SVG coloured by CSS variables, so they follow the theme without redrawing. */
 (function () {
@@ -181,7 +181,27 @@
     return rows.map((r, i) => { sum += r.total; if (i >= n) sum -= rows[i - n].total; return i >= n - 1 ? sum / n : null; });
   }
 
-  MCX.todayModel = { sessionState, gridAt, likelyRange, finalBand, rangePct, bandWords, headlineLive, bookedNote, vsAvg, ladderTakeaway,
+  // Session profile: each bucket's share of a day's turnover on the median day, scaled so the
+  // buckets add to 100% (the raw medians need not), with the 10th–90th percentile days on the same scale
+  function profileShares(d) {
+    const b = d.static_model.buckets, pc = d.percentiles || {};
+    const med = pc.p50 || d.rolling_average.buckets.map(x => x.weight);
+    const tot = med.reduce((a, x) => a + x, 0) || 1;
+    return b.map((x, i) => ({ label: x.label, start: x.start_min - 540, end: x.end_min - 540, share: med[i] / tot * 100,
+      p10: pc.p10 ? pc.p10[i] / tot * 100 : null, p90: pc.p90 ? pc.p90[i] / tot * 100 : null, fixed: x.weight * 100 }));
+  }
+  // Share of the day's turnover done by minute m (after 09:00), linear within each bucket
+  function doneBy(buckets, m) {
+    let acc = 0;
+    for (const b of buckets) {
+      if (m >= b.end) { acc += b.share; continue; }
+      if (m > b.start) acc += b.share * (m - b.start) / (b.end - b.start);
+      break;
+    }
+    return Math.min(acc, 100);
+  }
+
+  MCX.todayModel = { profileShares, doneBy, sessionState, gridAt, likelyRange, finalBand, rangePct, bandWords, headlineLive, bookedNote, vsAvg, ladderTakeaway,
                      vsPrev45, rankText, takeaway, change, spread, niceTicks, rolling };
   if (window.MCX_TEST) return;
 
@@ -201,6 +221,7 @@
   ];
   const S = { refresh: undefined, home: null, homeAt: 0, homeErr: null, qtr: null, qtrAt: 0, kind: 'options', present: false, width: 0 };
   let loadingHome = null, loadingQtr = null;
+  const PF = { data: null, loading: false };      // session profile
 
   function loadHome(force) {
     if (!force && S.home && Date.now() - S.homeAt < HOME_TTL) return Promise.resolve();
@@ -348,7 +369,7 @@
   }
 
   // ── SVG helpers (core.js) ────────────────────────────────────────────────
-  const { frame, barPath, hatch, open: svgOpen } = MCX.svg;
+  const V = MCX.svg, { frame, barPath, hatch, open: svgOpen } = V;
   const txt = MCX.svg.text;
 
   // Revenue per day for the last completed days, then today (booked, projected rest, likely range)
@@ -787,6 +808,7 @@
     renderDrivers(d); renderContracts(d); renderQuarter(); renderFoot(d);
     publishStatus(d);
     if (S.present) renderPresent(d, l);
+    if (PF.data) renderProfile();
     S.width = $('today').clientWidth;
   }
 
@@ -860,7 +882,60 @@
     renderContracts(derive());
     document.querySelector(`#tdCtrSeg button[data-kind="${S.kind}"]`).focus();
   });
-  $('tdProfile').addEventListener('toggle', e => { if (e.target.open) loadIntradayCurve(); });
+  // ── Session profile: how a day's turnover is spread, over the last N days (loaded when opened) ──
+  function loadProfile() {
+    if (PF.loading) return;
+    PF.loading = true;
+    const days = RANGE_TRADING_DAYS[rangeState.intraday || '30D'] || 30;
+    fetchRanged('/api/exchange_dashboard?view=intraday_curve&days=' + days).then(d => {
+      if (!d.success) throw new Error(d.error || 'No data');
+      PF.data = d; renderProfile();
+    }).catch(e => MCX.ui.error($('tdProfBuckets'), 'Could not load the session profile: ' + (e.message || e), loadProfile))
+      .finally(() => { PF.loading = false; });
+  }
+  function renderProfile() {
+    const d = PF.data;
+    if (!d || !$('tdProfile').open || !$('tdProfCum').clientWidth) return;     // drawn when it is visible
+    const bs = profileShares(d);
+    const evening = bs.filter(b => b.start >= 480).reduce((a, b) => a + b.share, 0);
+    const top = bs.reduce((a, b) => (b.share / (b.end - b.start) > a.share / (a.end - a.start) ? b : a));
+    const r = S.refresh, live = r && r.success && !r.session_closed && r.trading_date === MCX.market.ist().iso;
+    const n = d.rolling_average.days_used;
+    $('tdProfLede').textContent = `On the median day of the last ${n}, ${num(evening, 0)}% of turnover came in the evening session (17:00–23:30). `
+      + `The busiest stretch per hour is ${top.label}.` + (live ? ` By ${clock(r.elapsed_min)} a typical day has done ${num(doneBy(bs, r.elapsed_min), 0)}% of its turnover.` : '');
+    const mx = Math.max(...bs.map(b => Math.max(b.p90 || 0, b.share, b.fixed))) * 1.08;
+    const X = v => (v / mx * 100).toFixed(2);
+    $('tdProfBuckets').innerHTML = '<div class="prof-rows">' + bs.map(b => `<div class="prof-row" title="${esc(`${b.label}: ${num(b.share, 1)}% on the median day${b.p10 !== null ? `, ${num(b.p10, 0)}–${num(b.p90, 0)}% on 8 days in 10` : ''}; fixed weights ${num(b.fixed, 0)}%`)}">`
+      + `<span class="prof-name">${esc(b.label)}</span><span class="prof-track" aria-hidden="true">`
+      + (b.p10 !== null ? `<i class="prof-range" style="left:${X(b.p10)}%;width:${(X(b.p90) - X(b.p10)).toFixed(2)}%"></i>` : '')
+      + `<i class="prof-bar" style="width:${X(b.share)}%"></i><i class="prof-fixed" style="left:${X(b.fixed)}%"></i></span>`
+      + `<span class="prof-val">${num(b.share, 1)}%</span></div>`).join('') + '</div>';
+    // Cumulative: share of the day done by each time
+    const box = $('tdProfCum'), w = Math.round(box.clientWidth) || 420, h = 190;
+    const f = V.frame(w, h, 100, [40, 8, 10, 26]);
+    const Xm = m => f.pl + f.iw * m / 870;
+    const pts = [0].concat(bs.map(b => b.end));
+    const typical = pts.map(m => `${Xm(m).toFixed(1)},${f.y(doneBy(bs, m)).toFixed(1)}`).join('L');
+    let fixedAcc = 0;
+    const fixed = [`${Xm(0).toFixed(1)},${f.y(0).toFixed(1)}`].concat(bs.map(b => { fixedAcc += b.fixed; return `${Xm(b.end).toFixed(1)},${f.y(Math.min(fixedAcc, 100)).toFixed(1)}`; })).join('L');
+    const sv = [V.open(w, h, `Share of the day's turnover done by each time on the median day: ${bs.map(b => `${b.label.split('–')[1]} ${num(doneBy(bs, b.end), 0)}%`).join(', ')}`)];
+    sv.push(V.grid(f, [0, 25, 50, 75, 100], v => `${v}%`));
+    sv.push(`<path d="M${fixed}" class="c-typical"/>`, `<path d="M${typical}" class="c-line"/>`);
+    if (live) {
+      const xn = Xm(r.elapsed_min);
+      sv.push(`<line x1="${xn.toFixed(1)}" x2="${xn.toFixed(1)}" y1="${f.pt}" y2="${(f.h - f.pb).toFixed(1)}" class="c-now"/>`);
+      sv.push(txt(xn + (xn < w - 90 ? 6 : -6), f.pt + 10, 'c-label2', `Now ${num(doneBy(bs, r.elapsed_min), 0)}%`, xn < w - 90 ? null : 'end', true));
+    }
+    [[0, '09:00'], [360, '15:00'], [720, '21:00'], [870, '23:30']].forEach(([m, lab]) => sv.push(txt(Xm(m), h - 8, 'c-tick', lab, m === 0 ? 'start' : m === 870 ? 'end' : 'middle')));
+    sv.push('</svg>');
+    box.innerHTML = sv.join('');
+    $('tdProfLegend').innerHTML = '<span><i class="sw sw--line"></i>Median day</span><span><i class="sw sw--typical"></i>Fixed weights (the engine’s fallback)</span>';
+    $('tdProfBasis').innerHTML = INFO + `<span>Turnover here is futures notional plus option premium from the 15-minute snapshots, not revenue: futures earn ₹210 and options ₹4,180 per crore, so the shares differ from revenue shares. `
+      + 'Medians, not averages, because a few days with a stale first snapshot inflate the opening bucket; the bars are scaled so the day adds to 100%. The grey band is the 10th to 90th percentile day; the tick is the fixed weight the projection falls back on.</span>';
+  }
+  $('tdProfile').addEventListener('toggle', e => { if (e.target.open) { if (PF.data) renderProfile(); else loadProfile(); } });
+  makeRangeToggle({ key: 'intraday', containerId: 'tdProfRange', ranges: ['30D', '60D', 'Q'], defaultRange: '30D', labelIds: ['tdProfRangeLabel'],
+                    onChange: () => { PF.data = null; if ($('tdProfile').open) loadProfile(); } });
   // Phones fold everything below the two top sections behind one button; the choice is remembered
   function setFold(open) {
     $('tdRest').classList.toggle('is-open', open);

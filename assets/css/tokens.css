@@ -1,14 +1,3 @@
-/* Design tokens. For now: names the page used but never defined, mapped onto
-   the existing theme variables so they follow light and dark mode. */
-:root {
-  --muted: var(--text-secondary);
-  --text-primary: var(--text);
-  --success: var(--positive);
-  --danger: var(--negative);
-  --bg-card: var(--surface);
-  --card-border: var(--border);
-}
-
 /* v2 tokens: monochrome chrome, colour only for data and direction.
    Contrast checked at 4.5:1 or better for every text colour on bg, rail, surface and surface-2. */
 :root {

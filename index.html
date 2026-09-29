@@ -6,14 +6,13 @@
 <title>Today · MCX Revenue Monitor</title>
 <script>/* theme before first paint; core.js takes over */try{var m=localStorage.getItem("mcxTheme")||"system";if(m==="dark"||(m!=="light"&&window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches))document.documentElement.classList.add("dark")}catch(e){}</script>
 <script defer src="/_vercel/insights/script.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=DM+Sans:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/legacy.css?v=fc9cd6b8">
-<link rel="stylesheet" href="/assets/css/tokens.css?v=fc9cd6b8">
-<link rel="stylesheet" href="/assets/css/components.css?v=fc9cd6b8">
-<link rel="stylesheet" href="/assets/css/shell.css?v=fc9cd6b8">
-<link rel="stylesheet" href="/assets/css/v2.css?v=fc9cd6b8">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400&family=Source+Serif+4:opsz,wght@8..60,600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/css/tokens.css?v=ca1ec025">
+<link rel="stylesheet" href="/assets/css/base.css?v=ca1ec025">
+<link rel="stylesheet" href="/assets/css/components.css?v=ca1ec025">
+<link rel="stylesheet" href="/assets/css/shell.css?v=ca1ec025">
+<link rel="stylesheet" href="/assets/css/v2.css?v=ca1ec025">
 </head>
 <body>
 
@@ -66,7 +65,7 @@
     <button type="button" class="present-btn" id="presentBtn" data-action="present" hidden>Present</button>
     <span class="status" id="livePill" data-state="idle">Loading</span>
     <span class="appbar-meta" id="refreshMeta">—</span>
-    <button type="button" class="icon-btn" id="refreshBtn" onclick="doRefresh()" aria-label="Refresh data" title="Refresh data"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/></svg></button>
+    <button type="button" class="icon-btn" id="refreshBtn" aria-label="Refresh data" title="Refresh data"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 4v4h4"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20v-4h-4"/></svg></button>
   </div>
 </header>
 <nav class="subnav" id="subnav" aria-label="Section pages"></nav>
@@ -154,30 +153,14 @@
 </section>
 
 <details class="v2-details" id="tdProfile">
-  <summary>Session profile <small>How trading is spread through the day</small></summary>
-  <div class="v2-details-body legacy-block">
-    <div style="display:flex;justify-content:flex-end;margin-bottom:6px"><span class="accordion-badge" id="intradayBadge">loading...</span></div>
-    <!-- Tab selector -->
-    <div style="display:flex;gap:4px;margin-bottom:8px;align-items:center;flex-wrap:wrap">
-      <button class="curve-tab active" id="btnCurveBucket" onclick="switchCurveView('bucket')" style="padding:3px 10px;border:1px solid var(--border);background:var(--accent);color:white;font-family:var(--mono);font-size:10px;cursor:pointer;border-radius:var(--radius)">Bucket Weights</button>
-      <button class="curve-tab" id="btnCurveCum" onclick="switchCurveView('cumulative')" style="padding:3px 10px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-family:var(--mono);font-size:10px;cursor:pointer;border-radius:var(--radius)">Cumulative Curve</button>
-      <span id="intradayRange" style="margin-left:auto"></span>
+  <summary>Session profile <small>How a day’s trading is spread through the session</small></summary>
+  <div class="v2-details-body">
+    <div class="sec-head"><div><p class="sg-para" id="tdProfLede"></p><div class="sec-sub">Median day over the last <span id="tdProfRangeLabel">(30 days)</span></div></div><span id="tdProfRange"></span></div>
+    <div class="prof-grid">
+      <div id="tdProfBuckets"><span class="skel"></span></div>
+      <div><div class="chart-box" id="tdProfCum"></div><div class="legend" id="tdProfLegend"></div></div>
     </div>
-    <!-- Bucket view -->
-    <div id="curveViewBucket">
-      <div class="curve-container"><canvas id="intradayChart"></canvas></div>
-    </div>
-    <!-- Cumulative view -->
-    <div id="curveViewCumulative" style="display:none">
-      <div class="curve-container"><canvas id="cumulativeChart"></canvas></div>
-    </div>
-    <div class="curve-legend" id="intradayLegend"></div>
-    <!-- Stats row -->
-    <div id="curveStats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;margin-top:8px;font-family:var(--mono);font-size:10px"></div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:8px;padding:8px;border:1px dashed var(--border)">
-      Session: 09:00–23:30 IST · Static model: evening = 67% · Weights computed over <span id="intradayRangeLabel">(30 days)</span> of snapshots.
-    </div>
-  
+    <div class="basis" id="tdProfBasis"></div>
   </div>
 </details>
 
@@ -199,344 +182,48 @@
   <h1 class="headline" id="scHead">Loading&hellip;</h1>
   <p class="deck" id="scDeck"></p>
 </header>
-<div class="legacy-block">
-
-<!-- ── FY27 EARNINGS SCENARIOS (multi-year trend + FY27 scenario) ───────── -->
-<section class="sec" aria-labelledby="scEarnTitle">
-  <div class="sec-head"><div><h2 id="scEarnTitle">FY27 earnings scenarios</h2><div class="sec-sub">Profit and EPS by year from revenue per day, sessions, other income and margin; edit any input</div></div></div>
-<div class="card pat-card">
-
-  <div class="pat-block">
-    <div class="pat-block-title">Based on latest trend</div>
-    <table class="pat-table" id="patTrendTable">
-      <thead>
-        <tr><th></th><th>FY26</th><th>FY27</th><th>FY28</th></tr>
-      </thead>
-      <tbody>
-        <tr class="pat-group pat-group--first"><td colspan="4">Revenue Build-Up</td></tr>
-        <tr><td>Revenue per day (₹ Cr)</td>
-          <td><input type="number" class="pat-input" data-pt-input="adr" data-pt-yr="26" value="9.1" step="0.1"></td>
-          <td><input type="number" class="pat-input" data-pt-input="adr" data-pt-yr="27" value="11.2" step="0.1"></td>
-          <td><input type="number" class="pat-input" data-pt-input="adr" data-pt-yr="28" value="13.5" step="0.1"></td>
-        </tr>
-        <tr><td>No. of days</td>
-          <td><input type="number" class="pat-input" data-pt-input="days" data-pt-yr="26" value="257" step="1"></td>
-          <td><input type="number" class="pat-input" data-pt-input="days" data-pt-yr="27" value="256" step="1"></td>
-          <td><input type="number" class="pat-input" data-pt-input="days" data-pt-yr="28" value="260" step="1"></td>
-        </tr>
-        <tr><td>Operating Revenue (₹ Cr)</td>
-          <td class="pat-derived" data-pt-out="opRev" data-pt-yr="26">—</td>
-          <td class="pat-derived" data-pt-out="opRev" data-pt-yr="27">—</td>
-          <td class="pat-derived" data-pt-out="opRev" data-pt-yr="28">—</td>
-        </tr>
-        <tr><td>Other Revenue (₹ Cr)</td>
-          <td><input type="number" class="pat-input" data-pt-input="other" data-pt-yr="26" value="280" step="1"></td>
-          <td><input type="number" class="pat-input" data-pt-input="other" data-pt-yr="27" value="336" step="1"></td>
-          <td><input type="number" class="pat-input" data-pt-input="other" data-pt-yr="28" value="403" step="1"></td>
-        </tr>
-        <tr class="pat-row--total"><td>Total Revenue (₹ Cr)</td>
-          <td data-pt-out="totRev" data-pt-yr="26">—</td>
-          <td data-pt-out="totRev" data-pt-yr="27">—</td>
-          <td data-pt-out="totRev" data-pt-yr="28">—</td>
-        </tr>
-        <tr class="pat-group"><td colspan="4">Profitability</td></tr>
-        <tr><td>PAT Margin (%)</td>
-          <td><input type="number" class="pat-input" data-pt-input="margin" data-pt-yr="26" value="51.5" step="0.1"></td>
-          <td><input type="number" class="pat-input" data-pt-input="margin" data-pt-yr="27" value="60" step="0.1"></td>
-          <td><input type="number" class="pat-input" data-pt-input="margin" data-pt-yr="28" value="60" step="0.1"></td>
-        </tr>
-        <tr><td>PAT (₹ Cr)</td>
-          <td class="pat-derived" data-pt-out="pat" data-pt-yr="26">—</td>
-          <td class="pat-derived" data-pt-out="pat" data-pt-yr="27">—</td>
-          <td class="pat-derived" data-pt-out="pat" data-pt-yr="28">—</td>
-        </tr>
-        <tr><td>EPS (₹)</td>
-          <td class="pat-derived" data-pt-out="eps" data-pt-yr="26">—</td>
-          <td class="pat-derived" data-pt-out="eps" data-pt-yr="27">—</td>
-          <td class="pat-derived" data-pt-out="eps" data-pt-yr="28">—</td>
-        </tr>
-        <tr class="pat-group"><td colspan="4">Valuation</td></tr>
-        <tr><td>P/E</td>
-          <td><input type="number" class="pat-input" data-pt-input="pe" data-pt-yr="26" value="55" step="0.5"></td>
-          <td><input type="number" class="pat-input" data-pt-input="pe" data-pt-yr="27" value="42" step="0.5"></td>
-          <td><input type="number" class="pat-input" data-pt-input="pe" data-pt-yr="28" value="55" step="0.5"></td>
-        </tr>
-        <tr class="pat-row--target"><td>Price Target (₹)</td>
-          <td data-pt-out="px" data-pt-yr="26">—</td>
-          <td data-pt-out="px" data-pt-yr="27">—</td>
-          <td data-pt-out="px" data-pt-yr="28">—</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="pat-block">
-    <div class="pat-block-title">FY27: bear, base and bull</div>
-    <table class="pat-table" id="patScenTable">
-      <thead>
-        <tr><th></th><th>Bear</th><th>Base</th><th>Bull</th></tr>
-      </thead>
-      <tbody>
-        <tr class="pat-group pat-group--first"><td colspan="4">Revenue Build-Up</td></tr>
-        <tr><td>Growth (%)</td>
-          <td><input type="number" class="pat-input" data-ps-input="growth" data-ps-sc="bear" value="0" step="1"></td>
-          <td><input type="number" class="pat-input" data-ps-input="growth" data-ps-sc="base" value="0" step="1"></td>
-          <td><input type="number" class="pat-input" data-ps-input="growth" data-ps-sc="bull" value="0" step="1"></td>
-        </tr>
-        <tr><td>ADR (₹ Cr)</td>
-          <td><input type="number" class="pat-input" data-ps-input="adr" data-ps-sc="bear" value="11.2" step="0.1"></td>
-          <td><input type="number" class="pat-input" data-ps-input="adr" data-ps-sc="base" value="11.2" step="0.1"></td>
-          <td><input type="number" class="pat-input" data-ps-input="adr" data-ps-sc="bull" value="11.2" step="0.1"></td>
-        </tr>
-        <tr><td>Other Income (₹ Cr)</td>
-          <td><input type="number" class="pat-input" data-ps-input="other" data-ps-sc="bear" value="336" step="1"></td>
-          <td><input type="number" class="pat-input" data-ps-input="other" data-ps-sc="base" value="336" step="1"></td>
-          <td><input type="number" class="pat-input" data-ps-input="other" data-ps-sc="bull" value="336" step="1"></td>
-        </tr>
-        <tr class="pat-row--total"><td>Total Income (₹ Cr)</td>
-          <td data-ps-out="totInc" data-ps-sc="bear">—</td>
-          <td data-ps-out="totInc" data-ps-sc="base">—</td>
-          <td data-ps-out="totInc" data-ps-sc="bull">—</td>
-        </tr>
-        <tr class="pat-group"><td colspan="4">Profitability</td></tr>
-        <tr><td>PAT Margin (%)</td>
-          <td><input type="number" class="pat-input" data-ps-input="margin" data-ps-sc="bear" value="60" step="0.1"></td>
-          <td><input type="number" class="pat-input" data-ps-input="margin" data-ps-sc="base" value="60" step="0.1"></td>
-          <td><input type="number" class="pat-input" data-ps-input="margin" data-ps-sc="bull" value="60" step="0.1"></td>
-        </tr>
-        <tr><td>EPS (₹)</td>
-          <td class="pat-derived" data-ps-out="eps" data-ps-sc="bear">—</td>
-          <td class="pat-derived" data-ps-out="eps" data-ps-sc="base">—</td>
-          <td class="pat-derived" data-ps-out="eps" data-ps-sc="bull">—</td>
-        </tr>
-        <tr class="pat-group"><td colspan="4">Valuation</td></tr>
-        <tr><td>P/E</td>
-          <td><input type="number" class="pat-input" data-ps-input="pe" data-ps-sc="bear" value="36" step="0.5"></td>
-          <td><input type="number" class="pat-input" data-ps-input="pe" data-ps-sc="base" value="42" step="0.5"></td>
-          <td><input type="number" class="pat-input" data-ps-input="pe" data-ps-sc="bull" value="48" step="0.5"></td>
-        </tr>
-        <tr><td>Price Target FY27 (₹)</td>
-          <td class="pat-derived" data-ps-out="px" data-ps-sc="bear">—</td>
-          <td class="pat-derived" data-ps-out="px" data-ps-sc="base">—</td>
-          <td class="pat-derived" data-ps-out="px" data-ps-sc="bull">—</td>
-        </tr>
-        <tr><td>Upside vs CMP (%)</td>
-          <td class="pat-derived" data-ps-out="upside" data-ps-sc="bear">—</td>
-          <td class="pat-derived" data-ps-out="upside" data-ps-sc="base">—</td>
-          <td class="pat-derived" data-ps-out="upside" data-ps-sc="bull">—</td>
-        </tr>
-        <tr class="pat-discount-row"><td>Discount (%)
-          <input type="number" class="pat-input" id="patScenDiscount" value="18" step="0.5"></td>
-          <td class="pat-derived">—</td><td class="pat-derived">—</td><td class="pat-derived">—</td>
-        </tr>
-        <tr class="pat-row--target"><td>Target Price (₹)</td>
-          <td data-ps-out="tgtPx" data-ps-sc="bear">—</td>
-          <td data-ps-out="tgtPx" data-ps-sc="base">—</td>
-          <td data-ps-out="tgtPx" data-ps-sc="bull">—</td>
-        </tr>
-      </tbody>
-    </table>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:8px">
-      Shares come from Advanced assumptions below (the backend’s diluted share count unless you change it). Upside is against the live share price.
-    </div>
-  </div>
-</div>
-
-</section>
-
-<!-- ── PRICE SCENARIOS ────────────────────────────────────────────────────── -->
 <section class="sec" aria-labelledby="scPriceTitle">
-  <div class="sec-head"><div><h2 id="scPriceTitle">Price scenarios</h2><div class="sec-sub">The share price one year of earnings would support at a given revenue per day and P/E</div></div></div>
-<div class="fc-hero-row">
-  <div class="fc-hero-card">
-    <h3>Current Market</h3>
-    <div class="fc-hero-price" style="color:var(--text)" id="fcCmpPrice">—</div>
-    <div class="fc-hero-sub" id="fcCmpMeta">EPS (TTM): — · PE: — · MCap: —</div>
-    <div class="fc-hero-sub" id="fcCmpSource" style="margin-top:4px;font-size:11px;opacity:0.6"></div>
-    <div class="fc-hero-sub" id="fcCmpLastUpdated" style="margin-top:2px;font-size:10px;opacity:0.5"></div>
-  </div>
-  <div class="fc-hero-card fc-hero-card--model">
-    <h3>Model Prediction</h3>
-    <div class="fc-hero-price accent" id="fcModelPrice">—</div>
-    <div class="fc-hero-sub" id="fcModelSub">EPS: — · PE: — · MCap: —</div>
-    <div class="fc-hero-sub" id="fcModelDelta" style="margin-top:4px;font-weight:700">—</div>
-  </div>
-</div>
-
-<!-- ── INPUT CONTROLS ────────────────────────────────────────────────────── -->
-<div class="card" style="margin-bottom:20px;padding:24px">
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
-    <div class="fc-input-group">
-      <div class="fc-label">Daily Revenue (₹ Cr)</div>
-      <div class="fc-tooltip">Average daily exchange revenue. Drives annualized topline.</div>
-      <div class="fc-slider-row">
-        <input type="range" class="fc-slider" id="fcRevSlider" min="2" max="35" step="0.1" value="12.62">
-        <input type="number" class="fc-num-input" id="fcRevInput" value="12.62" step="0.1" min="0">
+  <div class="sec-head"><div><h2 id="scPriceTitle">Price scenarios</h2><div class="sec-sub">The share price one year of earnings supports, at a revenue per day and a P/E</div></div></div>
+  <div class="sc-controls">
+    <div class="sc-control">
+      <label class="sc-label" for="fcRevInput">Revenue per day</label>
+      <div class="sc-slider-row">
+        <input type="range" id="fcRevSlider" min="2" max="35" step="0.1" value="12.62" aria-label="Revenue per day, ₹ crore (slider)">
+        <span class="hin-box"><input type="number" id="fcRevInput" value="12.62" step="0.1" min="0" inputmode="decimal"><small>₹ Cr</small></span>
       </div>
-      <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--text-secondary);margin-top:2px">
-        <span>₹2</span>
-        <span id="fcRevAnnual" style="color:var(--accent)">Annual: ₹3,463 Cr</span>
-        <span>₹35</span>
-      </div>
+      <div class="sc-note" id="fcRevAnnual">&nbsp;</div>
     </div>
-    <div class="fc-input-group">
-      <div class="fc-label">P/E Ratio</div>
-      <div class="fc-tooltip">Price-to-Earnings multiple applied to FY26E EPS.</div>
-      <div class="fc-slider-row">
-        <input type="range" class="fc-slider" id="fcPeSlider" min="15" max="120" step="0.5" value="42">
-        <input type="number" class="fc-num-input" id="fcPeInput" value="42" step="0.5" min="1">
+    <div class="sc-control">
+      <label class="sc-label" for="fcPeInput">P/E on a year of earnings</label>
+      <div class="sc-slider-row">
+        <input type="range" id="fcPeSlider" min="15" max="120" step="0.5" value="42" aria-label="P/E (slider)">
+        <span class="hin-box"><input type="number" id="fcPeInput" value="42" step="0.5" min="1" inputmode="decimal"><small>×</small></span>
       </div>
-      <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--text-secondary);margin-top:2px">
-        <span>15x</span>
-        <span id="fcPeLabel" style="color:var(--accent2)">Default: 42x</span>
-        <span>120x</span>
-      </div>
+      <div class="sc-note">The stock’s own median P/E is on <a href="#/value/fair-value">Fair value</a></div>
     </div>
   </div>
-</div>
-
-<!-- ── P&L WATERFALL ─────────────────────────────────────────────────────── -->
-<div class="card" style="margin-bottom:20px;padding:20px">
-  <div class="card-label" style="margin-bottom:10px">P&amp;L for one year at this revenue per day</div>
-  <div class="kv"><span class="kv-key">Annual revenue (daily × <span id="fcWfDaysLabel">—</span> sessions)</span><span class="kv-val" id="fcWfRevenue">—</span></div>
-  <div class="kv"><span class="kv-key">Less: Operating Costs</span><span class="kv-val red" id="fcWfOpex">—</span></div>
-  <div class="kv"><span class="kv-key">EBITDA</span><span class="kv-val" id="fcWfEbitda">—</span></div>
-  <div class="kv"><span class="kv-key">Plus: Other Income</span><span class="kv-val" id="fcWfOther">—</span></div>
-  <div class="kv"><span class="kv-key">PBT</span><span class="kv-val" id="fcWfPbt">—</span></div>
-  <div class="kv"><span class="kv-key">Less: Tax (<span id="fcWfTaxLabel">20.30</span>%)</span><span class="kv-val red" id="fcWfTax">—</span></div>
-  <div class="sep"></div>
-  <div class="kv"><span class="kv-key" style="font-weight:700;color:var(--text)">PAT</span><span class="kv-val green" style="font-size:16px" id="fcWfPat">—</span></div>
-  <div class="kv"><span class="kv-key">EPS (PAT / <span id="fcWfSharesLabel">—</span> Cr shares)</span><span class="kv-val accent" style="font-size:16px" id="fcWfEps">—</span></div>
-  <div class="kv"><span class="kv-key" style="font-weight:700">Share Price (EPS × PE)</span><span class="kv-val" style="font-size:18px;color:var(--accent)" id="fcWfPrice">—</span></div>
-</div>
-
-<!-- ── SCENARIO ANALYSIS ─────────────────────────────────────────────────── -->
-<div class="card-label" style="margin-bottom:8px">Scenario Analysis — Bear / Base / Bull</div>
-<div class="scenario-row">
-  <div class="scenario-card scenario-card--bear">
-    <div class="scenario-card-title">Bear Case</div>
-    <div class="scenario-price red" id="scBearPrice">—</div>
-    <div class="scenario-delta red" id="scBearDelta">—</div>
-    <div class="scenario-kv"><span class="scenario-kv-key">Daily Rev</span><span class="scenario-kv-val" id="scBearRev">—</span></div>
-    <div class="scenario-kv"><span class="scenario-kv-key">Annual Rev</span><span class="scenario-kv-val" id="scBearAnnual">—</span></div>
-    <div class="scenario-kv"><span class="scenario-kv-key">PE Ratio</span><span class="scenario-kv-val" id="scBearPe">—</span></div>
-    <div class="scenario-kv"><span class="scenario-kv-key">EPS</span><span class="scenario-kv-val" id="scBearEps">—</span></div>
-    <div class="scenario-kv"><span class="scenario-kv-key">PAT</span><span class="scenario-kv-val" id="scBearPat">—</span></div>
-    <div class="sc-adjust">
-      <span class="sc-adjust-label">Rev</span>
-      <input type="number" class="sc-adjust-input" id="scBearRevPct" value="-15" step="1">
-      <span class="sc-adjust-label">%</span>
-      <span class="sc-adjust-label" style="margin-left:4px">PE</span>
-      <input type="number" class="sc-adjust-input" id="scBearPePct" value="-10" step="1">
-      <span class="sc-adjust-label">%</span>
-    </div>
+  <div class="fv-stats" id="scStats"></div>
+  <div class="two-col">
+    <div class="sc-col"><h3 class="sc-h3">One year at this revenue per day</h3><div id="scChain"></div></div>
+    <div class="sc-col"><h3 class="sc-h3">Bear, base and bull</h3><div id="scCases"></div><div class="sc-adjust" id="scAdjust"></div></div>
   </div>
-  <div class="scenario-card scenario-card--base">
-    <div class="scenario-card-title">Base Case</div>
-    <div class="scenario-price accent" id="scBasePrice">—</div>
-    <div class="scenario-delta" id="scBaseDelta" style="color:var(--text-secondary)">—</div>
-    <div class="scenario-kv"><span class="scenario-kv-key">Daily Rev</span><span class="scenario-kv-val" id="scBaseRev">—</span></div>
-    <div class="scenario-kv"><span class="scenario-kv-key">Annual Rev</span><span class="scenario-kv-val" id="scBaseAnnual">—</span></div>
-    <div class="scenario-kv"><span class="scenario-kv-key">PE Ratio</span><span class="scenario-kv-val" id="scBasePe">—</span></div>
-    <div class="scenario-kv"><span class="scenario-kv-key">EPS</span><span class="scenario-kv-val" id="scBaseEps">—</span></div>
-    <div class="scenario-kv"><span class="scenario-kv-key">PAT</span><span class="scenario-kv-val" id="scBasePat">—</span></div>
-  </div>
-  <div class="scenario-card scenario-card--bull">
-    <div class="scenario-card-title">Bull Case</div>
-    <div class="scenario-price green" id="scBullPrice">—</div>
-    <div class="scenario-delta green" id="scBullDelta">—</div>
-    <div class="scenario-kv"><span class="scenario-kv-key">Daily Rev</span><span class="scenario-kv-val" id="scBullRev">—</span></div>
-    <div class="scenario-kv"><span class="scenario-kv-key">Annual Rev</span><span class="scenario-kv-val" id="scBullAnnual">—</span></div>
-    <div class="scenario-kv"><span class="scenario-kv-key">PE Ratio</span><span class="scenario-kv-val" id="scBullPe">—</span></div>
-    <div class="scenario-kv"><span class="scenario-kv-key">EPS</span><span class="scenario-kv-val" id="scBullEps">—</span></div>
-    <div class="scenario-kv"><span class="scenario-kv-key">PAT</span><span class="scenario-kv-val" id="scBullPat">—</span></div>
-    <div class="sc-adjust">
-      <span class="sc-adjust-label">Rev</span>
-      <input type="number" class="sc-adjust-input" id="scBullRevPct" value="15" step="1">
-      <span class="sc-adjust-label">%</span>
-      <span class="sc-adjust-label" style="margin-left:4px">PE</span>
-      <input type="number" class="sc-adjust-input" id="scBullPePct" value="10" step="1">
-      <span class="sc-adjust-label">%</span>
+  <details class="v2-details v2-details--inline">
+    <summary>Assumptions</summary>
+    <div class="v2-details-body">
+      <form class="house-inputs sc-assump" id="scAssumpForm" novalidate aria-label="Scenario assumptions"></form>
+      <p class="note">Shares, trading days and the share price are filled from the backend (diluted shares, the FY27 session count, the live NSE price) until you change them. Costs of ₹700 Cr a year, other income of ₹126 Cr and 20.3% tax are house assumptions; FY26’s reported operating costs were about ₹660 Cr.</p>
     </div>
-  </div>
-</div>
-
-<!-- ── IMPLIED METRICS (reverse-engineer from CMP) ─────────────────────── -->
-<div class="card" style="margin-bottom:20px;padding:20px" id="impliedMetricsCard">
-  <div class="card-label" style="margin-bottom:10px">Implied Metrics — What the Market is Pricing</div>
-  <div class="fc-tooltip" style="margin-bottom:12px">Reverse-engineers your model assumptions from the current share price. Shows what daily revenue the market implies at your chosen PE, or what PE it implies at your chosen revenue.</div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-    <div>
-      <div class="card-label" style="font-size:11px;margin-bottom:8px;color:var(--accent2)">At Your PE (what revenue is implied?)</div>
-      <div class="kv"><span class="kv-key">Implied EPS</span><span class="kv-val" id="imEps">—</span></div>
-      <div class="kv"><span class="kv-key">Implied PAT</span><span class="kv-val" id="imPat">—</span></div>
-      <div class="kv"><span class="kv-key">Implied PBT</span><span class="kv-val" id="imPbt">—</span></div>
-      <div class="kv"><span class="kv-key">Implied EBITDA</span><span class="kv-val" id="imEbitda">—</span></div>
-      <div class="kv"><span class="kv-key">Implied Annual Revenue</span><span class="kv-val" id="imAnnualRev">—</span></div>
-      <div class="sep"></div>
-      <div class="kv"><span class="kv-key" style="font-weight:700;color:var(--accent)">Implied Daily Revenue</span><span class="kv-val" style="font-size:16px;color:var(--accent)" id="imDailyRev">—</span></div>
-      <div class="kv"><span class="kv-key">vs Model Daily Rev</span><span class="kv-val" id="imDailyRevDelta">—</span></div>
-    </div>
-    <div>
-      <div class="card-label" style="font-size:11px;margin-bottom:8px;color:var(--accent2)">At Your Revenue (what PE is implied?)</div>
-      <div class="kv"><span class="kv-key" style="font-weight:700;color:var(--accent)">Implied PE</span><span class="kv-val" style="font-size:16px;color:var(--accent)" id="imPe">—</span></div>
-      <div class="kv"><span class="kv-key">vs Model PE</span><span class="kv-val" id="imPeDelta">—</span></div>
-      <div class="sep" style="margin:12px 0"></div>
-      <div class="card-label" style="font-size:11px;margin-bottom:8px;color:var(--text-secondary)">Market Snapshot</div>
-      <div class="kv"><span class="kv-key">Market Cap</span><span class="kv-val" id="imMcap">—</span></div>
-      <div class="kv"><span class="kv-key">Model Price / CMP</span><span class="kv-val" id="imPriceCmp">—</span></div>
-      <div class="kv"><span class="kv-key">Model Premium / Discount</span><span class="kv-val" id="imPremDisc">—</span></div>
-    </div>
-  </div>
-</div>
-
-<!-- ── ADVANCED ASSUMPTIONS (accordion) ──────────────────────────────────── -->
-<div class="accordion">
-  <button class="accordion-trigger" onclick="toggleAcc('fcAdv')" aria-expanded="false">
-    <span>Advanced Assumptions</span>
-    <span class="arrow">▼</span>
-  </button>
-  <div class="accordion-panel" id="fcAdv-panel">
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
-      <div>
-        <div class="fc-label">Operating Costs (₹ Cr/yr)</div>
-        <div class="fc-tooltip">Staff + tech + regulatory + admin</div>
-        <input type="number" class="fc-num-input" id="fcAdvOpex" value="700" step="10" style="width:100%;margin-top:6px">
-      </div>
-      <div>
-        <div class="fc-label">Other Income (₹ Cr/yr)</div>
-        <div class="fc-tooltip">Treasury, data licensing, membership</div>
-        <input type="number" class="fc-num-input" id="fcAdvOther" value="126" step="10" style="width:100%;margin-top:6px">
-      </div>
-      <div>
-        <div class="fc-label">Tax Rate (%)</div>
-        <div class="fc-tooltip">Effective corporate tax rate</div>
-        <input type="number" class="fc-num-input" id="fcAdvTax" value="20.30" step="0.01" style="width:100%;margin-top:6px">
-      </div>
-      <div>
-        <div class="fc-label">Shares Outstanding (Cr)</div>
-        <div class="fc-tooltip">Total diluted shares</div>
-        <input type="number" class="fc-num-input" id="fcAdvShares" value="" step="0.001" style="width:100%;margin-top:6px">
-      </div>
-      <div>
-        <div class="fc-label">Trading Days / Year</div>
-        <div class="fc-tooltip">MCX active trading days</div>
-        <input type="number" class="fc-num-input" id="fcAdvDays" value="" step="1" style="width:100%;margin-top:6px">
-      </div>
-      <div>
-        <div class="fc-label">Current Share Price (₹)</div>
-        <div class="fc-tooltip">For upside/downside calculation</div>
-        <input type="number" class="fc-num-input" id="fcAdvCMP" value="" step="1" style="width:100%;margin-top:6px">
-      </div>
-    </div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:12px">
-      Shares, trading days and the share price are filled from the backend (diluted shares, the FY27 session count, the live NSE price) and can be overridden here. Opex, other income and tax default to FY26 actuals (Screener.in, BSE filings): opex ₹660 Cr, effective tax about 20%.
-    </div>
-  </div>
-</div>
-
+  </details>
 </section>
-</div><!-- /legacy-block -->
+
+<section class="sec" aria-labelledby="scEarnTitle">
+  <div class="sec-head"><div><h2 id="scEarnTitle">FY27 earnings scenarios</h2><div class="sec-sub">Profit, EPS and price from revenue per day, sessions, other revenue and margin; edit any boxed figure</div></div></div>
+  <div class="two-col sc-tables">
+    <div id="patTrend"></div>
+    <div id="patCases"></div>
+  </div>
+  <div class="basis"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg><span>Both tables use the diluted shares from the assumptions above. “Against the price” uses the live share price; the target price divides the FY27 price by one plus the discount.</span></div>
+</section>
 </div>
 </div><!-- /tabForecast -->
 
@@ -969,28 +656,26 @@
   </div>
 </dialog>
 
-<!-- ═══ COOKIE MODAL ═══════════════════════════════════════════════════════ -->
-<div class="modal-overlay hidden" id="cookieModal" onclick="if(event.target===this)closeCookieModal()">
-  <div class="modal-box">
-    <h3>Cookie Setup</h3>
-    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">The relay pushes MCX data to Supabase automatically. Cookie is only needed for direct MCX API access from cloud (usually blocked).</p>
-    <textarea id="cookieTextarea" placeholder="ASP.NET_SessionId=xxxx; _ga=..."></textarea>
-    <div id="cookieStatus" style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:6px">—</div>
-    <div class="actions">
-      <button class="btn btn--accent" onclick="saveCookie()">Save</button>
-      <button class="btn" onclick="closeCookieModal()">Cancel</button>
-    </div>
+<!-- ═══ DATA SOURCE SETTINGS ═════════════════════════════════════════════ -->
+<dialog class="dialog" id="settingsDialog" aria-labelledby="settingsTitle">
+  <h2 class="dialog-title" id="settingsTitle">Data source settings</h2>
+  <p class="dialog-text">The relay pushes MCX data every 15 minutes, so this is rarely needed. A manual refresh asks the server to fetch from MCX directly; MCX usually blocks cloud servers, and a browser session cookie can get past that. It stays in this browser.</p>
+  <label class="dialog-label" for="cookieText">MCX session cookie</label>
+  <textarea id="cookieText" rows="4" spellcheck="false" placeholder="ASP.NET_SessionId=…; _ga=…"></textarea>
+  <p class="dialog-status" id="cookieStatus"></p>
+  <div class="dialog-actions">
+    <button type="button" class="btn btn--primary" id="settingsSave">Save</button>
+    <button type="button" class="btn" id="settingsCancel">Cancel</button>
   </div>
-</div>
+</dialog>
 
 <!-- ═══ JAVASCRIPT ═══════════════════════════════════════════════════════════ -->
-<script src="/assets/js/core.js?v=fc9cd6b8"></script>
-<script src="/assets/js/legacy.js?v=fc9cd6b8"></script>
-<script src="/assets/js/today.js?v=fc9cd6b8"></script>
-<script src="/assets/js/revenue.js?v=fc9cd6b8"></script>
-<script src="/assets/js/value.js?v=fc9cd6b8"></script>
-<script src="/assets/js/lab.js?v=fc9cd6b8"></script>
-<script src="/assets/js/signals.js?v=fc9cd6b8"></script>
-<script src="/assets/js/shell.js?v=fc9cd6b8"></script>
+<script src="/assets/js/core.js?v=ca1ec025"></script>
+<script src="/assets/js/today.js?v=ca1ec025"></script>
+<script src="/assets/js/revenue.js?v=ca1ec025"></script>
+<script src="/assets/js/value.js?v=ca1ec025"></script>
+<script src="/assets/js/lab.js?v=ca1ec025"></script>
+<script src="/assets/js/signals.js?v=ca1ec025"></script>
+<script src="/assets/js/shell.js?v=ca1ec025"></script>
 </body>
 </html>
