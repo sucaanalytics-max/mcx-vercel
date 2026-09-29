@@ -9,11 +9,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=DM+Sans:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/legacy.css?v=7a827e38">
-<link rel="stylesheet" href="/assets/css/tokens.css?v=7a827e38">
-<link rel="stylesheet" href="/assets/css/components.css?v=7a827e38">
-<link rel="stylesheet" href="/assets/css/shell.css?v=7a827e38">
-<link rel="stylesheet" href="/assets/css/v2.css?v=7a827e38">
+<link rel="stylesheet" href="/assets/css/legacy.css?v=a318b0f6">
+<link rel="stylesheet" href="/assets/css/tokens.css?v=a318b0f6">
+<link rel="stylesheet" href="/assets/css/components.css?v=a318b0f6">
+<link rel="stylesheet" href="/assets/css/shell.css?v=a318b0f6">
+<link rel="stylesheet" href="/assets/css/v2.css?v=a318b0f6">
 </head>
 <body>
 
@@ -178,12 +178,19 @@
 </div><!-- /tabPredictor -->
 
 <!-- ═══ TAB: INTERACTIVE FORECAST ═══════════════════════════════════════════ -->
-<div id="tabForecast" class="page" hidden>
-<div class="wrap">
+<div id="tabForecast" class="page page--v2" hidden>
+<div class="v2" id="scenarios">
+<header class="lede">
+  <div class="kicker" id="scKicker"><span class="skel"></span></div>
+  <h1 class="headline" id="scHead">Loading&hellip;</h1>
+  <p class="deck" id="scDeck"></p>
+</header>
+<div class="legacy-block">
 
-<!-- ── PAT PREDICTOR (multi-year trend + FY27 scenario) ─────────────────── -->
+<!-- ── FY27 EARNINGS SCENARIOS (multi-year trend + FY27 scenario) ───────── -->
+<section class="sec" aria-labelledby="scEarnTitle">
+  <div class="sec-head"><div><h2 id="scEarnTitle">FY27 earnings scenarios</h2><div class="sec-sub">Profit and EPS by year from revenue per day, sessions, other income and margin; edit any input</div></div></div>
 <div class="card pat-card">
-  <div class="card-title" style="margin-bottom:14px">PAT Predictor</div>
 
   <div class="pat-block">
     <div class="pat-block-title">Based on latest trend</div>
@@ -199,9 +206,9 @@
           <td><input type="number" class="pat-input" data-pt-input="adr" data-pt-yr="28" value="13.5" step="0.1"></td>
         </tr>
         <tr><td>No. of days</td>
-          <td><input type="number" class="pat-input" data-pt-input="days" data-pt-yr="26" value="253" step="1"></td>
-          <td><input type="number" class="pat-input" data-pt-input="days" data-pt-yr="27" value="254" step="1"></td>
-          <td><input type="number" class="pat-input" data-pt-input="days" data-pt-yr="28" value="254" step="1"></td>
+          <td><input type="number" class="pat-input" data-pt-input="days" data-pt-yr="26" value="257" step="1"></td>
+          <td><input type="number" class="pat-input" data-pt-input="days" data-pt-yr="27" value="256" step="1"></td>
+          <td><input type="number" class="pat-input" data-pt-input="days" data-pt-yr="28" value="260" step="1"></td>
         </tr>
         <tr><td>Operating Revenue (₹ Cr)</td>
           <td class="pat-derived" data-pt-out="opRev" data-pt-yr="26">—</td>
@@ -250,7 +257,7 @@
   </div>
 
   <div class="pat-block">
-    <div class="pat-block-title">Scenario Analysis — FY27 (Bear / Base / Bull)</div>
+    <div class="pat-block-title">FY27: bear, base and bull</div>
     <table class="pat-table" id="patScenTable">
       <thead>
         <tr><th></th><th>Bear</th><th>Base</th><th>Bull</th></tr>
@@ -316,19 +323,21 @@
       </tbody>
     </table>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:8px">
-      Shares outstanding pulled from Advanced Assumptions below (default 25.5 Cr). Upside computed against live CMP.
+      Shares come from Advanced assumptions below (the backend’s diluted share count unless you change it). Upside is against the live share price.
     </div>
   </div>
 </div>
 
-<!-- ── CURRENT vs MODEL HERO ─────────────────────────────────────────────── -->
+</section>
+
+<!-- ── PRICE SCENARIOS ────────────────────────────────────────────────────── -->
+<section class="sec" aria-labelledby="scPriceTitle">
+  <div class="sec-head"><div><h2 id="scPriceTitle">Price scenarios</h2><div class="sec-sub">The share price one year of earnings would support at a given revenue per day and P/E</div></div></div>
 <div class="fc-hero-row">
   <div class="fc-hero-card">
     <h3>Current Market</h3>
-    <div class="fc-hero-price" style="color:var(--text)" id="fcCmpPrice">₹2,722</div>
-    <div class="fc-hero-sub" id="fcCmpMeta">
-      EPS (TTM): ₹52.30 · PE: 52.0x · MCap: ₹69,278 Cr
-    </div>
+    <div class="fc-hero-price" style="color:var(--text)" id="fcCmpPrice">—</div>
+    <div class="fc-hero-sub" id="fcCmpMeta">EPS (TTM): — · PE: — · MCap: —</div>
     <div class="fc-hero-sub" id="fcCmpSource" style="margin-top:4px;font-size:11px;opacity:0.6"></div>
     <div class="fc-hero-sub" id="fcCmpLastUpdated" style="margin-top:2px;font-size:10px;opacity:0.5"></div>
   </div>
@@ -374,8 +383,8 @@
 
 <!-- ── P&L WATERFALL ─────────────────────────────────────────────────────── -->
 <div class="card" style="margin-bottom:20px;padding:20px">
-  <div class="card-label" style="margin-bottom:10px">P&L Waterfall — FY26E</div>
-  <div class="kv"><span class="kv-key">Annual Revenue (Daily × 250)</span><span class="kv-val" id="fcWfRevenue">—</span></div>
+  <div class="card-label" style="margin-bottom:10px">P&amp;L for one year at this revenue per day</div>
+  <div class="kv"><span class="kv-key">Annual revenue (daily × <span id="fcWfDaysLabel">—</span> sessions)</span><span class="kv-val" id="fcWfRevenue">—</span></div>
   <div class="kv"><span class="kv-key">Less: Operating Costs</span><span class="kv-val red" id="fcWfOpex">—</span></div>
   <div class="kv"><span class="kv-key">EBITDA</span><span class="kv-val" id="fcWfEbitda">—</span></div>
   <div class="kv"><span class="kv-key">Plus: Other Income</span><span class="kv-val" id="fcWfOther">—</span></div>
@@ -383,7 +392,7 @@
   <div class="kv"><span class="kv-key">Less: Tax (<span id="fcWfTaxLabel">20.30</span>%)</span><span class="kv-val red" id="fcWfTax">—</span></div>
   <div class="sep"></div>
   <div class="kv"><span class="kv-key" style="font-weight:700;color:var(--text)">PAT</span><span class="kv-val green" style="font-size:16px" id="fcWfPat">—</span></div>
-  <div class="kv"><span class="kv-key">EPS (PAT / <span id="fcWfSharesLabel">25.5</span> Cr shares)</span><span class="kv-val accent" style="font-size:16px" id="fcWfEps">—</span></div>
+  <div class="kv"><span class="kv-key">EPS (PAT / <span id="fcWfSharesLabel">—</span> Cr shares)</span><span class="kv-val accent" style="font-size:16px" id="fcWfEps">—</span></div>
   <div class="kv"><span class="kv-key" style="font-weight:700">Share Price (EPS × PE)</span><span class="kv-val" style="font-size:18px;color:var(--accent)" id="fcWfPrice">—</span></div>
 </div>
 
@@ -493,26 +502,28 @@
       <div>
         <div class="fc-label">Shares Outstanding (Cr)</div>
         <div class="fc-tooltip">Total diluted shares</div>
-        <input type="number" class="fc-num-input" id="fcAdvShares" value="25.5" step="0.1" style="width:100%;margin-top:6px">
+        <input type="number" class="fc-num-input" id="fcAdvShares" value="" step="0.001" style="width:100%;margin-top:6px">
       </div>
       <div>
         <div class="fc-label">Trading Days / Year</div>
         <div class="fc-tooltip">MCX active trading days</div>
-        <input type="number" class="fc-num-input" id="fcAdvDays" value="250" step="1" style="width:100%;margin-top:6px">
+        <input type="number" class="fc-num-input" id="fcAdvDays" value="" step="1" style="width:100%;margin-top:6px">
       </div>
       <div>
         <div class="fc-label">Current Share Price (₹)</div>
         <div class="fc-tooltip">For upside/downside calculation</div>
-        <input type="number" class="fc-num-input" id="fcAdvCMP" value="2722" step="1" style="width:100%;margin-top:6px">
+        <input type="number" class="fc-num-input" id="fcAdvCMP" value="" step="1" style="width:100%;margin-top:6px">
       </div>
     </div>
     <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:12px">
-      Sources: Screener.in, BSE filings, FY26 full-year actuals (through Q4 FY26, reported May 2026). Shares: 25.5 Cr (post 1:5 split Jan 2026). FY26 actual opex: ₹660 Cr (Q1–Q4 FY26). FY26 revenue ₹2,302 Cr, PAT ₹1,331 Cr, EPS ₹52.3. Tax: effective ~20% (FY26 actual).
+      Shares, trading days and the share price are filled from the backend (diluted shares, the FY27 session count, the live NSE price) and can be overridden here. Opex, other income and tax default to FY26 actuals (Screener.in, BSE filings): opex ₹660 Cr, effective tax about 20%.
     </div>
   </div>
 </div>
 
-</div><!-- /wrap -->
+</section>
+</div><!-- /legacy-block -->
+</div>
 </div><!-- /tabForecast -->
 
 <!-- ═══ TAB: FAIR VALUE (Model A) ══════════════════════════════════════════ -->
@@ -1390,11 +1401,11 @@
 </div>
 
 <!-- ═══ JAVASCRIPT ═══════════════════════════════════════════════════════════ -->
-<script src="/assets/js/core.js?v=7a827e38"></script>
-<script src="/assets/js/legacy.js?v=7a827e38"></script>
-<script src="/assets/js/today.js?v=7a827e38"></script>
-<script src="/assets/js/revenue.js?v=7a827e38"></script>
-<script src="/assets/js/value.js?v=7a827e38"></script>
-<script src="/assets/js/shell.js?v=7a827e38"></script>
+<script src="/assets/js/core.js?v=a318b0f6"></script>
+<script src="/assets/js/legacy.js?v=a318b0f6"></script>
+<script src="/assets/js/today.js?v=a318b0f6"></script>
+<script src="/assets/js/revenue.js?v=a318b0f6"></script>
+<script src="/assets/js/value.js?v=a318b0f6"></script>
+<script src="/assets/js/shell.js?v=a318b0f6"></script>
 </body>
 </html>

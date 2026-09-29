@@ -89,7 +89,14 @@
     return { head, deck, state: st, prem };
   }
 
-  MCX.valueModel = { quarterLede, adjusted, missStory, words, ddSignal, houseState, revenuePricedIn, fvLede };
+  // Trailing twelve months: the last four reported quarters' profit over diluted shares
+  function ttm(actuals, shares) {
+    if (!actuals || actuals.length < 4 || !shares) return null;
+    const last = actuals.slice(-4);
+    return { eps: last.reduce((a, q) => a + q.pat_cr, 0) / shares, from: last[0].quarter, to: last[3].quarter };
+  }
+
+  MCX.valueModel = { quarterLede, adjusted, missStory, words, ddSignal, houseState, revenuePricedIn, fvLede, ttm };
   if (window.MCX_TEST) return;
 
   // ════════════════════════════════════════════════════════════════════════
@@ -473,5 +480,72 @@
                     onChange: () => fetchRanged(valUrl()).then(d => { if (d.success) { FV.data = d; renderBand(); } }) });
   onResize($('fairvalue'), () => FV.data && renderFairValue());
 
-  MCX.value = { quarter: { mount: mountQuarter }, fairValue: { mount: mountFairValue } };
+  // ════════════════════════════════════════════════════════════════════════
+  //  Scenarios (the interactive model's logic lives in legacy.js: getFcInputs, calcModel,
+  //  recalcForecast, recomputePatPredictor). This fills its backend inputs and writes the lede.
+  // ════════════════════════════════════════════════════════════════════════
+  const BACKEND_INPUTS = ['fcAdvShares', 'fcAdvDays', 'fcAdvCMP'];
+  const setIfUntouched = (el, val) => { if (el && !el.dataset.userSet && val !== null && val !== undefined) el.value = val; };
+
+  function fillScenarioInputs(v, q) {
+    const c = v.snapshot.eps_chain;
+    setIfUntouched($('fcAdvShares'), c.diluted_shares_cr);
+    setIfUntouched($('fcAdvDays'), c.trading_days);
+    FC.shares = c.diluted_shares_cr;
+    FC.tradingDays = c.trading_days;
+    const cp = currentPrice();
+    if (cp) { setIfUntouched($('fcAdvCMP'), Math.round(cp.price)); FC.currentPrice = Math.round(cp.price); }
+    const t = ttm(q && q.actuals, c.diluted_shares_cr);
+    if (t) MCX.store.set('ttmEps', t);
+    if (v.house) {                                   // the FY27 table's session counts: the calendar, as in the house model
+      document.querySelectorAll('[data-pt-input="days"]').forEach(el => {
+        const fy = 'FY' + el.dataset.ptYr;
+        if (v.house.assumptions.days[fy]) setIfUntouched(el, v.house.assumptions.days[fy]);
+      });
+    }
+    if (typeof renderCmpMeta === 'function') renderCmpMeta();
+  }
+
+  function renderScenarioLede() {
+    const inp = getFcInputs();
+    if (!inp.shares || !inp.tradingDays || !inp.currentPrice) return;
+    const m = calcModel(inp.dailyRev, inp.pe, inp);
+    const gap = (m.price / inp.currentPrice - 1) * 100;
+    const cp = currentPrice();
+    $('scKicker').textContent = `Scenarios · price ₹${num(inp.currentPrice, 0)}${cp ? `, ${cp.label}` : ''} · revenue per day starts at today’s projection`;
+    $('scHead').textContent = `At ₹${num(inp.dailyRev, 2)} Cr a day and ${num(inp.pe, 1)}×, a year of earnings supports ₹${num(m.price, 0)} a share, `
+      + (Math.abs(gap) < 0.5 ? 'level with the price.' : `${Math.abs(gap).toFixed(0)}% ${gap > 0 ? 'above' : 'below'} the price.`);
+    const t = MCX.store.get('ttmEps');
+    $('scDeck').textContent = `That is EPS of ₹${num(m.eps, 2)} on ${num(inp.shares, 3)} Cr shares and ${Math.round(inp.tradingDays)} sessions, after ₹${num(inp.opex, 0)} Cr of costs and ${num(inp.taxRate, 1)}% tax. `
+      + (t ? `Reported EPS over the last four quarters (${t.from} to ${t.to}) is ₹${num(t.eps, 2)}. ` : '')
+      + 'Move the sliders or edit the assumptions; the FY27 table works from revenue per day and margin instead.';
+  }
+
+  function mountScenarios() {
+    const q = QS.data ? Promise.resolve(QS.data) : fetch('/api/quarterly').then(r => r.json()).then(d => { if (d.success) { QS.data = d; QS.at = Date.now(); } return d; });
+    Promise.all([fetchRanged(valUrl()), q]).then(([v, qd]) => {
+      if (!v.success) throw new Error(v.error || 'No valuation data');
+      if (!FV.data) FV.data = v;
+      fillScenarioInputs(v, qd);
+      recalcForecast();
+      recomputePatPredictor();
+      renderScenarioLede();
+    }).catch(e => MCX.ui.error($('scDeck'), 'Could not load the backend figures: ' + e.message, mountScenarios));
+    MCX.poll.kick('cmp');
+  }
+
+  BACKEND_INPUTS.forEach(id => { const el = $(id); if (el) el.addEventListener('input', () => { el.dataset.userSet = '1'; }); });
+  document.querySelectorAll('[data-pt-input="days"]').forEach(el => el.addEventListener('input', () => { el.dataset.userSet = '1'; }));
+  let ledeQueued = false;
+  $('scenarios').addEventListener('input', () => {
+    if (ledeQueued) return; ledeQueued = true;
+    setTimeout(() => { ledeQueued = false; renderScenarioLede(); }, 0);    // not rAF: it pauses in background tabs
+  });
+  MCX.store.on('price', p => {
+    if (!p || !p.price) return;
+    if (!$('fcAdvCMP').dataset.userSet) { FC.currentPrice = Math.round(p.price); $('fcAdvCMP').value = FC.currentPrice; }
+    if (MCX.router.current() === 'val-scen') renderScenarioLede();
+  });
+
+  MCX.value = { quarter: { mount: mountQuarter }, fairValue: { mount: mountFairValue }, scenarios: { mount: mountScenarios } };
 })();

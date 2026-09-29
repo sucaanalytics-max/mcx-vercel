@@ -72,5 +72,11 @@ check('fair value deck', fl.deck, 'At ₹3,338, the price sits below the house r
 check('well below the house range is said plainly', M.fvLede(2800, H, V).head,
   'The Tusk house view puts MCX below fair value: the house range starts 20% above the price; the data-driven view has it about 6% undervalued.');
 
+// Scenarios: trailing EPS from the last four reported quarters
+const acts = [{ quarter: 'Q1 FY26', pat_cr: 203 }, { quarter: 'Q2 FY26', pat_cr: 197 }, { quarter: 'Q3 FY26', pat_cr: 401 }, { quarter: 'Q4 FY26', pat_cr: 530 }, { quarter: 'Q1 FY27', pat_cr: 413 }];
+const tt = M.ttm(acts, 25.451);
+check('TTM EPS = (197 + 401 + 530 + 413) / 25.451', [Math.round(tt.eps * 100) / 100, tt.from, tt.to], [60.55, 'Q2 FY26', 'Q1 FY27']);
+check('no TTM with under four quarters', M.ttm(acts.slice(0, 3), 25.451), null);
+
 console.log(failed ? `\n${failed} FAILED` : '\nAll value model tests passed.');
 process.exit(failed ? 1 : 0);

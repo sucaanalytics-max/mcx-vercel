@@ -561,9 +561,11 @@ setTimeout(() => doRefresh(true), 800);
 //  FORECAST MODEL — Revenue → EPS → Share Price
 //  Uses same fee schedule as Daily Predictor (mcx_config.py)
 // ════════════════════════════════════════════════════════════════════════════
+// Shares, trading days and the current price come from the backend (value.js fills them from
+// /api/valuation and the live price); the rest are editable FY26-based defaults.
 const FC = {
   dailyRev: 12.62, pe: 42, opex: 700, otherIncome: 126,
-  taxRate: 20.30, shares: 25.5, tradingDays: 250, currentPrice: 2406
+  taxRate: 20.30, shares: null, tradingDays: null, currentPrice: null
 };
 
 function getFcInputs() {
@@ -597,8 +599,8 @@ function fmtInr(n) { return Math.round(n).toLocaleString('en-IN'); }
 function recomputePatPredictor() {
   const sharesEl = document.getElementById('fcAdvShares');
   const cmpEl = document.getElementById('fcAdvCMP');
-  const shares = parseFloat(sharesEl && sharesEl.value) || 25.5;
-  const cmp = parseFloat(cmpEl && cmpEl.value) || 2722;
+  const shares = parseFloat(sharesEl && sharesEl.value) || FC.shares || 0;
+  const cmp = parseFloat(cmpEl && cmpEl.value) || FC.currentPrice || 0;
   const fmtCr = n => Number.isFinite(n) ? Math.round(n).toLocaleString('en-IN') : '—';
   const fmtPctSign = n => {
     if (!Number.isFinite(n)) return '—';
@@ -618,7 +620,7 @@ function recomputePatPredictor() {
   };
 
   // Trend table (FY26/27/28)
-  let fy27Days = 254;
+  let fy27Days = 256;
   ['26','27','28'].forEach(yr => {
     const get = (k) => parseFloat((document.querySelector('[data-pt-input="'+k+'"][data-pt-yr="'+yr+'"]') || {}).value) || 0;
     const adr = get('adr'), days = get('days'), other = get('other'), margin = get('margin'), pe = get('pe');
@@ -632,7 +634,7 @@ function recomputePatPredictor() {
     setText('[data-pt-out="pat"][data-pt-yr="'+yr+'"]', fmtCr(pat));
     setText('[data-pt-out="eps"][data-pt-yr="'+yr+'"]', MCX.fmt.eps(eps));
     setText('[data-pt-out="px"][data-pt-yr="'+yr+'"]', '₹' + fmtCr(px));
-    if (yr === '27') fy27Days = days || 254;
+    if (yr === '27') fy27Days = days || 256;
   });
 
   // Scenario table (FY27 Bear/Base/Bull)
@@ -657,6 +659,7 @@ function recomputePatPredictor() {
 
 function recalcForecast() {
   const inp = getFcInputs();
+  if (!inp.shares || !inp.tradingDays || !inp.currentPrice) return;   // waiting for the backend figures (value.js)
   const base = calcModel(inp.dailyRev, inp.pe, inp);
 
   // Annual label under slider
@@ -684,7 +687,8 @@ function recalcForecast() {
   document.getElementById('fcWfTaxLabel').textContent = inp.taxRate.toFixed(2);
   document.getElementById('fcWfPat').textContent = '₹' + fmtInr(base.pat) + ' Cr';
   document.getElementById('fcWfEps').textContent = '₹' + base.eps.toFixed(2);
-  document.getElementById('fcWfSharesLabel').textContent = inp.shares.toFixed(1);
+  document.getElementById('fcWfSharesLabel').textContent = inp.shares.toFixed(3);
+  document.getElementById('fcWfDaysLabel').textContent = Math.round(inp.tradingDays);
   document.getElementById('fcWfPrice').textContent = '₹' + fmtInr(base.price);
 
   // Scenarios
@@ -802,6 +806,9 @@ function seedForecastFromAPI(totalRev) {
   if (totalRev > 0) {
     document.getElementById('fcRevSlider').value = totalRev.toFixed(2);
     document.getElementById('fcRevInput').value = totalRev.toFixed(2);
+    recalcForecast();
+    const page = document.getElementById('scenarios');           // value.js redraws the lede on input
+    if (page) page.dispatchEvent(new Event('input'));
   }
 }
 
@@ -809,11 +816,18 @@ function seedForecastFromAPI(totalRev) {
 let _lastCMPPrice = null;
 let _lastCMPTimer = null;
 
-// Latest reported trailing-twelve-month EPS (₹, diluted) — FY26 actual
-// (Q1–Q4 FY26, PAT ₹1,331 Cr / 25.451 Cr shares). Update alongside
-// QUARTERLY_ACTUALS in api/quarterly.py on each new result.
-const CMP_TTM_EPS = 52.3;
-const CMP_DILUTED_SHARES_CR = 25.451; // post 1:5 split Jan 2026
+// Trailing-twelve-month EPS: the last four reported quarters' PAT over diluted shares,
+// published by value.js from /api/quarterly (MCX.store 'ttmEps').
+const ttmEps = () => (MCX.store.get('ttmEps') || {}).eps || null;
+
+// "EPS (TTM) · PE · MCap" under the current price, from the live price and backend figures
+function renderCmpMeta() {
+  const metaEl = document.getElementById('fcCmpMeta');
+  const price = FC.currentPrice, eps = ttmEps(), shares = FC.shares;
+  if (!metaEl || !price) return;
+  metaEl.textContent = `EPS (TTM): ${eps ? '₹' + eps.toFixed(2) : '—'} · PE: ${eps ? (price / eps).toFixed(1) + 'x' : '—'} · `
+    + `MCap: ${shares ? '₹' + Math.round(price * shares).toLocaleString('en-IN') + ' Cr' : '—'}`;
+}
 
 async function fetchLiveCMP() {
   try {
@@ -836,21 +850,11 @@ async function fetchLiveCMP() {
       fcPriceEl.classList.add('price-flash');
     }
 
-    // Update advanced CMP input + FC constant
-    document.getElementById('fcAdvCMP').value = price;
-    FC.currentPrice = price;
+    // Update the price input and FC, unless the user has typed their own price
+    const cmpInput = document.getElementById('fcAdvCMP');
+    if (!cmpInput.dataset.userSet) { cmpInput.value = price; FC.currentPrice = price; }
 
-    // Live-derive the hero meta line — previously a hardcoded HTML string
-    // that froze at an old price (EPS/PE/MCap internally consistent with
-    // ₹2,396 while the CMP above showed live). PE & MCap now track the live
-    // price; EPS is the latest reported TTM (see CMP_TTM_EPS above).
-    const metaEl = document.getElementById('fcCmpMeta');
-    if (metaEl) {
-      const pe = price / CMP_TTM_EPS;
-      const mcapCr = Math.round(price * CMP_DILUTED_SHARES_CR);
-      metaEl.textContent =
-        `EPS (TTM): ₹${CMP_TTM_EPS.toFixed(2)} · PE: ${pe.toFixed(1)}x · MCap: ₹${mcapCr.toLocaleString('en-IN')} Cr`;
-    }
+    renderCmpMeta();
 
     // Source indicator
     const srcEl = document.getElementById('fcCmpSource');

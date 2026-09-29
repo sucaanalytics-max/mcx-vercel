@@ -20,7 +20,7 @@
     { id: 'val-fv', path: '/value/fair-value', section: 'value', title: 'Fair value', pages: ['tabValuation'], legacy: 'tabValuation',
       mount: () => MCX.value.fairValue.mount() },
     { id: 'val-scen', path: '/value/scenarios', section: 'value', title: 'Scenarios', pages: ['tabForecast'], legacy: 'tabForecast',
-      mount: () => { recalcForecast(); MCX.poll.kick('cmp'); } },
+      mount: () => MCX.value.scenarios.mount() },
     { id: 'sig-mom', path: '/signals/momentum', section: 'signals', title: 'Momentum', pages: ['tabMomentum'], legacy: 'tabMomentum',
       mount: () => loadMomentum() },
     { id: 'sig-ens', path: '/signals/ensemble', section: 'signals', title: 'Model ensemble', pages: ['pageSigEnsemble'],
