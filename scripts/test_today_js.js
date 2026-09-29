@@ -58,6 +58,8 @@ check('no "early" once half the session is gone',
   M.headlineLive(16, { lo: 12, hi: 23, p90: 30 }, avgs, 60), 'Today is tracking towards ₹16.0 Cr; the likely range is ₹12.0 to ₹23.0 Cr.');
 check('below every average only when the high end is below them all',
   M.headlineLive(7, { lo: 6, hi: 8.5, p90: 15 }, avgs, 70), 'Today is on course for about ₹7.0 Cr, below every recent average.');
+check('while the measured range loads, no claim about it',
+  M.headlineLive(16, null, avgs, 30, true), 'Today is tracking towards ₹16.0 Cr.');
 check('before 09:30 there is no range to lean on',
   M.headlineLive(16, null, avgs, 2), 'Today is tracking towards ₹16.0 Cr, but it is too early to say how far to trust that.');
 

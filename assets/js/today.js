@@ -55,9 +55,10 @@
   const rankOf = (v, vals) => 1 + vals.filter(x => x > v).length;
   const pct = (a, b) => (a / b - 1) * 100;
 
-  function headlineLive(P, range, avgs, elapsedPct) {
+  function headlineLive(P, range, avgs, elapsedPct, pending) {
     const vals = avgs.filter(a => a.value !== null).map(a => a.value);
     const p1 = `₹${num(P, 1)} Cr`;
+    if (pending) return `Today is tracking towards ${p1}.`;          // measured range still loading
     if (range && vals.length && range.lo > Math.max(...vals)) return `Today is on course for about ${p1}, above every recent average.`;
     if (range && range.hi !== null && vals.length && range.hi < Math.min(...vals)) return `Today is on course for about ${p1}, below every recent average.`;
     if (!range) return `Today is tracking towards ${p1}, but it is too early to say how far to trust that.`;
@@ -186,6 +187,7 @@
     if (state === 'live') {
       d.P = r.proj_rev_cr; d.B = r.booked_rev_cr; d.min = r.elapsed_min;
       const early = d.min < FIRST_RANGE_MIN;
+      d.pending = !early && !(h && h.accuracy);                   // the measured error hasn't loaded yet
       d.q10 = early ? null : gridAt(grid, d.min, 'q10_pct');
       d.q90 = early ? null : gridAt(grid, d.min, 'q90_pct');
       d.range = likelyRange(d.P, d.q10, d.q90);
@@ -219,7 +221,7 @@
     let kicker, head, deck = '';
     if (d.state === 'live') {
       kicker = `${date} · live session, ${Math.round(d.r.elapsed_pct)}% of trading hours gone`;
-      head = headlineLive(d.P, d.range, d.avgs, d.r.elapsed_pct);
+      head = headlineLive(d.P, d.range, d.avgs, d.r.elapsed_pct, d.pending);
       const b21 = d.bandAt(720);
       deck = deckLive(d.P, d.B, d.min, d.avgs, b21 ? Math.max(b21.below, b21.above ?? 0) : null);
       if (d.h && d.h.today_us_holiday) deck += ' US markets are closed today; evenings are usually quieter on such days, so the projection may run high.';
@@ -261,14 +263,14 @@
     return `<div class="stat${lead ? ' stat--lead' : ''}"><div class="stat-label">${label}</div>`
          + `<div class="stat-value">${value}</div>${sub ? `<div class="stat-sub">${sub}</div>` : ''}</div>`;
   }
-  const rangeText = rg => !rg ? 'Too early for a measured range: the first check is at 09:30'
+  const rangeText = (rg, pending) => pending ? 'Loading the measured range…' : !rg ? 'Too early for a measured range: the first check is at 09:30'
     : rg.hi !== null ? `Likely range ${nb(`${cr(rg.lo, 1)} to ${cr(rg.hi, 1)} Cr`)} (held on 8&nbsp;in&nbsp;10 past&nbsp;days)`
     : `Likely ${cr(rg.lo, 1)} Cr or more (held on 8&nbsp;in&nbsp;10 past&nbsp;days)`;
 
   function statsHtml(d) {
     const ma = d.h ? d.h.ma45 : null;
     if (d.state === 'live') {
-      return stat('Projected revenue', `${cr(d.P)}<small>Cr</small>`, `<span class="phone-only">${cr(d.B)} Cr booked so far · </span>${rangeText(d.range)}`, true)
+      return stat('Projected revenue', `${cr(d.P)}<small>Cr</small>`, `<span class="phone-only">${cr(d.B)} Cr booked so far · </span>${rangeText(d.range, d.pending)}`, true)
         + stat('Booked so far', `${cr(d.B)}<small>Cr</small>`, `by ${d.clock}, with ${Math.round(d.r.elapsed_pct)}% of today’s trading hours gone`)
         + stat('45-day average', ma ? `${cr(ma)}<small>Cr</small>` : '—', ma ? `today’s projection is ${Math.abs(pct(d.P, ma)).toFixed(0)}% ${d.P >= ma ? 'above' : 'below'} it` : '');
     }
