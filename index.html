@@ -9,11 +9,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=DM+Sans:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/legacy.css?v=a318b0f6">
-<link rel="stylesheet" href="/assets/css/tokens.css?v=a318b0f6">
-<link rel="stylesheet" href="/assets/css/components.css?v=a318b0f6">
-<link rel="stylesheet" href="/assets/css/shell.css?v=a318b0f6">
-<link rel="stylesheet" href="/assets/css/v2.css?v=a318b0f6">
+<link rel="stylesheet" href="/assets/css/legacy.css?v=0caffb10">
+<link rel="stylesheet" href="/assets/css/tokens.css?v=0caffb10">
+<link rel="stylesheet" href="/assets/css/components.css?v=0caffb10">
+<link rel="stylesheet" href="/assets/css/shell.css?v=0caffb10">
+<link rel="stylesheet" href="/assets/css/v2.css?v=0caffb10">
 </head>
 <body>
 
@@ -77,13 +77,12 @@
 <div id="tabPredictor" class="page page--v2">
 <div class="v2" id="today">
 
-<header class="lede">
+<header class="lede lede--today">
   <div class="kicker" id="tdKicker"><span class="skel"></span></div>
   <h1 class="headline" id="tdHeadline">Loading today&rsquo;s revenue&hellip;</h1>
-  <p class="deck" id="tdDeck"></p>
 </header>
 
-<div class="td-hero">
+<div class="td-hero td-panel">
   <div class="td-stats" id="tdStats">
     <div class="stat stat--lead"><div class="stat-label">&nbsp;</div><div class="stat-value"><span class="skel"></span></div></div>
   </div>
@@ -93,14 +92,27 @@
     <div class="legend" id="tdSessionsLegend"></div>
     <div class="basis" id="tdSessionsBasis"></div>
   </figure>
+  <div class="basis td-note" id="tdNote" hidden></div>
 </div>
 
-<section class="sec" aria-labelledby="tdAvgTitle">
-  <div class="sec-head"><div><h2 id="tdAvgTitle">Average revenue per trading day</h2><div class="sec-sub">₹ crore, from the shortest window to the longest</div></div></div>
+<section class="td-card" aria-labelledby="tdAvgTitle">
+  <div class="sec-head"><div><h2 id="tdAvgTitle">Average revenue per trading day</h2><div class="sec-sub">₹ crore, from the shortest window to the longest, read against today</div></div></div>
   <p class="takeaway" id="tdTakeaway"></p>
-  <div class="avg-grid" id="tdAverages"></div>
+  <div class="ladder" id="tdAverages"></div>
+  <div class="legend" id="tdLadderLegend"></div>
+  <p class="note" id="tdTrend"></p>
+  <details class="v2-details v2-details--inline">
+    <summary>Each average against the window before it</summary>
+    <div class="v2-details-body" id="tdAvgTable"></div>
+  </details>
   <div class="basis" id="tdAvgBasis"></div>
 </section>
+
+<div class="td-more">
+  <div><h2 class="td-more-title">More detail</h2><div class="td-more-sub">How far to trust the projection, revenue per day, what is driving today and the quarter so far</div></div>
+  <button type="button" class="more-btn td-more-btn" id="tdMoreBtn" aria-expanded="false" aria-controls="tdRest">Show</button>
+</div>
+<div class="td-rest" id="tdRest">
 
 <section class="sec" aria-labelledby="tdTrustTitle">
   <div class="sec-head"><div><h2 id="tdTrustTitle">How far to trust the projection</h2>
@@ -168,6 +180,8 @@
   
   </div>
 </details>
+
+</div><!-- /tdRest -->
 
 <footer class="v2-foot">
   <span id="tdFoot">MCX market data via relay, every 15 minutes.</span>
@@ -1401,11 +1415,11 @@
 </div>
 
 <!-- ═══ JAVASCRIPT ═══════════════════════════════════════════════════════════ -->
-<script src="/assets/js/core.js?v=a318b0f6"></script>
-<script src="/assets/js/legacy.js?v=a318b0f6"></script>
-<script src="/assets/js/today.js?v=a318b0f6"></script>
-<script src="/assets/js/revenue.js?v=a318b0f6"></script>
-<script src="/assets/js/value.js?v=a318b0f6"></script>
-<script src="/assets/js/shell.js?v=a318b0f6"></script>
+<script src="/assets/js/core.js?v=0caffb10"></script>
+<script src="/assets/js/legacy.js?v=0caffb10"></script>
+<script src="/assets/js/today.js?v=0caffb10"></script>
+<script src="/assets/js/revenue.js?v=0caffb10"></script>
+<script src="/assets/js/value.js?v=0caffb10"></script>
+<script src="/assets/js/shell.js?v=0caffb10"></script>
 </body>
 </html>

@@ -67,18 +67,55 @@
                            : `Today is tracking towards ${p1}; the likely range is ${r}.`;
   }
 
-  function deckLive(P, B, min, avgs, w21) {
-    const vals = avgs.filter(a => a.value !== null).map(a => a.value);
+  // Where the rest of the projected day is expected to come from
+  function bookedNote(P, B, min) {
     const rest = P - B;
-    let s = `₹${num(B, 2)} Cr is booked so far. `;
-    if (rest > 0.005) {
-      s += min < EVENING
-        ? `The projection expects the other ₹${num(rest, 2)} Cr later in the day, mostly in the evening hours (17:00–23:30), when trading is usually heaviest. `
-        : `The projection expects the other ₹${num(rest, 2)} Cr before the close. `;
+    if (!(rest > 0.005)) return '';
+    return min < EVENING
+      ? `The other ₹${num(rest, 2)} Cr is expected later, mostly in the evening hours (17:00–23:30), when trading is usually heaviest.`
+      : `The other ₹${num(rest, 2)} Cr is expected before the close.`;
+  }
+
+  // A figure against an average. firm: the average lies outside today's likely range, so the
+  // comparison holds on 8 days in 10 (always firm for a final figure, which has no range).
+  function vsAvg(value, avg, range) {
+    if (!(value > 0) || !(avg > 0)) return null;
+    const c = pct(value, avg);
+    const firm = !range || avg < range.lo || (range.hi !== null && avg > range.hi);
+    return { dir: Math.abs(c) < 0.5 ? 'level' : c > 0 ? 'up' : 'down', pct: Math.abs(c), firm };
+  }
+
+  const joinList = xs => xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`;
+  const avgName = a => a.key === 'qtd' || a.key === 'fytd' ? a.period : `${a.n}-day`;
+  function avgGroup(list) {
+    const soFar = list.some(a => a.key === 'qtd' || a.key === 'fytd') ? ' so far' : '';
+    return `the ${joinList(list.map(avgName))} average${list.length > 1 ? 's' : ''}${soFar}`;
+  }
+
+  // One sentence on a figure against the six averages, and one on whether the likely range
+  // could still flip any of those comparisons. subject: "Today’s projection of ₹11.41 Cr".
+  function ladderTakeaway(subject, value, range, avgs, past) {
+    const rows = avgs.filter(a => a.value !== null).map(a => ({ a, c: vsAvg(value, a.value, range) })).filter(x => x.c);
+    if (!rows.length) return '';
+    const is = past ? 'was' : 'is';
+    const up = rows.filter(x => x.c.dir === 'up').map(x => x.a), down = rows.filter(x => x.c.dir === 'down').map(x => x.a);
+    const level = rows.filter(x => x.c.dir === 'level').map(x => x.a);
+    let s;
+    if (up.length === rows.length) s = `${subject} ${is} above every average.`;
+    else if (down.length === rows.length) s = `${subject} ${is} below every average.`;
+    else {
+      const parts = [];
+      if (down.length) parts.push(`below ${avgGroup(down)}`);
+      if (level.length) parts.push(`level with ${avgGroup(level)}`);
+      if (up.length) parts.push(`above ${avgGroup(up)}`);
+      s = `${subject} ${is} ${joinList(parts)}.`;
     }
-    if (vals.length && P > Math.max(...vals)) s += `At ₹${num(P, 1)} Cr today would beat every average below. `;
-    if (min < 720 && w21 !== null) s += `By 21:00, the final has landed within ${Math.round(w21)}% of the projection on 8 days in 10.`;
-    return s.trim();
+    if (!range) return s;
+    const r = range.hi !== null ? `₹${num(range.lo, 1)} to ₹${num(range.hi, 1)} Cr` : `₹${num(range.lo, 1)} Cr or more`;
+    const soft = rows.filter(x => !x.c.firm).map(x => x.a);
+    if (!soft.length) return `${s} That holds across its likely range of ${r}.`;
+    if (soft.length === rows.length) return `${s} Its likely range (${r}) takes in all ${rows.length === 6 ? 'six' : rows.length}, so any of these comparisons could still go the other way by the close.`;
+    return `${s} Its likely range (${r}) takes in ${avgGroup(soft)}, so ${soft.length === 1 ? 'that comparison' : 'those comparisons'} could still go the other way by the close.`;
   }
 
   // Compare a day with the 45 completed days before it: "14% above its previous 45-day average"
@@ -133,8 +170,8 @@
     return rows.map((r, i) => { sum += r.total; if (i >= n) sum -= rows[i - n].total; return i >= n - 1 ? sum / n : null; });
   }
 
-  MCX.todayModel = { sessionState, gridAt, likelyRange, finalBand, headlineLive, deckLive, vsPrev45, rankText,
-                     takeaway, change, spread, niceTicks, rolling };
+  MCX.todayModel = { sessionState, gridAt, likelyRange, finalBand, headlineLive, bookedNote, vsAvg, ladderTakeaway,
+                     vsPrev45, rankText, takeaway, change, spread, niceTicks, rolling };
   if (window.MCX_TEST) return;
 
   // ════════════════════════════════════════════════════════════════════════
@@ -215,73 +252,88 @@
   const cr = (v, dp = 2) => `₹${num(v, dp)}`;
   const nb = s => s.replace(/ /g, '&nbsp;');
 
-  // ── Lede and stats ───────────────────────────────────────────────────────
+  // ── Headline, the panel's figures and its notes ──────────────────────────
   function lede(d) {
     const date = fmt.dateLong(d.ist.iso);
-    let kicker, head, deck = '';
+    let kicker, head;
+    const notes = [];
     if (d.state === 'live') {
       kicker = `${date} · live session, ${Math.round(d.r.elapsed_pct)}% of trading hours gone`;
       head = headlineLive(d.P, d.range, d.avgs, d.r.elapsed_pct, d.pending);
-      const b21 = d.bandAt(720);
-      deck = deckLive(d.P, d.B, d.min, d.avgs, b21 ? Math.max(b21.below, b21.above ?? 0) : null);
-      if (d.h && d.h.today_us_holiday) deck += ' US markets are closed today; evenings are usually quieter on such days, so the projection may run high.';
-      if (d.r.opening_artifact) deck += ' The first snapshot of the day looks stale, so treat this projection with care until the next update.';
+      if (d.h && d.h.today_us_holiday) notes.push('US markets are closed today; evenings are usually quieter on such days, so the projection may run high.');
+      if (d.r.opening_artifact) notes.push('The first snapshot of the day looks stale, so treat this projection with care until the next update.');
     } else if (d.last) {
-      const provisional = d.last.provisional;
       if (d.state === 'closed') {
         kicker = `${date} · session closed`;
         head = `Closed at ${cr(d.last.total)} Cr` + (d.vs45 ? `, ${d.vs45.text}` : '');
       } else {
-        const when = daysBetween(d.last.date, d.ist.iso) <= 6 ? fmt.weekdayLong(d.last.date) : fmt.dayMonth(d.last.date);
         kicker = `${date} · ${d.h && !d.h.today_is_session ? 'no trading today' : d.ist.min < 540 ? 'before the open' : 'waiting for today’s first snapshot'}`;
-        head = `${when} closed at ${cr(d.last.total)} Cr` + (d.rank ? `, ${d.rank}` : d.vs45 ? `, ${d.vs45.text}` : '');
+        head = `${lastWhen(d)} closed at ${cr(d.last.total)} Cr` + (d.rank ? `, ${d.rank}` : d.vs45 ? `, ${d.vs45.text}` : '');
       }
-      const parts = [];
-      if (d.vs45) parts.push(`That average (${fmt.span(d.vs45.first, d.vs45.last)}) was ${cr(d.vs45.avg)} Cr.`);
-      if (d.last.opt) parts.push(`Options brought in ${cr(d.last.opt)} Cr of the day.`);
-      if (d.rank && d.state === 'closed') parts.push(`The ${d.rank}.`);
-      if (provisional) parts.push('This is the last projection of the session; the end-of-day record usually confirms it by 23:45.');
+      if (d.last.provisional) notes.push('This is the last projection of the session; the end-of-day record usually confirms it by 23:45.');
       if (d.state === 'pre') {
-        parts.push(d.h && !d.h.today_is_session ? 'MCX is closed today. The next session’s projection appears after its first snapshot.'
+        notes.push(d.h && !d.h.today_is_session ? 'MCX is closed today. The next session’s projection appears after its first snapshot.'
                    : d.ist.min < 540 ? 'The live projection appears after the first snapshot, shortly after 09:00.'
                    : 'The relay has not reported a snapshot for today yet.');
       }
-      deck = parts.join(' ');
     } else {
       kicker = fmt.dateLong(d.ist.iso);
       head = S.homeErr ? 'Today’s figures could not be loaded.' : 'Loading today’s revenue…';
     }
     $('tdKicker').textContent = kicker;
     $('tdHeadline').textContent = head;
-    $('tdDeck').textContent = deck;
-    return { kicker, head, deck };
+    const note = $('tdNote');
+    note.hidden = !notes.length;
+    note.innerHTML = notes.length ? INFO + '<span>' + esc(notes.join(' ')) + '</span>' : '';
+    return { kicker, head };
   }
 
   function daysBetween(a, b) { return Math.round((Date.parse(b) - Date.parse(a)) / 86400000); }
+  const lastWhen = d => daysBetween(d.last.date, d.ist.iso) <= 6 ? fmt.weekdayLong(d.last.date) : fmt.dayMonth(d.last.date);
 
-  function stat(label, value, sub, lead) {
-    return `<div class="stat${lead ? ' stat--lead' : ''}"><div class="stat-label">${label}</div>`
-         + `<div class="stat-value">${value}</div>${sub ? `<div class="stat-sub">${sub}</div>` : ''}</div>`;
-  }
   const rangeText = (rg, pending) => pending ? 'Loading the measured range…' : !rg ? 'Too early for a measured range: the first check is at 09:30'
     : rg.hi !== null ? `Likely range ${nb(`${cr(rg.lo, 1)} to ${cr(rg.hi, 1)} Cr`)} (held on 8&nbsp;in&nbsp;10 past&nbsp;days)`
     : `Likely ${cr(rg.lo, 1)} Cr or more (held on 8&nbsp;in&nbsp;10 past&nbsp;days)`;
+  const arrow = c => c.dir === 'up' ? '▲' : c.dir === 'down' ? '▼' : '';
+  // Direction colour only where the comparison is firm; grey where the likely range could flip it
+  const cmpSpan = c => c.dir === 'level' ? '<span class="muted">level</span>'
+    : `<span class="${c.firm ? c.dir : 'soft'}">${arrow(c)} ${c.pct.toFixed(0)}%</span>`;
 
-  function statsHtml(d) {
+  // Futures and options booked (solid) against the whole day (the rest hatched when projected)
+  function splitBar(fut, opt, whole, label) {
+    const w = v => Math.max(0, Math.min(100, v / whole * 100)).toFixed(1);
+    const rest = whole - fut - opt;
+    return `<div class="split" role="img" aria-label="${esc(label)}"><i class="split-fut" style="width:${w(fut)}%"></i>`
+      + `<i class="split-opt" style="width:${w(opt)}%"></i>${rest > 0.005 ? '<i class="split-rest"></i>' : ''}</div>`;
+  }
+
+  function panelStats(d) {
     const ma = d.h ? d.h.ma45 : null;
     if (d.state === 'live') {
-      return stat('Projected revenue', `${cr(d.P)}<small>Cr</small>`, `<span class="phone-only">${cr(d.B)} Cr booked so far · </span>${rangeText(d.range, d.pending)}`, true)
-        + stat('Booked so far', `${cr(d.B)}<small>Cr</small>`, `by ${d.clock}, with ${Math.round(d.r.elapsed_pct)}% of today’s trading hours gone`)
-        + stat('45-day average', ma ? `${cr(ma)}<small>Cr</small>` : '—', ma ? `today’s projection is ${Math.abs(pct(d.P, ma)).toFixed(0)}% ${d.P >= ma ? 'above' : 'below'} it` : '');
+      const c = vsAvg(d.P, ma, d.range);
+      return `<div class="stat stat--lead"><div class="stat-label">Projected revenue today</div><div class="stat-value">${cr(d.P)}<small>Cr</small></div>`
+        + `<div class="stat-sub">${rangeText(d.range, d.pending)}</div></div>`
+        + `<div class="td-booked">${splitBar(d.r.booked_fut_rev_cr, d.r.booked_opt_rev_cr, d.P, `₹${num(d.B, 2)} crore booked of ₹${num(d.P, 2)} crore projected`)}`
+        + `<div class="td-booked-cap"><strong>${cr(d.B)} Cr booked</strong> by ${d.clock}</div>`
+        + `<div class="td-booked-note">${esc(bookedNote(d.P, d.B, d.min))}</div></div>`
+        + `<div class="td-cmp">${!c ? '45-day average not available'
+          : c.dir === 'level' ? `Level with the 45-day average of ${cr(ma)} Cr`
+          : `${cmpSpan(c)} ${c.dir === 'up' ? 'above' : 'below'} the 45-day average of ${nb(cr(ma) + ' Cr')}${c.firm ? '' : ', which lies inside today’s likely range'}`}</div>`;
     }
     if (d.last) {
-      const opt = d.last.opt / d.last.total * 100;
-      const lab = d.state === 'closed' ? 'Today’s revenue' : `Last session, ${fmt.day(d.last.date)}`;
-      return stat(lab, `${cr(d.last.total)}<small>Cr</small>`, d.last.provisional ? 'last projection of the session; final record due by 23:45' : 'final', true)
-        + stat('Futures and options', `${cr(d.last.fut)} + ${cr(d.last.opt)}`, `options were ${opt.toFixed(0)}% of the day`)
-        + stat('Previous 45-day average', d.vs45 ? `${cr(d.vs45.avg)}<small>Cr</small>` : '—', d.vs45 ? `${fmt.span(d.vs45.first, d.vs45.last)}; the day was ${d.vs45.text.replace(' its previous 45-day average', ' it')}` : '');
+      const L = d.last, opt = L.opt / L.total * 100;
+      const lab = d.state === 'closed' ? 'Today’s revenue' : `Last session, ${fmt.day(L.date)}`;
+      const c = d.vs45 ? vsAvg(L.total, d.vs45.avg, null) : null;
+      return `<div class="stat stat--lead"><div class="stat-label">${lab}</div><div class="stat-value">${cr(L.total)}<small>Cr</small></div>`
+        + `<div class="stat-sub">${L.provisional ? 'Last projection of the session; the final record is due by 23:45' : 'Final'}</div></div>`
+        + `<div class="td-booked">${splitBar(L.fut, L.opt, L.total, `Futures ₹${num(L.fut, 2)} crore, options ₹${num(L.opt, 2)} crore`)}`
+        + `<div class="td-booked-cap">Futures <strong>${cr(L.fut)}</strong> + options <strong>${cr(L.opt)}</strong></div>`
+        + `<div class="td-booked-note">Options were ${opt.toFixed(0)}% of the day.</div></div>`
+        + `<div class="td-cmp">${!c ? 'Previous 45-day average not available'
+          : `${c.dir === 'level' ? 'Level with' : `${cmpSpan(c)} ${c.dir === 'up' ? 'above' : 'below'}`} the previous 45-day average of ${nb(cr(d.vs45.avg) + ' Cr')} (${fmt.span(d.vs45.first, d.vs45.last)})`
+            + (d.rank ? `. The ${d.rank}.` : '')}</div>`;
     }
-    return stat('&nbsp;', '<span class="skel"></span>', '', true);
+    return '<div class="stat stat--lead"><div class="stat-label">&nbsp;</div><div class="stat-value"><span class="skel"></span></div></div>';
   }
 
   // ── SVG helpers (core.js) ────────────────────────────────────────────────
@@ -491,38 +543,89 @@
     const { rows, live } = chartRows(d);
     $('tdChartTitle').textContent = d.state === 'live' ? 'Today and the last five trading days'
       : d.state === 'closed' ? 'Today and the four trading days before it' : 'The last five trading days';
-    box.innerHTML = sessionsSvg({ w, rows, live, ma45: d.h.ma45, uid: 's', todayIso: d.ist.iso });
+    box.innerHTML = sessionsSvg({ w, rows, live, ma45: d.h.ma45, uid: 's', todayIso: d.ist.iso, h: w < 520 ? null : 300 });
     $('tdSessionsLegend').innerHTML = sessionsLegend(live, w < 520);
     $('tdSessionsBasis').innerHTML = INFO + '<span>' + (live && live.range && d.nowBand && d.nowBand.above !== null
       ? `On 8 of 10 past days, the final landed between ${num(d.nowBand.below, 0)}% below and ${num(d.nowBand.above, 0)}% above the projection made at this time of day.`
       : 'Futures and options transaction fees only. MCX’s reported revenue also includes other items.') + '</span>';
   }
 
-  function renderAverages(d) {
-    const grid = $('tdAverages');
-    if (!d.h) {
-      if (S.homeErr) MCX.ui.error(grid, 'Could not load the averages: ' + S.homeErr, () => loadHome(true));
-      return;
-    }
-    const avgs = d.avgs, max = Math.max(...avgs.map(a => a.value || 0));
-    $('tdTakeaway').textContent = takeaway(avgs);
-    grid.innerHTML = avgs.map(a => {
-      const c = change(a);
+  // The figure the six averages are read against: today's projection (with its likely range)
+  // while live, today's figure once closed, otherwise the last session
+  function ladderSubject(d) {
+    if (d.state === 'live') return { value: d.P, range: d.pending ? null : d.range, past: false, short: 'Today',
+      mark: `Today ${cr(d.P)} projected`, sub: d.range ? (d.range.hi !== null ? `likely ${cr(d.range.lo, 1)}–${num(d.range.hi, 1)}` : `likely ${cr(d.range.lo, 1)} or more`) : '',
+      subject: `Today’s projection of ${cr(d.P)} Cr` };
+    if (!d.last) return null;
+    const v = d.last.total;
+    if (d.state === 'closed') return { value: v, range: null, past: false, short: 'Today',
+      mark: `Today ${cr(v)}${d.last.provisional ? ' last projection' : ''}`, sub: '',
+      subject: d.last.provisional ? `Today’s last projection of ${cr(v)} Cr` : `Today’s ${cr(v)} Cr` };
+    const when = lastWhen(d);
+    return { value: v, range: null, past: true, short: fmt.weekday(d.last.date), mark: `${fmt.day(d.last.date)} ${cr(v)}`, sub: '',
+      subject: /^\d/.test(when) ? `The ${when} session’s ${cr(v)} Cr` : `${when}’s ${cr(v)} Cr` };
+  }
+
+  function ladderHtml(avgs, t) {
+    const vals = avgs.filter(a => a.value !== null).map(a => a.value);
+    const top = Math.max(...vals, t ? t.value : 0, t && t.range && t.range.hi !== null ? t.range.hi : 0) * 1.04;
+    const X = v => Math.max(0, Math.min(100, v / top * 100));
+    const tPos = t ? X(t.value) : null;
+    const band = t && t.range ? `<i class="ld-band" style="left:${X(t.range.lo).toFixed(2)}%;right:${(100 - (t.range.hi !== null ? X(t.range.hi) : 100)).toFixed(2)}%"></i>` : '';
+    const line = t ? `<i class="ld-now" style="left:${tPos.toFixed(2)}%"></i>` : '';
+    const anchor = tPos === null ? '' : tPos > 72 ? ' ld-mark--end' : tPos < 28 ? ' ld-mark--start' : '';
+    let h = `<div class="ld-row ld-head" aria-hidden="true"><span class="ld-name"></span><span class="ld-track">${band}${line}`
+      + (t ? `<span class="ld-mark${anchor}" style="left:${tPos.toFixed(2)}%"><strong>${esc(t.mark)}</strong>${t.sub ? `<small>${esc(t.sub)}</small>` : ''}</span>` : '')
+      + `</span><span class="ld-val">Average</span><span class="ld-chg">${t ? `${esc(t.short)} vs average` : ''}</span></div>`;
+    for (const a of avgs) {
+      const c = t ? vsAvg(t.value, a.value, t.range) : null;
       const win = a.n === 0 ? 'Starts after today’s close'
         : (a.key === 'qtd' || a.key === 'fytd' ? `${a.n} day${a.n === 1 ? '' : 's'}, ` : '') + fmt.span(a.first, a.last);
-      const chg = !c ? '' : c.dir === 'level' ? `level with ${c.vs}`
-        : `<span class="${c.dir}">${c.dir === 'up' ? '▲' : '▼'} ${c.pct.toFixed(0)}%</span> vs ${c.vs}`;
-      let baseLine = '';
-      if (c && a.key === 'fytd' && a.same_stretch_chg_pct !== null && a.same_stretch_chg_pct !== undefined) {
-        const up = a.same_stretch_chg_pct >= 0;
-        baseLine = `<span class="${up ? 'up' : 'down'}">${up ? '▲' : '▼'} ${Math.abs(a.same_stretch_chg_pct).toFixed(0)}%</span> vs same stretch`;
-      } else if (c && a.key === 'qtd') baseLine = `${cr(a.prev.value)}, ${a.prev.n} days`;
-      else if (c && a.prev) baseLine = `${cr(a.prev.value)}, ${fmt.span(a.prev.first, a.prev.last)}`;
-      return `<div class="avg"><div class="avg-label">${esc(a.label)}</div>`
-        + `<div class="avg-value">${a.value !== null ? cr(a.value) + '<small>Cr</small>' : '—'}</div>`
-        + `<div class="avg-bar" aria-hidden="true"><i style="width:${a.value ? (a.value / max * 100).toFixed(1) : 0}%"></i></div>`
-        + `<div class="avg-meta">${win}</div>${chg ? `<div class="avg-meta">${chg}</div>` : ''}${baseLine ? `<div class="avg-base">${baseLine}</div>` : ''}</div>`;
-    }).join('');
+      const k = change(a);
+      const tip = k ? `${a.label}: ${cr(a.value)} Cr, ${k.dir === 'level' ? 'level with' : `${k.dir === 'up' ? '▲' : '▼'} ${k.pct.toFixed(0)}% vs`} ${k.vs} (${cr(a.prev.value)} Cr)` : a.label;
+      h += `<div class="ld-row" title="${esc(tip)}"><span class="ld-name">${esc(a.label)}<small>${win}</small></span>`
+        + `<span class="ld-track" aria-hidden="true">${band}${a.value !== null ? `<i class="ld-bar" style="width:${X(a.value).toFixed(2)}%"></i>` : ''}${line}</span>`
+        + `<span class="ld-val">${a.value !== null ? cr(a.value) : '—'}</span>`
+        + `<span class="ld-chg">${c ? cmpSpan(c) : ''}</span></div>`;
+    }
+    return h;
+  }
+
+  // Each average against the window before it (the detail behind the ladder)
+  function changeTable(avgs) {
+    const rows = [];
+    for (const a of avgs) {
+      const k = change(a);
+      if (!k) continue;
+      const cell = x => x.dir === 'level' ? 'level' : `<span class="${x.dir}">${arrow(x)} ${x.pct.toFixed(0)}%</span>`;
+      const was = a.key === 'qtd' || a.key === 'fytd' ? `All of ${a.prev.label}` : fmt.span(a.prev.first, a.prev.last);
+      rows.push([esc(a.label), cr(a.value), was, cr(a.prev.value), cell(k)]);
+      const ss = a.same_stretch, sc = a.same_stretch_chg_pct;
+      if (a.key === 'fytd' && ss && sc !== null && sc !== undefined) {
+        rows.push([esc(a.label), cr(a.value), `${ss.label}, same stretch (${fmt.span(ss.first, ss.last)})`, cr(ss.value),
+                   cell({ dir: Math.abs(sc) < 0.5 ? 'level' : sc > 0 ? 'up' : 'down', pct: Math.abs(sc) })]);
+      }
+    }
+    if (!rows.length) return '';
+    return `<div class="table-scroll"><table class="v2-table"><thead><tr><th scope="col">Window</th><th scope="col">Average ₹ Cr</th><th scope="col">Compared with</th><th scope="col">Then ₹ Cr</th><th scope="col">Change</th></tr></thead>`
+      + `<tbody>${rows.map(r => `<tr>${r.map(x => `<td>${x}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  }
+
+  function renderAverages(d) {
+    const box = $('tdAverages');
+    if (!d.h) {
+      if (S.homeErr) MCX.ui.error(box, 'Could not load the averages: ' + S.homeErr, () => loadHome(true));
+      return;
+    }
+    const avgs = d.avgs, t = ladderSubject(d);
+    $('tdTakeaway').textContent = t ? ladderTakeaway(t.subject, t.value, t.range, avgs, t.past) : '';
+    box.innerHTML = ladderHtml(avgs, t);
+    $('tdLadderLegend').innerHTML = '<span><i class="sw sw--bar"></i>Average of completed trading days</span>'
+      + (t ? `<span><i class="sw sw--now"></i>${esc(t.mark)}</span>` : '')
+      + (t && t.range ? '<span><i class="sw sw--band"></i>Likely range for today (8 in 10)</span>' : '')
+      + (t && t.range ? '<span><span class="soft">▲▼</span>Grey where the average lies inside today’s likely range, so the comparison could still flip</span>' : '');
+    $('tdTrend').textContent = takeaway(avgs);
+    $('tdAvgTable').innerHTML = changeTable(avgs);
     const q = avgs.find(a => a.key === 'qtd'), y = avgs.find(a => a.key === 'fytd');
     const parts = [d.h.today_final ? 'Completed MCX trading days, including today’s final figure.' : 'Completed MCX trading days only, so today is not included.'];
     if (q && y) parts.push(`${q.period} so far covers ${q.n} day${q.n === 1 ? '' : 's'} and ${y.period} so far ${y.n}.`);
@@ -668,7 +771,7 @@
     const d = derive();
     if (S.refresh === undefined && d.state === 'pre' && d.ist.min >= 540) return;   // wait for the first refresh during the day
     const l = lede(d);
-    $('tdStats').innerHTML = statsHtml(d);
+    $('tdStats').innerHTML = panelStats(d);
     renderSessions(d); renderAverages(d); renderTrust(d); renderDaily(d);
     renderDrivers(d); renderContracts(d); renderQuarter(); renderFoot(d);
     publishStatus(d);
@@ -711,7 +814,7 @@
     el.querySelector('#presentStatus').textContent = `${status ? status.textContent : ''} · ${fmt.day(d.ist.iso)}${d.state === 'live' ? ` · ${d.clock} IST` : ''}`;
     el.querySelector('#presentStatus').dataset.state = d.state === 'live' ? 'live' : 'final';
     el.querySelector('#presentHead').textContent = l.head;
-    el.querySelector('#presentStats').innerHTML = statsHtml(d).replace(/<span class="phone-only">.*?<\/span>/, '');
+    el.querySelector('#presentStats').innerHTML = panelStats(d);
     const box = el.querySelector('#presentChart');
     if (d.h) {
       const { rows, live } = chartRows(d);
@@ -747,6 +850,20 @@
     document.querySelector(`#tdCtrSeg button[data-kind="${S.kind}"]`).focus();
   });
   $('tdProfile').addEventListener('toggle', e => { if (e.target.open) loadIntradayCurve(); });
+  // Phones fold everything below the two top sections behind one button; the choice is remembered
+  function setFold(open) {
+    $('tdRest').classList.toggle('is-open', open);
+    const b = $('tdMoreBtn');
+    b.setAttribute('aria-expanded', String(open));
+    b.textContent = open ? 'Hide' : 'Show';
+  }
+  setFold(MCX.storage.get('mcx.today.more', '0') === '1');
+  $('tdMoreBtn').addEventListener('click', () => {
+    const open = !$('tdRest').classList.contains('is-open');
+    MCX.storage.set('mcx.today.more', open ? '1' : '0');
+    setFold(open);
+    if (open) render();                                   // charts drawn while folded had no width
+  });
   document.addEventListener('click', e => { if (e.target.closest && e.target.closest('[data-action="present"]')) openPresent(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && S.present) closePresent(); });
   document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && S.present) closePresent(); });

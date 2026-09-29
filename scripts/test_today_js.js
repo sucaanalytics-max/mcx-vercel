@@ -22,6 +22,7 @@ function check(name, got, want) {
   if (!ok) failed++;
 }
 const r2 = v => Math.round(v * 100) / 100;
+const pct2 = (a, b) => Math.abs((a / b - 1) * 100);
 
 // Session state
 const snap = (o) => Object.assign({ success: true, trading_date: '2026-09-29', session_closed: false }, o);
@@ -63,12 +64,36 @@ check('while the measured range loads, no claim about it',
 check('before 09:30 there is no range to lean on',
   M.headlineLive(16, null, avgs, 2), 'Today is tracking towards ₹16.0 Cr, but it is too early to say how far to trust that.');
 
-// Deck
-check('before 17:00 the rest comes mostly in the evening',
-  M.deckLive(15.32, 5.28, 342, avgs, 9.7),
-  '₹5.28 Cr is booked so far. The projection expects the other ₹10.04 Cr later in the day, mostly in the evening hours (17:00–23:30), when trading is usually heaviest. At ₹15.3 Cr today would beat every average below. By 21:00, the final has landed within 10% of the projection on 8 days in 10.');
-check('after 21:00: no evening claim and no 21:00 sentence',
-  M.deckLive(12, 11.2, 760, avgs, 9.7), '₹11.20 Cr is booked so far. The projection expects the other ₹0.80 Cr before the close.');
+// Where the rest of the day comes from (under the booked bar)
+check('before 17:00 the rest comes mostly in the evening', M.bookedNote(15.32, 5.28, 342),
+  'The other ₹10.04 Cr is expected later, mostly in the evening hours (17:00–23:30), when trading is usually heaviest.');
+check('from 17:00, before the close', M.bookedNote(12, 11.2, 760), 'The other ₹0.80 Cr is expected before the close.');
+check('nothing left to book', M.bookedNote(12, 12, 860), '');
+
+// A figure against an average: firm only when the average lies outside today's likely range
+check('inside the range: not firm', M.vsAvg(11.41, 11.99, { lo: 9.1, hi: 14.9 }), { dir: 'down', pct: pct2(11.41, 11.99), firm: false });
+check('above the high end: firm', M.vsAvg(11.41, 15.2, { lo: 9.1, hi: 14.9 }).firm, true);
+check('no upper bound: nothing above is firm', M.vsAvg(11.41, 30, { lo: 9.1, hi: null }).firm, false);
+check('a final figure has no range, so always firm', M.vsAvg(14.53, 11.99, null), { dir: 'up', pct: pct2(14.53, 11.99), firm: true });
+check('level within half a percent', M.vsAvg(12.03, 12, null).dir, 'level');
+
+// The ladder's takeaway, on 29 Sep at 14:57 (projection ₹11.41 Cr, likely ₹9.1–14.9)
+const L = vals => vals.map((value, i) => ({ key: ['d5', 'd10', 'd20', 'd45', 'qtd', 'fytd'][i], n: [5, 10, 20, 45, 64, 128][i], value, period: ['', '', '', '', 'Q2 FY27', 'FY27'][i] }));
+const six = L([14.88, 14.52, 13.12, 11.99, 11.25, 10.67]);
+check('mixed, all inside the range', M.ladderTakeaway('Today’s projection of ₹11.41 Cr', 11.41, { lo: 9.1, hi: 14.9 }, six),
+  'Today’s projection of ₹11.41 Cr is below the 5-day, 10-day, 20-day and 45-day averages and above the Q2 FY27 and FY27 averages so far. '
+  + 'Its likely range (₹9.1 to ₹14.9 Cr) takes in all six, so any of these comparisons could still go the other way by the close.');
+check('some outside the range', M.ladderTakeaway('Today’s projection of ₹11.41 Cr', 11.41, { lo: 10.9, hi: 14.0 }, six),
+  'Today’s projection of ₹11.41 Cr is below the 5-day, 10-day, 20-day and 45-day averages and above the Q2 FY27 and FY27 averages so far. '
+  + 'Its likely range (₹10.9 to ₹14.0 Cr) takes in the 20-day, 45-day and Q2 FY27 averages so far, so those comparisons could still go the other way by the close.');
+check('above every average, holding across the range', M.ladderTakeaway('Today’s projection of ₹17.00 Cr', 17, { lo: 15.2, hi: 21 }, six),
+  'Today’s projection of ₹17.00 Cr is above every average. That holds across its likely range of ₹15.2 to ₹21.0 Cr.');
+check('a past session, no range', M.ladderTakeaway('Monday’s ₹14.53 Cr', 14.53, null, six, true),
+  'Monday’s ₹14.53 Cr was below the 5-day average, level with the 10-day average and above the 20-day, 45-day, Q2 FY27 and FY27 averages so far.');
+check('level named on its own', M.ladderTakeaway('Today’s ₹12.00 Cr', 12, null, L([14, 13, 12.02, 11, 10, 9])),
+  'Today’s ₹12.00 Cr is below the 5-day and 10-day averages, level with the 20-day average and above the 45-day, Q2 FY27 and FY27 averages so far.');
+check('a window with no days yet is skipped', M.ladderTakeaway('Today’s ₹12.00 Cr', 12, null, L([14, 13, 12.5, 11, null, 9])),
+  'Today’s ₹12.00 Cr is below the 5-day, 10-day and 20-day averages and above the 45-day and FY27 averages so far.');
 
 // A day against its previous 45 days
 const prev45 = Array.from({ length: 45 }, (_, i) => ({ date: `2026-07-${String((i % 28) + 1).padStart(2, '0')}`, total: 12 }));
