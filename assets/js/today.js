@@ -764,4 +764,5 @@
   MCX.today = {
     mount() { loadHome(); loadQuarter(); render(); },
   };
+  loadHome();      // start at page load, whatever page opens first: Today is one click away and the header status needs it
 })();
