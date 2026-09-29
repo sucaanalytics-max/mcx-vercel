@@ -9,11 +9,11 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=DM+Sans:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/legacy.css?v=189bc7f5">
-<link rel="stylesheet" href="/assets/css/tokens.css?v=189bc7f5">
-<link rel="stylesheet" href="/assets/css/components.css?v=189bc7f5">
-<link rel="stylesheet" href="/assets/css/shell.css?v=189bc7f5">
-<link rel="stylesheet" href="/assets/css/v2.css?v=189bc7f5">
+<link rel="stylesheet" href="/assets/css/legacy.css?v=d0c63dfe">
+<link rel="stylesheet" href="/assets/css/tokens.css?v=d0c63dfe">
+<link rel="stylesheet" href="/assets/css/components.css?v=d0c63dfe">
+<link rel="stylesheet" href="/assets/css/shell.css?v=d0c63dfe">
+<link rel="stylesheet" href="/assets/css/v2.css?v=d0c63dfe">
 </head>
 <body>
 
@@ -980,114 +980,53 @@
 </div><!-- /tabAnalytics -->
 
 <!-- ═══ COMMODITY TAB ══════════════════════════════════════════════════════ -->
-<div id="tabCommodity" class="page" hidden>
-<div class="wrap">
-
-<!-- ── Commodity Revenue Breakdown (from /api/commodity_dashboard) ─── -->
-<h2 style="margin-bottom:16px">Revenue Breakdown</h2>
-  <div class="card" id="cmdSection" style="display:none">
-    <div class="card-title">Commodity Revenue Breakdown</div>
-    <div id="cmdAsOf" style="font-size:10px;color:var(--text-secondary);margin-bottom:8px"></div>
-    <div style="overflow-x:auto"><table class="exd-table" id="cmdSummaryTable"></table></div>
-  </div>
-  <div class="card" id="cmdQtrSection" style="display:none">
-    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Quarterly by Commodity</span><span id="cmdQtrRange"></span></div>
-    <div style="overflow-x:auto"><table class="exd-table" id="cmdQtrTable"></table></div>
-  </div>
-  <div class="card" id="cmdMonthSection" style="display:none">
-    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Monthly by Commodity</span><span id="cmdMonthRange"></span></div>
-    <div style="overflow-x:auto" class="scroll-table-wrap"><table class="exd-table" id="cmdMonthTable"></table></div>
-  </div>
-  <div class="card" id="cmdTrendSection" style="display:none">
-    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Commodity Trend <span id="cmdTrendRangeLabel">(60 days)</span></span><span id="cmdTrendRange"></span></div>
-    <div style="position:relative;height:320px">
-      <canvas id="cmdTrendChart"></canvas>
-    </div>
-  </div>
-
-<h2 style="margin-top:32px;margin-bottom:16px">Commodity-Level Analytics</h2>
-<p id="commAsOf" style="font-size:11px;color:var(--text-secondary);margin-bottom:16px">Loading…</p>
-
-<!-- Today's Commodity Lineup -->
-<div class="card" style="margin-bottom:20px">
-<h3 style="margin-bottom:12px">Today's Commodity Lineup</h3>
-<p id="commExchangeTO" style="font-size:11px;color:var(--text-secondary);margin-bottom:8px"></p>
-<div style="overflow-x:auto">
-<table class="dtable" id="commTable">
-<thead>
-<tr>
-<th>Commodity</th><th>Sector</th><th>Turnover (₹ Cr)</th><th>% Share</th>
-<th>Signal</th><th>Composite Z</th><th>Turnover Z</th><th>OI Z</th><th>Volume Z</th>
-</tr>
-</thead>
-<tbody id="commTableBody"></tbody>
-</table>
+<div id="tabCommodity" class="page page--v2" hidden>
+<div class="v2" id="commodities">
+<header class="lede">
+  <div class="kicker" id="cmKicker"><span class="skel"></span></div>
+  <h1 class="headline" id="cmHead">Loading&hellip;</h1>
+  <p class="deck" id="cmDeck"></p>
+</header>
+<figure class="td-figure" style="margin-top:32px">
+  <figcaption><strong>Revenue by commodity</strong> <span id="cmRangeLabel">(60 days)</span> · <span id="cmChartSub">₹ crore per day, stacked by commodity</span></figcaption>
+  <div class="chart-box" id="cmChart"><div class="skel skel--block"></div></div>
+  <div class="fig-foot"><div class="legend" id="cmLegend"></div><span id="cmRange"></span></div>
+</figure>
+<section class="sec" aria-labelledby="cmSumTitle">
+  <div class="sec-head"><div><h2 id="cmSumTitle">Each commodity</h2><div class="sec-sub">Revenue per session, ₹ crore</div></div></div>
+  <div id="cmSummary"></div>
+</section>
+<section class="sec" aria-labelledby="cmPerTitle">
+  <div class="sec-head"><div><h2 id="cmPerTitle">By quarter and month</h2><div class="sec-sub">Revenue per session by commodity, ₹ crore, with each one’s share</div></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div class="seg" role="group" aria-label="Period" id="cmTableSeg"><button type="button" data-table="quarter" aria-pressed="false">Quarters</button><button type="button" data-table="month" aria-pressed="false">Months</button></div><span id="cmQtrRange"></span><span id="cmMonthRange" hidden></span></div></div>
+  <div id="cmPeriods"></div>
+</section>
+<section class="sec" aria-labelledby="cmSigTitle">
+  <div class="sec-head"><div><h2 id="cmSigTitle">Activity signals</h2><div class="sec-sub" id="cmSigSub"></div></div></div>
+  <div id="cmSignals"></div>
+  <div class="basis"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg><span>z-scores compare each commodity’s turnover, open interest and volume with its own recent history: above +1 is unusually busy, below −1 unusually quiet.</span></div>
+</section>
+<div class="two-col">
+  <section class="sec" aria-labelledby="cmMovTitle">
+    <div class="sec-head"><div><h2 id="cmMovTitle">Biggest changes in activity</h2><div class="sec-sub">Composite z-score against the session before</div></div></div>
+    <div id="cmMovers"></div>
+  </section>
+  <section class="sec" aria-labelledby="cmMomTitle">
+    <div class="sec-head"><div><h2 id="cmMomTitle">Activity momentum <span id="cmMomRangeLabel">(60 days)</span></h2><div class="sec-sub">How often each commodity ran above its usual activity</div></div><span id="cmMomRange"></span></div>
+    <div id="cmMomentum"></div>
+  </section>
 </div>
-</div>
-
-<!-- Top Movers -->
-<div class="card" style="margin-bottom:20px">
-<h3 style="margin-bottom:12px">Top Movers (1-Day Z-Score Change)</h3>
-<div style="overflow-x:auto">
-<table class="dtable" id="moversTable">
-<thead>
-<tr><th>Commodity</th><th>Sector</th><th>Prev Z</th><th>Curr Z</th><th>Δ Z</th><th>Signal</th></tr>
-</thead>
-<tbody id="moversTableBody"></tbody>
-</table>
-</div>
-</div>
-
-<!-- Sector Rotation Chart -->
-<div class="card" style="margin-bottom:20px">
-<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
-<h3 style="margin:0">Sector Rotation (Turnover Share) <span id="sectorRotRangeLabel">(60 days)</span></h3>
-<span id="sectorRotRange"></span>
-</div>
-<div style="position:relative;height:320px">
-<canvas id="sectorRotationChart"></canvas>
-</div>
-<p style="font-size:10px;color:var(--text-secondary);margin-top:6px">Shows shifting composition of exchange turnover by sector.</p>
-</div>
-
-<!-- Commodity Momentum Table -->
-<div class="card" style="margin-bottom:20px">
-<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
-<h3 style="margin:0">Commodity Momentum (Rolling) <span id="cmdMomentumRangeLabel">(60 days)</span></h3>
-<span id="cmdMomentumRange"></span>
-</div>
-<div style="overflow-x:auto">
-<table class="dtable" id="momentumTable">
-<thead>
-<tr><th>Commodity</th><th>Sector</th><th>Avg Z</th><th>% Positive Days</th><th>Latest Z</th><th>Signal</th></tr>
-</thead>
-<tbody id="momentumTableBody"></tbody>
-</table>
-</div>
-</div>
-
-<!-- iCOMDEX Index Levels (BULLDEX & siblings) -->
-<h2 style="margin-top:32px;margin-bottom:16px">iCOMDEX Indices</h2>
-<div class="card" style="margin-bottom:20px">
-<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
-<h3 style="margin:0">Index Levels (rebased to 100) <span id="icomdexRangeLabel">(60 days)</span></h3>
-<span id="icomdexRange"></span>
-</div>
-<p id="icomdexAsOf" style="font-size:11px;color:var(--text-secondary);margin-bottom:8px">Loading…</p>
-<div style="position:relative;height:320px">
-<canvas id="icomdexChart"></canvas>
-</div>
-<p style="font-size:10px;color:var(--text-secondary);margin-top:6px">MCX iCOMDEX index values, published T+1 by MCX. BULLDEX = Bullion index (≈70% gold / 30% silver). Chart shows headline sector indices rebased to 100 at range start; table lists all published indices.</p>
-<div style="overflow-x:auto;margin-top:12px">
-<table class="dtable" id="icomdexTable">
-<thead>
-<tr><th>Index</th><th>Close</th><th>1-Day %</th><th>Range %</th><th>Date</th></tr>
-</thead>
-<tbody id="icomdexTableBody"></tbody>
-</table>
-</div>
-</div>
-
+<section class="sec" aria-labelledby="cmRotTitle">
+  <div class="sec-head"><div><h2 id="cmRotTitle">Share of turnover by sector <span id="cmRotRangeLabel">(60 days)</span></h2><div class="sec-sub">% of exchange turnover</div></div><span id="cmRotRange"></span></div>
+  <div class="chart-box" id="cmRotation"></div>
+  <div class="legend"><span><i class="sw k-BULLION"></i>Bullion</span><span><i class="sw k-ENERGY"></i>Energy</span><span><i class="sw k-BASE"></i>Base metals</span></div>
+</section>
+<section class="sec" aria-labelledby="cmIcoTitle">
+  <div class="sec-head"><div><h2 id="cmIcoTitle">MCX iCOMDEX indices <span id="cmIcoRangeLabel">(60 days)</span></h2><div class="sec-sub">Index levels rebased to 100 at the start of the range; published a day after trading</div></div><span id="cmIcoRange"></span></div>
+  <div class="chart-box" id="cmIco"></div>
+  <div class="legend" id="cmIcoLegend"></div>
+  <div id="cmIcoTable" style="margin-top:16px"></div>
+</section>
 </div>
 </div><!-- /tabCommodity -->
 <!-- ═══ QUARTERLY P&L TAB ═════════════════════════════════════════════════ -->
@@ -1160,54 +1099,52 @@
 
 </div><!-- /wrap -->
 </div><!-- /tabQuarterly -->
-<div id="tabExchange" class="page" hidden>
-<div class="wrap">
-  <div class="card" id="exdHeroCard">
-    <div class="card-title" id="exdHeroTitle">Timeline Dashboard</div>
-    <div id="exdHeroContent" style="opacity:0.4;text-align:center;padding:2rem">Loading exchange data...</div>
-  </div>
-  <div class="card">
-    <div class="card-title">Financial Year Summary</div>
-    <div class="exd-4up-grid" id="exdFyGrid"></div>
-  </div>
-  <div class="card">
-    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Quarterly Breakdown</span><span id="exdQtrRange"></span></div>
-    <div class="exd-4up-grid" id="exdQtrGrid"></div>
-  </div>
-  <div class="card">
-    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Monthly Breakdown</span><span id="exdMonthRange"></span></div>
-    <div class="exd-4up-grid" id="exdMonthGrid"></div>
-  </div>
-  <div class="card">
-    <div class="card-title">Weekly Breakdown</div>
-    <div class="exd-4up-grid" id="exdWeekGrid"></div>
-  </div>
-  <div class="card">
-    <div class="card-title">Trailing Averages</div>
-    <div class="exd-4up-grid" id="exdTrailGrid"></div>
-  </div>
-  <div class="card">
-    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><span>Daily Revenue Trend <span id="exdTrendRangeLabel">(60 days)</span></span><span id="exdTrendRange"></span></div>
-    <div style="position:relative;height:320px">
-      <canvas id="exdTrendChart"></canvas>
-    </div>
-  </div>
-
-</div><!-- /wrap -->
+<div id="tabExchange" class="page page--v2" hidden>
+<div class="v2" id="trends">
+<header class="lede">
+  <div class="kicker" id="trKicker"><span class="skel"></span></div>
+  <h1 class="headline" id="trHead">Loading&hellip;</h1>
+  <p class="deck" id="trDeck"></p>
+</header>
+<figure class="td-figure" style="margin-top:32px">
+  <figcaption><strong>Revenue per day</strong> · 20-session average, ₹ crore, <span id="trRangeLabel">last 12 months</span></figcaption>
+  <div class="chart-box" id="trChart"><div class="skel skel--block"></div></div>
+  <div class="fig-foot"><div class="legend"><span><i class="sw sw--fut"></i>Futures</span><span><i class="sw sw--opt"></i>Options</span><span><i class="sw sw--line"></i>Total</span></div><span id="trRange"></span></div>
+</figure>
+<section class="sec" aria-labelledby="trPeriodTitle">
+  <div class="sec-head"><div><h2 id="trPeriodTitle">By period</h2><div class="sec-sub">Average revenue per session, ₹ crore</div></div>
+    <div class="seg" role="group" aria-label="Period" id="trSeg"><button type="button" data-period="year" aria-pressed="false">Year</button><button type="button" data-period="quarter" aria-pressed="false">Quarter</button><button type="button" data-period="month" aria-pressed="false">Month</button><button type="button" data-period="week" aria-pressed="false">Week</button></div></div>
+  <div id="trPeriod"></div>
+</section>
+<section class="sec" aria-labelledby="trTrailTitle">
+  <div class="sec-head"><div><h2 id="trTrailTitle">Trailing averages</h2><div class="sec-sub">Each window against the same number of sessions just before it</div></div></div>
+  <div class="trail-grid" id="trTrail"></div>
+</section>
+</div>
 </div><!-- /tabExchange -->
 
 <!-- ═══ REVENUE › SEASONALITY (from the Timeline tab) ══════════════════════ -->
-<div id="pageRevSeason" class="page" hidden>
-<div class="wrap">
-  <div class="card">
-    <div class="card-title">Day-of-Week Analysis</div>
-    <div style="overflow-x:auto"><table class="exd-table" id="exdDowTable"></table></div>
-  </div>
-  <div class="card">
-    <div class="card-title" id="exdQdowTitle">Quarter &times; Day-of-Week</div>
-    <div style="overflow-x:auto"><table class="exd-table" id="exdQdowTable"></table></div>
-  </div>
-</div><!-- /wrap -->
+<div id="pageRevSeason" class="page page--v2" hidden>
+<div class="v2" id="season">
+<header class="lede">
+  <div class="kicker" id="seKicker"><span class="skel"></span></div>
+  <h1 class="headline" id="seHead">Loading&hellip;</h1>
+  <p class="deck" id="seDeck"></p>
+</header>
+<figure class="td-figure" style="margin-top:32px">
+  <figcaption><strong>Average revenue on each weekday this quarter</strong> · ₹ crore per session</figcaption>
+  <div class="chart-box" id="seChart"><div class="skel skel--block"></div></div>
+  <div class="legend" id="seLegend"></div>
+</figure>
+<section class="sec" aria-labelledby="seRecentTitle">
+  <div class="sec-head"><div><h2 id="seRecentTitle">Each weekday, recent weeks</h2><div class="sec-sub">The latest session on each weekday against its 3-week and 10-week averages, ₹ crore</div></div></div>
+  <div id="seRecent"></div>
+</section>
+<section class="sec" aria-labelledby="seQuarterTitle">
+  <div class="sec-head"><div><h2 id="seQuarterTitle">Each weekday by quarter</h2><div class="sec-sub" id="seQuarterSub"></div></div></div>
+  <div id="seQuarter"></div>
+</section>
+</div>
 </div><!-- /pageRevSeason -->
 
 <!-- ═══ MARGINS TAB ═════════════════════════════════════════════════════════ -->
@@ -1551,9 +1488,10 @@
 </div>
 
 <!-- ═══ JAVASCRIPT ═══════════════════════════════════════════════════════════ -->
-<script src="/assets/js/core.js?v=189bc7f5"></script>
-<script src="/assets/js/legacy.js?v=189bc7f5"></script>
-<script src="/assets/js/today.js?v=189bc7f5"></script>
-<script src="/assets/js/shell.js?v=189bc7f5"></script>
+<script src="/assets/js/core.js?v=d0c63dfe"></script>
+<script src="/assets/js/legacy.js?v=d0c63dfe"></script>
+<script src="/assets/js/today.js?v=d0c63dfe"></script>
+<script src="/assets/js/revenue.js?v=d0c63dfe"></script>
+<script src="/assets/js/shell.js?v=d0c63dfe"></script>
 </body>
 </html>

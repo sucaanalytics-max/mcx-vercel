@@ -93,6 +93,39 @@ html.dark .c-soft { opacity: 0.72; }
 .sw--soft-opt { background: var(--mcx-opt); opacity: 0.5; }
 .sw--whisker { width: 2px; height: 14px; border-radius: 0; background: var(--mcx-text-2); }
 
+/* Commodity series: .k-GOLD fills, .ks-GOLD strokes, .sw.k-GOLD swatches */
+.k-GOLD { fill: var(--mcx-c-gold); } .k-SILVER { fill: var(--mcx-c-silver); } .k-CRUDEOIL { fill: var(--mcx-c-crude); }
+.k-NATURALGAS { fill: var(--mcx-c-natgas); } .k-COPPER { fill: var(--mcx-c-copper); } .k-OTHERS { fill: var(--mcx-c-other); }
+.k-BULLION { fill: var(--mcx-c-gold); } .k-ENERGY { fill: var(--mcx-c-crude); } .k-BASE { fill: var(--mcx-c-copper); } .k-OTHER { fill: var(--mcx-c-other); }
+.ks-BULLION { stroke: var(--mcx-c-gold); } .ks-ENERGY { stroke: var(--mcx-c-crude); } .ks-BASE { stroke: var(--mcx-c-copper); } .ks-COMPOSITE { stroke: var(--mcx-text); }
+.ks-BULLION, .ks-ENERGY, .ks-BASE, .ks-COMPOSITE { fill: none; stroke-width: 2px; stroke-linejoin: round; stroke-linecap: round; }
+.sw.k-GOLD, .sw.k-BULLION { background: var(--mcx-c-gold); } .sw.k-SILVER { background: var(--mcx-c-silver); }
+.sw.k-CRUDEOIL, .sw.k-ENERGY { background: var(--mcx-c-crude); } .sw.k-NATURALGAS { background: var(--mcx-c-natgas); }
+.sw.k-COPPER, .sw.k-BASE { background: var(--mcx-c-copper); } .sw.k-OTHERS, .sw.k-OTHER { background: var(--mcx-c-other); }
+.sw.k-COMPOSITE { width: 18px; height: 0; border-radius: 0; border-top: 2px solid var(--mcx-text); }
+.c-sep { stroke: var(--mcx-bg); stroke-width: 1px; fill: none; }      /* surface gap between stacked areas */
+
+/* Signal pills: one scale, text label and arrow always present */
+.pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--mcx-border-strong);
+  font-size: 12px; font-weight: 600; line-height: 1.6; white-space: nowrap; color: var(--mcx-text-2); background: transparent; }
+.pill--up { color: var(--mcx-up); border-color: var(--mcx-up); background: var(--mcx-up-tint); }
+.pill--strong-up { color: var(--mcx-on-solid, #fff); border-color: var(--mcx-up); background: var(--mcx-up); }
+.pill--down { color: var(--mcx-down); border-color: var(--mcx-down); background: var(--mcx-down-tint); }
+.pill--strong-down { color: var(--mcx-on-solid, #fff); border-color: var(--mcx-down); background: var(--mcx-down); }
+.pill--none { border-style: dashed; color: var(--mcx-text-3); }
+.v2-table .strong { font-weight: 700; }
+.v2-table tr.total td { border-top: 1px solid var(--mcx-border-strong); font-weight: 600; }
+.v2-table td small { display: block; font-size: 11.5px; color: var(--mcx-text-3); font-weight: 400; }
+.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.table-scroll .v2-table { min-width: 560px; }
+.more-btn { margin-top: 10px; padding: 4px 10px; border: 1px solid var(--mcx-border); border-radius: 6px; background: var(--mcx-surface);
+  font: 500 12px/1.4 var(--mcx-font-sans); color: var(--mcx-text-2); cursor: pointer; }
+.more-btn:hover { color: var(--mcx-text); border-color: var(--mcx-border-strong); }
+.fig-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
+.fig-foot .legend { margin-top: 0; }
+.trail-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; }
+.trail-grid .avg-value { font-size: 22px; }
+
 /* ── Today ──────────────────────────────────────────────────────────────── */
 .td-hero { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 48px; margin-top: 36px; align-items: start; }
 .td-figure { margin: 0; min-width: 0; }
@@ -198,6 +231,7 @@ html.dark .c-soft { opacity: 0.72; }
   .avg:nth-child(3n + 1) { padding-left: 0; border-left: 0; }
   .trust { grid-template-columns: minmax(0, 1fr); gap: 20px; }
   .two-col { grid-template-columns: minmax(0, 1fr); }
+  .trail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 1023px) {
   .page--v2 { min-height: 0; }

@@ -28,6 +28,8 @@
   --mcx-up: #11763F;
   --mcx-up-tint: #E5F2EA;
   --mcx-down: #B42318;
+  --mcx-down-tint: #FDECEA;
+  --mcx-on-solid: #FFFFFF;
   --mcx-caution: #8A5C00;
   --mcx-fut: #2a78d6;
   --mcx-opt: #eb6834;
@@ -36,6 +38,14 @@
   --mcx-typical: #80878F;     /* chart grammar: dashed grey = typical */
   --mcx-hatch: #15181D;       /* chart grammar: hatching = projected */
   --mcx-bar: #858C95;         /* single-series bars, 3:1 on the page */
+  /* Commodities, in stacking order (validated for colour-blind separation in light and dark;
+     charts also label series directly). Bullion, then energy, then base metals. */
+  --mcx-c-gold: #eda100;
+  --mcx-c-silver: #e87ba4;
+  --mcx-c-crude: #4a3aa7;
+  --mcx-c-natgas: #1baf7a;
+  --mcx-c-copper: #e34948;
+  --mcx-c-other: #9aa1a9;
   --mcx-scrim: rgba(21, 24, 29, 0.40);
   --mcx-shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
   --mcx-shadow-lg: 0 -8px 24px rgba(16, 24, 40, 0.10);
@@ -56,6 +66,8 @@ html.dark {
   --mcx-up: #45B581;
   --mcx-up-tint: #16302A;
   --mcx-down: #F07563;
+  --mcx-down-tint: #3A1F1C;
+  --mcx-on-solid: #111317;
   --mcx-caution: #E0B040;
   --mcx-fut: #3987e5;
   --mcx-opt: #d95926;
@@ -64,6 +76,12 @@ html.dark {
   --mcx-typical: #7F8792;
   --mcx-hatch: #E8EAED;
   --mcx-bar: #7A828C;
+  --mcx-c-gold: #c98500;
+  --mcx-c-silver: #d55181;
+  --mcx-c-crude: #9085e9;
+  --mcx-c-natgas: #199e70;
+  --mcx-c-copper: #e66767;
+  --mcx-c-other: #6f7782;
   --mcx-scrim: rgba(0, 0, 0, 0.55);
   --mcx-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.30);
   --mcx-shadow-lg: 0 -8px 24px rgba(0, 0, 0, 0.40);
