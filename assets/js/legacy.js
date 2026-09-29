@@ -29,7 +29,7 @@ const rangeState = {};        // controlKey -> selected range key
 const rangedFetchCache = {};  // full URL -> Promise of parsed JSON
 
 function makeRangeToggle(cfg) {
-  const saved = localStorage.getItem('mcx.range.' + cfg.key);
+  const saved = MCX.storage.get('mcx.range.' + cfg.key);
   const initial = (saved && cfg.ranges.indexOf(saved) !== -1) ? saved : cfg.defaultRange;
   rangeState[cfg.key] = initial;
   const el = document.getElementById(cfg.containerId);
@@ -43,7 +43,7 @@ function makeRangeToggle(cfg) {
       const r = chip.getAttribute('data-range');
       if (rangeState[cfg.key] === r) return;
       rangeState[cfg.key] = r;
-      localStorage.setItem('mcx.range.' + cfg.key, r);
+      MCX.storage.set('mcx.range.' + cfg.key, r);
       el.querySelectorAll('.margin-chip').forEach(c =>
         c.className = c.getAttribute('data-range') === r ? 'margin-chip active' : 'margin-chip');
       updateRangeLabels(cfg, r);
@@ -107,11 +107,11 @@ function applyTheme(mode) {
 function toggleTheme() {
   const isDark = document.documentElement.classList.contains('dark');
   const next = isDark ? 'light' : 'dark';
-  localStorage.setItem('mcxTheme', next);
+  MCX.storage.set('mcxTheme', next);
   applyTheme(next);
   if (curveDataCache) { renderDynamicBucketChart(curveDataCache); } else if (typeof renderIntradayChart === 'function') { renderIntradayChart(); }
 }
-applyTheme(localStorage.getItem('mcxTheme') || 'light');
+applyTheme(MCX.storage.get('mcxTheme') || 'light');
 
 // ════════════════════════════════════════════════════════════════════════════
 //  ACCORDION
@@ -138,13 +138,13 @@ function showToast(msg, type='') {
 //  COOKIE MODAL
 // ════════════════════════════════════════════════════════════════════════════
 function openCookieModal() {
-  document.getElementById('cookieTextarea').value = localStorage.getItem('mcxCookie') || '';
+  document.getElementById('cookieTextarea').value = MCX.storage.get('mcxCookie') || '';
   document.getElementById('cookieModal').classList.remove('hidden');
 }
 function closeCookieModal() { document.getElementById('cookieModal').classList.add('hidden'); }
 function saveCookie() {
   const val = document.getElementById('cookieTextarea').value.trim();
-  if (val) { localStorage.setItem('mcxCookie', val); closeCookieModal(); showToast('Cookie saved', 'success'); }
+  if (val) { MCX.storage.set('mcxCookie', val); closeCookieModal(); showToast('Cookie saved', 'success'); }
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCookieModal(); });
 
@@ -496,8 +496,8 @@ function updateSnapshotFromAPI(d) {
   // clock. This tells viewers how fresh the data is (and surfaces staleness).
   {
     const _meta = document.getElementById('refreshMeta');
-    if (d.timestamp) {
-      const _t = new Date(d.timestamp);
+    const _t = MCX.parseTs(d.timestamp);   // ISO on GET, "HH:MM IST, DD Mon YYYY" after a manual refresh
+    if (_t) {
       const _tz = { timeZone: 'Asia/Kolkata' };
       const _hhmm = _t.toLocaleTimeString('en-GB', { ..._tz, hour: '2-digit', minute: '2-digit' });
       const _day = _t.toLocaleDateString('en-GB', { ..._tz, day: '2-digit', month: 'short' });
@@ -898,7 +898,7 @@ function switchTab(tabId) {
     const el = document.getElementById(t);
     if (el) el.style.display = t === tabId ? 'block' : 'none';
   });
-  if (tabId === 'tabForecast') recalcForecast();
+  if (tabId === 'tabForecast') { recalcForecast(); MCX.poll.kick('cmp'); }
   if (tabId === 'tabValuation') loadValuation();
   if (tabId === 'tabAnalytics') loadAnalytics();
   if (tabId === 'tabCommodity') { loadCommodity(); loadCmdDashboard(); loadIcomdex(); }
@@ -982,7 +982,7 @@ function recomputePatPredictor() {
     setText('[data-pt-out="opRev"][data-pt-yr="'+yr+'"]', fmtCr(opRev));
     setText('[data-pt-out="totRev"][data-pt-yr="'+yr+'"]', fmtCr(totRev));
     setText('[data-pt-out="pat"][data-pt-yr="'+yr+'"]', fmtCr(pat));
-    setText('[data-pt-out="eps"][data-pt-yr="'+yr+'"]', fmtCr(eps));
+    setText('[data-pt-out="eps"][data-pt-yr="'+yr+'"]', MCX.fmt.eps(eps));
     setText('[data-pt-out="px"][data-pt-yr="'+yr+'"]', '₹' + fmtCr(px));
     if (yr === '27') fy27Days = days || 254;
   });
@@ -1000,7 +1000,7 @@ function recomputePatPredictor() {
     const upside = cmp > 0 ? (px - cmp) / cmp * 100 : 0;
     const tgtPx = (1 + discount / 100) > 0 ? px / (1 + discount / 100) : px;
     setText('[data-ps-out="totInc"][data-ps-sc="'+sc+'"]', fmtCr(totInc));
-    setText('[data-ps-out="eps"][data-ps-sc="'+sc+'"]', fmtCr(eps));
+    setText('[data-ps-out="eps"][data-ps-sc="'+sc+'"]', MCX.fmt.eps(eps));
     setText('[data-ps-out="px"][data-ps-sc="'+sc+'"]', '₹' + fmtCr(px));
     setUpside('[data-ps-out="upside"][data-ps-sc="'+sc+'"]', fmtPctSign(upside), upside);
     setText('[data-ps-out="tgtPx"][data-ps-sc="'+sc+'"]', '₹' + fmtCr(tgtPx));
@@ -1297,7 +1297,7 @@ async function fetchLiveCMP() {
   const params = new URLSearchParams(window.location.search);
   const urlCookie = params.get('cookie');
   if (urlCookie) {
-    localStorage.setItem('mcxCookie', urlCookie);
+    MCX.storage.set('mcxCookie', urlCookie);
     window.history.replaceState({}, '', window.location.pathname);
     setTimeout(() => doRefresh(), 1200);
   }
@@ -1305,8 +1305,9 @@ async function fetchLiveCMP() {
   renderIntradayChart();
   // Auto-fetch live CMP on page load
   fetchLiveCMP();
-  // Refresh CMP every 30 seconds
-  setInterval(fetchLiveCMP, 30 * 1000);
+  // Refresh CMP every 60 s, only in NSE hours, while the Forecast tab (the page that shows it) is on screen
+  MCX.poll.every('cmp', fetchLiveCMP, 60 * 1000, () =>
+    MCX.market.nseOpen() && !document.hidden && document.getElementById('tabForecast').style.display === 'block');
 })();
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -2637,8 +2638,8 @@ async function loadQuarterly() {
     const r = await fetch('/api/quarterly');
     const d = await r.json();
     if (d.success) { d._ts = Date.now(); qtrCache = d; renderQuarterly(d); }
-    else { document.getElementById('qtrHeroContent').innerHTML = '<div style="color:var(--danger)">Error: ' + (d.error||'unknown') + '</div>'; }
-  } catch(e) { document.getElementById('qtrHeroContent').innerHTML = '<div style="color:var(--danger)">Failed to load: ' + e.message + '</div>'; }
+    else { MCX.ui.error('qtrHeroContent', 'Error: ' + (d.error || 'unknown'), loadQuarterly); }
+  } catch(e) { MCX.ui.error('qtrHeroContent', 'Failed to load: ' + e.message, loadQuarterly); }
   finally { qtrLoading = false; }
 }
 
@@ -2802,21 +2803,16 @@ function renderQtrBuildupChart(data) {
       responsive: true, maintainAspectRatio: false,
       plugins: {
         legend: { labels: { color: '#9ca3af', font: {size:11} } },
-        annotation: cq.revenue_projected_cr ? {
-          annotations: {
-            target: {
-              type: 'line', yMin: cq.revenue_projected_cr, yMax: cq.revenue_projected_cr,
-              borderColor: 'rgba(245,158,11,0.5)', borderDash: [6,4], borderWidth: 1,
-              label: { display: true, content: 'Target: ' + Math.round(cq.revenue_projected_cr) + ' Cr',
-                       position: 'end', backgroundColor: 'rgba(245,158,11,0.8)', font: {size:10} }
-            }
-          }
+        refLine: cq.revenue_projected_cr ? {
+          value: cq.revenue_projected_cr, color: 'rgba(245,158,11,0.8)', dash: [6, 4],
+          label: 'Projected: ' + Math.round(cq.revenue_projected_cr) + ' Cr', font: '10px sans-serif'
         } : {}
       },
       scales: {
         x: { ticks: { color: '#9ca3af', font: {size:9}, maxRotation: 45 }, grid: { display: false } },
         y: { title: { display: true, text: 'Cr', color: '#9ca3af' }, ticks: { color: '#9ca3af' },
-             grid: { color: 'rgba(75,85,99,0.2)' } },
+             grid: { color: 'rgba(75,85,99,0.2)' },
+             suggestedMax: cq.revenue_projected_cr ? cq.revenue_projected_cr * 1.05 : undefined },
       }
     }
   });
@@ -2883,8 +2879,8 @@ async function loadExchange() {
   try {
     const d = await fetchRanged('/api/exchange_dashboard');
     if (d.success) { exdCache = d; renderExchange(d); }
-    else { document.getElementById('exdHeroContent').innerHTML = '<div style="color:var(--danger)">Error: ' + (d.error||'unknown') + '</div>'; }
-  } catch(e) { document.getElementById('exdHeroContent').innerHTML = '<div style="color:var(--danger)">Failed to load: ' + e.message + '</div>'; }
+    else { MCX.ui.error('exdHeroContent', 'Error: ' + (d.error || 'unknown'), loadExchange); }
+  } catch(e) { MCX.ui.error('exdHeroContent', 'Failed to load: ' + e.message, loadExchange); }
   finally { exdLoading = false; }
 }
 
@@ -3160,7 +3156,8 @@ async function loadCmdDashboard() {
   try {
     const d = await fetchRanged('/api/commodity_dashboard?range=' + encodeURIComponent(rangeState['cmdTrend'] || '60D'));
     if (d.success) { cmdDashCache = d; renderCmdDashboard(d); }
-  } catch(e) { console.error('Commodity dashboard load failed:', e); }
+    else { MCX.ui.error('cmdAsOf', 'Commodity dashboard error: ' + (d.error || 'unknown'), loadCmdDashboard); }
+  } catch(e) { console.error('Commodity dashboard load failed:', e); MCX.ui.error('cmdAsOf', 'Commodity dashboard failed to load: ' + e.message, loadCmdDashboard); }
   finally { cmdLoading = false; }
 }
 

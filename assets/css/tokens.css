@@ -1,0 +1,10 @@
+/* Design tokens. For now: names the page used but never defined, mapped onto
+   the existing theme variables so they follow light and dark mode. */
+:root {
+  --muted: var(--text-secondary);
+  --text-primary: var(--text);
+  --success: var(--positive);
+  --danger: var(--negative);
+  --bg-card: var(--surface);
+  --card-border: var(--border);
+}

@@ -1,0 +1,26 @@
+/* Shared components. */
+.mcx-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--negative);
+  border-radius: 4px;
+  color: var(--negative);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.mcx-retry {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.mcx-retry:hover { background: var(--surface2); }
+.mcx-retry:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
