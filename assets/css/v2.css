@@ -145,6 +145,26 @@ html.dark .c-soft { opacity: 0.72; }
 .panel-title { margin-bottom: 2px; font-size: 13px; font-weight: 600; }
 @media (max-width: 699px) { .panels { grid-template-columns: minmax(0, 1fr); gap: 20px; } }
 
+/* Fair value */
+.fv-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 32px; margin-top: 32px; }
+.fv-stats .stat { padding: 0; border-top: 0; }
+.fv-stats .stat-value { font-size: 28px; }
+.fv-stats .stat--lead .stat-value { font-size: 30px; }
+.stat-pill { margin: 4px 0 4px; }
+.c-ff-dd { fill: var(--mcx-text-3); }
+.c-ff-leg { fill: var(--mcx-border-strong); }
+.c-ff-blend { fill: var(--mcx-text); }
+.c-price { stroke: var(--mcx-text); stroke-width: 1.5px; stroke-dasharray: 4 3; }
+.chain { list-style: none; margin: 0; padding: 0; }
+.chain li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--mcx-border); }
+.chain-k { display: block; font-size: 14px; font-weight: 500; }
+.chain-n { display: block; margin-top: 2px; font-size: 12px; color: var(--mcx-text-2); }
+.chain-v { font-size: 14px; font-weight: 600; text-align: right; white-space: nowrap; }
+.chain li.last .chain-k { font-weight: 600; }
+.chain li.last .chain-v { font-size: 16px; }
+@media (max-width: 1023px) { .fv-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 24px; } }
+@media (max-width: 599px) { .fv-stats { grid-template-columns: minmax(0, 1fr); } }
+
 /* ── Today ──────────────────────────────────────────────────────────────── */
 .td-hero { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 48px; margin-top: 36px; align-items: start; }
 .td-figure { margin: 0; min-width: 0; }

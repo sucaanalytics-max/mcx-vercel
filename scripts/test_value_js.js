@@ -58,5 +58,19 @@ const adj = M.adjusted(D);
 check('both bases adjusted for past misses', [Math.round(adj.fo), Math.round(adj.all), adj.close], [487, 493, true]);
 check('no adjustment without the non-F&O basis', M.adjusted(Object.assign({}, D, { non_fo: null })), null);
 
+// Fair value
+const fvd = { bear: 2442.46, base: 2981.27, bull: 3520.07 };
+check('data-driven signal rules', [2400, 2800, 3000, 3300, 3600].map(p => M.ddSignal(p, fvd)), ['DEEP_VALUE', 'UNDERVALUED', 'FAIR', 'OVERVALUED', 'STRETCHED']);
+check('house state: within 5% of the range is near fair value', [M.houseState(3338, 3355, 3472), M.houseState(3000, 3355, 3472), M.houseState(3800, 3355, 3472)], ['near', 'below', 'above']);
+const chainD = { diluted_shares_cr: 25.451, pat_margin: 0.55, non_fo_rev_cr: 374.5, trading_days: 256 };
+check('revenue priced in at the data-driven multiple', Math.round(M.revenuePricedIn(3337.6, 40.06, chainD) * 100) / 100, 13.6);
+const V = { snapshot: { fair_value: fvd }, pe_bands: { mean: 40.06 } };
+const H = { blend: { 48: 3355, 52: 3472 }, assumptions: { pe: [48, 52], fy28_growth: 0.2 } };
+const fl = M.fvLede(3338, H, V);
+check('fair value headline', fl.head, 'The Tusk house view puts MCX close to fair value; the data-driven view has it about 12% overvalued.');
+check('fair value deck', fl.deck, 'At ₹3,338, the price sits below the house range of ₹3,355 – 3,472 and 12% above the data-driven base of ₹2,981. The gap is the multiple (48–52× forward against the stock’s own median of 40.1×) and the house’s 20% FY28 growth assumption.');
+check('well below the house range is said plainly', M.fvLede(2800, H, V).head,
+  'The Tusk house view puts MCX below fair value: the house range starts 20% above the price; the data-driven view has it about 6% undervalued.');
+
 console.log(failed ? `\n${failed} FAILED` : '\nAll value model tests passed.');
 process.exit(failed ? 1 : 0);

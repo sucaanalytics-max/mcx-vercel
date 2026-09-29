@@ -516,117 +516,49 @@
 </div><!-- /tabForecast -->
 
 <!-- ═══ TAB: FAIR VALUE (Model A) ══════════════════════════════════════════ -->
-<div id="tabValuation" class="page" hidden>
-<div class="wrap">
-
-<!-- ── HERO: Price / Fair Value / Signal ──────────────────────────────────── -->
-<div class="val-hero-grid">
-  <div class="val-hero-card">
-    <div class="val-hero-label">Market Price</div>
-    <div class="val-hero-num" id="valPrice">—</div>
-    <div class="val-hero-sub" id="valPriceDate">—</div>
-  </div>
-  <div class="val-hero-card">
-    <div class="val-hero-label">Fair Value (Base)</div>
-    <div class="val-hero-num" id="valFairBase" style="color:var(--accent2)">—</div>
-    <div class="val-hero-sub" id="valFairRange">Bear — · Bull —</div>
-  </div>
-  <div class="val-hero-card val-hero-card--signal">
-    <div class="val-hero-label">Signal</div>
-    <div id="valSignalBadge"></div>
-    <div class="val-hero-sub" id="valUpside">—</div>
-    <div class="val-hero-sub" id="valImpliedPE">Implied P/E: —</div>
-  </div>
+<div id="tabValuation" class="page page--v2" hidden>
+<div class="v2" id="fairvalue">
+<header class="lede">
+  <div class="kicker" id="fvKicker"><span class="skel"></span></div>
+  <h1 class="headline" id="fvHead">Loading&hellip;</h1>
+  <p class="deck" id="fvDeck"></p>
+</header>
+<div class="fv-stats" id="fvStats"><div class="stat stat--lead"><div class="stat-label">&nbsp;</div><div class="stat-value"><span class="skel"></span></div></div></div>
+<section class="sec" aria-labelledby="fvFfTitle" style="margin-top:36px">
+  <div class="sec-head"><div><h2 id="fvFfTitle">Every method on one scale</h2><div class="sec-sub">₹ per share · bars are ranges, ticks are central values, the dashed line is the price</div></div></div>
+  <div class="chart-box" id="fvFootball"></div>
+  <div class="basis" id="fvFootballBasis"></div>
+</section>
+<div class="two-col">
+  <section class="sec" aria-labelledby="fvHouseTitle">
+    <div class="sec-head"><div><h2 id="fvHouseTitle">How the Tusk house view is built</h2><div class="sec-sub">Forward multiple, 18% hurdle, regression and analysts blended</div></div></div>
+    <div id="fvHouseChain"></div>
+  </section>
+  <section class="sec" aria-labelledby="fvDdTitle">
+    <div class="sec-head"><div><h2 id="fvDdTitle">How the data-driven view is built</h2><div class="sec-sub">The stock’s own valuation history, applied to today’s earnings</div></div></div>
+    <div id="fvDdChain"></div>
+  </section>
 </div>
-
-<!-- ── EPS Chain: Full Transparency ──────────────────────────────────────── -->
-<div class="card" style="margin-bottom:20px;padding:20px">
-  <div class="card-label" style="margin-bottom:8px">EPS-Path Chain — Revenue to Fair Value</div>
-  <div class="val-chain-grid" id="valChainGrid">
-    <div class="val-chain-step"><div class="val-chain-key">45D Avg Rev</div><div class="val-chain-val" id="valC_ma45">—</div></div>
-    <div class="val-chain-step"><div class="val-chain-key">Annual Rev</div><div class="val-chain-val" id="valC_annRev">—</div></div>
-    <div class="val-chain-step"><div class="val-chain-key">PAT (55%)</div><div class="val-chain-val" id="valC_pat">—</div></div>
-    <div class="val-chain-step"><div class="val-chain-key">EPS</div><div class="val-chain-val" id="valC_eps">—</div></div>
-    <div class="val-chain-step"><div class="val-chain-key">P/E</div><div class="val-chain-val" id="valC_pe">—</div></div>
-    <div class="val-chain-step"><div class="val-chain-key">Fair Value</div><div class="val-chain-val" id="valC_fv">—</div></div>
-  </div>
-  <div style="font-family:var(--mono);font-size:9px;color:var(--text-secondary);margin-top:6px">
-    45DMA F&O Rev × 252 → Annual F&O → (+₹527 Cr non-F&O) → Total Rev × 55% margin → PAT ÷ 25.45 Cr shares → EPS × P/E → Fair Value
-  </div>
+<section class="sec" aria-labelledby="fvWhyTitle">
+  <div class="sec-head"><div><h2 id="fvWhyTitle">Why the two views differ</h2><div class="sec-sub">Same data, different lenses</div></div></div>
+  <div id="fvWhy"></div>
+  <div class="basis" id="fvWhyBasis"></div>
+</section>
+<section class="sec" aria-labelledby="fvSensTitle">
+  <div class="sec-head"><div><h2 id="fvSensTitle">What moves the house number</h2><div class="sec-sub">Growth assumed for FY28 revenue, at 48× and 52×</div></div></div>
+  <div id="fvSens"></div>
+  <div class="basis" id="fvSensBasis"></div>
+</section>
+<section class="sec" aria-labelledby="fvBandTitle">
+  <div class="sec-head"><div><h2 id="fvBandTitle">Price against the data-driven band <span id="fvBandRangeLabel">(60 days)</span></h2><div class="sec-sub">₹ per share, end of day</div></div><span id="fvBandRange"></span></div>
+  <div class="chart-box" id="fvBand"></div>
+  <div class="legend"><span><i class="sw sw--line"></i>Share price</span><span><i class="sw sw--typical"></i>Data-driven base</span><span><i class="sw sw--band"></i>Bear to bull band</span></div>
+</section>
+<section class="sec" aria-labelledby="fvBrTitle">
+  <div class="sec-head"><div><h2 id="fvBrTitle">Broker targets in the house blend</h2><div class="sec-sub">From the Tusk workbook; each is discounted at the hurdle from its 12-month target date. Update when new reports land.</div></div></div>
+  <div id="fvBrokers"></div>
+</section>
 </div>
-
-<!-- ── Fair Value vs Price Chart ──────────────────────────────────────────── -->
-<div class="val-chart-wrap">
-  <div class="val-chart-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-    <span>Fair Value vs Market Price <span id="valChartRangeLabel">(60 days)</span></span>
-    <span id="valChartRange"></span>
-  </div>
-  <canvas id="valChart" style="max-height:260px"></canvas>
-</div>
-
-<!-- ── P/E Gauge ──────────────────────────────────────────────────────────── -->
-<div class="val-pe-gauge">
-  <div class="val-chart-title">P/E Positioning</div>
-  <div style="font-family:var(--mono);font-size:11px;color:var(--text-secondary);margin-bottom:4px">
-    Dynamic bands: <span id="valPeMeta">mean — · sd —</span>
-  </div>
-  <div class="val-gauge-bar" id="valGaugeBar">
-    <div class="val-gauge-zone z-deep" id="valGZ_deep" style="width:20%">Deep Value</div>
-    <div class="val-gauge-zone z-under" id="valGZ_under" style="width:20%">Undervalued</div>
-    <div class="val-gauge-zone z-fair" id="valGZ_fair" style="width:20%">Fair</div>
-    <div class="val-gauge-zone z-over" id="valGZ_over" style="width:20%">Overvalued</div>
-    <div class="val-gauge-zone z-stretch" id="valGZ_stretch" style="width:20%">Stretched</div>
-    <div class="val-gauge-needle" id="valNeedle" style="left:50%"></div>
-  </div>
-  <div class="val-gauge-labels">
-    <span id="valGaugeMin">—</span>
-    <span>Bear</span>
-    <span>Base</span>
-    <span>Bull</span>
-    <span id="valGaugeMax">—</span>
-  </div>
-</div>
-
-
-<!-- ── Model Methodology ──────────────────────────────────────────────────── -->
-<div class="accordion" onclick="this.classList.toggle('open')">
-  <div class="acc-header">
-    <span>Model A: EPS-Path Fair Value — Methodology</span>
-    <span class="acc-arrow">▸</span>
-  </div>
-  <div class="acc-body">
-    <div class="kv"><span class="kv-key">Model</span><span class="kv-val">EPS-Path Fair Value (45DMA Revenue → EPS → P/E Bands)</span></div>
-    <div class="kv"><span class="kv-key">Revenue Window</span><span class="kv-val">45-day moving average of daily F&O transaction revenue</span></div>
-    <div class="kv"><span class="kv-key">Annualization</span><span class="kv-val" id="valMethodAnn">45DMA × trading days + non-F&amp;O revenue and other income</span></div>
-    <div class="kv"><span class="kv-key">PAT Margin</span><span class="kv-val" id="valMethodMargin">— of total income</span></div>
-    <div class="kv"><span class="kv-key">Diluted Shares</span><span class="kv-val">25.451 Cr (254.51M, post 1:5 split Jan 2026)</span></div>
-    <div class="kv"><span class="kv-key">P/E Bands</span><span class="kv-val" id="valMethodPE">Dynamic: mean —x ± —x SD (— observations)</span></div>
-    <div class="kv"><span class="kv-key">Signal Logic</span><span class="kv-val">DEEP_VALUE (&lt;Bear) · UNDERVALUED (&lt;Base−5%) · FAIR (±5%) · OVERVALUED (&gt;Base+5%) · STRETCHED (&gt;Bull)</span></div>
-    <div style="font-family:var(--mono);font-size:10px;color:var(--text-secondary);margin-top:12px">
-      Source: MCX BHAV copy, MCX relay EOD, Yahoo Finance (price). Refreshed daily by valuation_refresh.py → Supabase.
-      Dynamic P/E derived from all dates with paired revenue + price data.
-      Not investment advice — model reflects mechanical fair value from observable revenue trends only.
-    </div>
-  </div>
-</div>
-
-<!-- ── Data Quality ──────────────────────────────────────────────────────── -->
-<div class="accordion" onclick="this.classList.toggle('open')">
-  <div class="acc-header">
-    <span>Data Quality & Diagnostics</span>
-    <span class="acc-arrow">▸</span>
-  </div>
-  <div class="acc-body" id="valDiagnostics">
-    <div class="kv"><span class="kv-key">Valuation Rows</span><span class="kv-val" id="valDQ_rows">—</span></div>
-    <div class="kv"><span class="kv-key">History Returned</span><span class="kv-val" id="valDQ_history">—</span></div>
-    <div class="kv"><span class="kv-key">Revenue Window</span><span class="kv-val" id="valDQ_window">— days</span></div>
-    <div class="kv"><span class="kv-key">Latest Valuation</span><span class="kv-val" id="valDQ_latest">—</span></div>
-    <div class="kv"><span class="kv-key">Model Signal Rows</span><span class="kv-val" id="valDQ_mdlRows">—</span></div>
-    <div class="kv"><span class="kv-key">As Of</span><span class="kv-val" id="valDQ_asof">—</span></div>
-  </div>
-</div>
-
-</div><!-- /wrap -->
 </div><!-- /tabValuation -->
 
 <!-- ═══ SIGNALS › MODEL ENSEMBLE (from the Fair Value tab) ═════════════════ -->

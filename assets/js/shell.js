@@ -18,7 +18,7 @@
     { id: 'val-q', path: '/value/quarter', section: 'value', title: 'Quarter P&L', pages: ['tabQuarterly'], legacy: 'tabQuarterly',
       mount: () => MCX.value.quarter.mount() },
     { id: 'val-fv', path: '/value/fair-value', section: 'value', title: 'Fair value', pages: ['tabValuation'], legacy: 'tabValuation',
-      mount: () => loadValuation() },
+      mount: () => MCX.value.fairValue.mount() },
     { id: 'val-scen', path: '/value/scenarios', section: 'value', title: 'Scenarios', pages: ['tabForecast'], legacy: 'tabForecast',
       mount: () => { recalcForecast(); MCX.poll.kick('cmp'); } },
     { id: 'sig-mom', path: '/signals/momentum', section: 'signals', title: 'Momentum', pages: ['tabMomentum'], legacy: 'tabMomentum',

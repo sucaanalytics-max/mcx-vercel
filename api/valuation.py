@@ -32,6 +32,7 @@ except ImportError:
     )
 
 import math
+from lib import house_model
 
 RANGE_DAYS = {"30D": 30, "60D": 60, "Q": 63, "1Y": 252, "2Y": 504, "Max": None}
 DEFAULT_RANGE = "60D"
@@ -103,6 +104,18 @@ def _fetch_precomputed_valuations(limit=90):
             rows = supabase_read("mcx_valuation", q)
         rows = [r for r in rows if (r.get("trading_date") or "") >= "2020-01-01"]
         return sorted(rows, key=lambda r: r["trading_date"])
+    except Exception:
+        return []
+
+
+def _fetch_regression_pairs():
+    """(45-day ADR, closing price) for every day since the house regression's start."""
+    try:
+        rows = supabase_read_all(
+            "mcx_valuation",
+            f"?select=trading_date,ma45_rev_cr,close_price&trading_date=gte.{house_model.REGRESSION_START.isoformat()}"
+            f"&order=trading_date.asc", max_rows=3000)
+        return [(float(r["ma45_rev_cr"]), float(r["close_price"])) for r in rows if r.get("ma45_rev_cr") and r.get("close_price")]
     except Exception:
         return []
 
@@ -205,6 +218,14 @@ def generate_valuation(range_key=DEFAULT_RANGE):
             "ma45_rev": float(row["ma45_rev_cr"]) if row.get("ma45_rev_cr") else None,
         })
 
+    # ── Tusk house model (forward multiple, hurdle, regression, analysts) ──
+    house, house_error = None, None
+    try:
+        if latest_price:
+            house = house_model.house_view(ma45, float(latest_price), ist_now.date(), DILUTED_SHARES_CR, _fetch_regression_pairs())
+    except Exception as e:
+        house_error = str(e)[:200]
+
     return {
         "success": True,
         "model": "EPS-Path Fair Value (Model A)",
@@ -229,6 +250,8 @@ def generate_valuation(range_key=DEFAULT_RANGE):
             "data_points": len(precomputed),
         },
         "history": history,
+        "house": house,
+        "house_error": house_error,
         "data_quality": {
             "valuation_rows": len(precomputed),
             "history_returned": len(history),

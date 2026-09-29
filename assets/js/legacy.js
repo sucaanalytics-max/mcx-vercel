@@ -1,9 +1,6 @@
 // ════════════════════════════════════════════════════════════════════════════
 //  GLOBALS
 // ════════════════════════════════════════════════════════════════════════════
-let valChartInst = null;
-let valCache = null;
-let valLoading = false;
 let ecmChartInst = null;
 let mdlCache = null;
 let mdlLoading = false;
@@ -441,13 +438,6 @@ async function doRefresh(silent) {
 // ════════════════════════════════════════════════════════════════════════════
 // ── Range toggle registrations ──
 makeRangeToggle({
-  key: 'valChart', containerId: 'valChartRange',
-  ranges: ['30D','60D','Q','1Y','2Y','Max'], defaultRange: '60D',
-  labelIds: ['valChartRangeLabel'],
-  onChange: () => loadValuation()
-});
-
-makeRangeToggle({
   key: 'ecmChart', containerId: 'ecmChartRange',
   ranges: ['30D','60D','Q','1Y','2Y','Max'], defaultRange: '60D',
   labelIds: ['ecmChartRangeLabel'],
@@ -831,6 +821,7 @@ async function fetchLiveCMP() {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
     if (data.error) { console.warn('CMP fetch:', data.error); return; }
+    MCX.store.set('price', data);          // Fair value (value.js) reads the live price from here
 
     const price = Math.round(data.price);
     const priceChanged = (_lastCMPPrice !== null && _lastCMPPrice !== price);
@@ -890,55 +881,6 @@ async function fetchLiveCMP() {
     // Recalculate model with new CMP
     recalcForecast();
 
-    // ── Update Fair Value tab market price in real-time ──
-    const valPriceEl = document.getElementById('valPrice');
-    if (valPriceEl) {
-      valPriceEl.textContent = '₹' + price.toLocaleString('en-IN');
-      if (priceChanged) {
-        valPriceEl.classList.remove('price-flash');
-        void valPriceEl.offsetWidth;
-        valPriceEl.classList.add('price-flash');
-      }
-      const src = data.source || '?';
-      const cached = data.cached ? ' (cached)' : '';
-      const fetchedAt = data.fetched_at ? new Date(data.fetched_at) : new Date();
-      const secs = Math.round((Date.now() - fetchedAt.getTime()) / 1000);
-      const ago = secs < 5 ? 'just now' : secs < 60 ? secs + 's ago' : Math.floor(secs / 60) + 'm ago';
-      document.getElementById('valPriceDate').textContent = `Live · ${src}${cached} · ${ago}`;
-    }
-    // Recalculate Fair Value metrics with live price
-    if (valCache && valCache.snapshot) {
-      const s = valCache.snapshot;
-      const fvBase = s.fair_value && s.fair_value.base;
-      const fvBear = s.fair_value && s.fair_value.bear;
-      const fvBull = s.fair_value && s.fair_value.bull;
-      const eps = s.current_eps;
-      if (fvBase > 0) {
-        // Upside/downside
-        const upside = ((fvBase - price) / price * 100);
-        const upsideEl = document.getElementById('valUpside');
-        if (upsideEl) {
-          const arrow = upside >= 0 ? '↑' : '↓';
-          const cls = upside >= 0 ? 'val-upside' : 'val-downside';
-          upsideEl.innerHTML = `<span class="${cls}" style="font-size:18px;font-weight:800">${arrow} ${Math.abs(upside).toFixed(1)}% ${upside >= 0 ? 'upside' : 'downside'} to base</span>`;
-        }
-        // Implied P/E
-        if (eps > 0) {
-          document.getElementById('valImpliedPE').textContent = `Implied P/E: ${(price / eps).toFixed(1)}x`;
-        }
-        // Signal classification (mirrors valuation.py classify_signal)
-        let sig = 'FAIR';
-        if (price < fvBear) sig = 'DEEP_VALUE';
-        else if (price < fvBase * 0.95) sig = 'UNDERVALUED';
-        else if (price <= fvBase * 1.05) sig = 'FAIR';
-        else if (price <= fvBull) sig = 'OVERVALUED';
-        else sig = 'STRETCHED';
-        const sigLabels = { 'DEEP_VALUE': 'Deep Value', 'UNDERVALUED': 'Undervalued', 'FAIR': 'Fair Value', 'OVERVALUED': 'Overvalued', 'STRETCHED': 'Stretched' };
-        const sigBadge = document.getElementById('valSignalBadge');
-        if (sigBadge) sigBadge.innerHTML = `<span class="val-signal ${sig}">${sigLabels[sig]}</span>`;
-      }
-    }
-
     console.log(`CMP updated: ₹${price} (${data.source})`);
   } catch (e) {
     console.warn('CMP auto-fetch failed:', e.message);
@@ -963,305 +905,11 @@ async function fetchLiveCMP() {
   renderIntradayChart();
   // Auto-fetch live CMP on page load
   fetchLiveCMP();
-  // Refresh CMP every 60 s, only in NSE hours, while Scenarios (the page that shows it) is on screen
+  // Refresh CMP every 60 s, only in NSE hours, while a page that shows it (Scenarios, Fair value) is on screen
   MCX.poll.every('cmp', fetchLiveCMP, 60 * 1000, () =>
-    MCX.market.nseOpen() && !document.hidden && MCX.router.current() === 'val-scen');
+    MCX.market.nseOpen() && !document.hidden && ['val-scen', 'val-fv'].includes(MCX.router.current()));
 })();
 
-// ════════════════════════════════════════════════════════════════════════════
-//  VALUATION TAB — EPS-Path Fair Value Model (Model A)
-// ════════════════════════════════════════════════════════════════════════════
-
-async function loadValuation() {
-  if (valLoading) return;
-  valLoading = true;
-
-  try {
-    const data = await fetchRanged('/api/valuation?range=' + encodeURIComponent(rangeState['valChart'] || '60D'));
-    if (!data.success) throw new Error(data.error || 'No valuation data');
-    data._ts = Date.now();
-    valCache = data;
-    renderValuation(data);
-  } catch (e) {
-    console.error('Valuation load error:', e);
-    document.getElementById('valPrice').textContent = 'Error';
-    document.getElementById('valFairBase').textContent = e.message.slice(0, 60);
-  } finally {
-    valLoading = false;
-  }
-  // Also load Models B + C + Ensemble (parallel, non-blocking)
-  loadModels();
-}
-
-function renderValuation(data) {
-  const s = data.snapshot;
-  const pe = data.pe_bands;
-  const dq = data.data_quality;
-
-  // ── Hero cards ──
-  // Use live CMP if available (from fetchLiveCMP), else fall back to EOD price from API
-  const livePrice = FC.currentPrice;
-  const price = livePrice || s.latest_price;
-  if (livePrice) {
-    document.getElementById('valPrice').textContent = `₹${Math.round(livePrice).toLocaleString('en-IN')}`;
-    document.getElementById('valPriceDate').textContent = `Live · ${document.getElementById('fcCmpSource')?.textContent?.replace('Live: ', '') || 'auto'}`;
-  } else {
-    document.getElementById('valPrice').textContent = price ? `₹${Math.round(price).toLocaleString('en-IN')}` : '—';
-    document.getElementById('valPriceDate').textContent = s.latest_price_date ? `As of ${s.latest_price_date}` : '';
-  }
-
-  const fvBase = s.fair_value.base;
-  document.getElementById('valFairBase').textContent = fvBase ? `₹${Math.round(fvBase).toLocaleString('en-IN')}` : '—';
-  document.getElementById('valFairRange').textContent =
-    `Bear ₹${Math.round(s.fair_value.bear).toLocaleString('en-IN')} · Bull ₹${Math.round(s.fair_value.bull).toLocaleString('en-IN')}`;
-
-  // Signal badge + Upside — recalculate with live price if available
-  const fvBear = s.fair_value.bear;
-  const fvBull = s.fair_value.bull;
-  const eps = s.current_eps;
-  const sigLabels = {
-    'DEEP_VALUE': 'Deep Value', 'UNDERVALUED': 'Undervalued', 'FAIR': 'Fair Value',
-    'OVERVALUED': 'Overvalued', 'STRETCHED': 'Stretched', 'NO_PRICE': 'No Price', 'NO_DATA': 'No Data'
-  };
-
-  let sig = s.signal || 'NO_DATA';
-  let upsidePct = s.upside_to_base_pct;
-  let impliedPE = s.implied_pe;
-
-  // Recalculate with live price (mirrors valuation.py classify_signal)
-  if (livePrice && fvBase > 0) {
-    upsidePct = (fvBase - livePrice) / livePrice * 100;
-    if (eps > 0) impliedPE = (livePrice / eps).toFixed(1);
-    if (livePrice < fvBear) sig = 'DEEP_VALUE';
-    else if (livePrice < fvBase * 0.95) sig = 'UNDERVALUED';
-    else if (livePrice <= fvBase * 1.05) sig = 'FAIR';
-    else if (livePrice <= fvBull) sig = 'OVERVALUED';
-    else sig = 'STRETCHED';
-  }
-
-  const signalEl = document.getElementById('valSignalBadge');
-  signalEl.innerHTML = `<span class="val-signal ${sig}">${sigLabels[sig] || sig}</span>`;
-
-  // Upside
-  const upsideEl = document.getElementById('valUpside');
-  if (upsidePct !== null && upsidePct !== undefined) {
-    const pct = upsidePct;
-    const cls = pct >= 0 ? 'val-upside' : 'val-downside';
-    const arrow = pct >= 0 ? '↑' : '↓';
-    upsideEl.innerHTML = `<span class="${cls}" style="font-size:18px;font-weight:800">${arrow} ${Math.abs(pct).toFixed(1)}% ${pct >= 0 ? 'upside' : 'downside'} to base</span>`;
-  } else {
-    upsideEl.textContent = '—';
-  }
-  document.getElementById('valImpliedPE').textContent = impliedPE ? `Implied P/E: ${impliedPE}x` : 'Implied P/E: —';
-
-  // ── EPS Chain ──
-  const c = s.eps_chain;
-  if (c) {
-    document.getElementById('valC_ma45').textContent = `₹${c.ma45_rev_cr} Cr`;
-    document.getElementById('valC_annRev').textContent = `₹${Math.round(c.annual_total_rev_cr).toLocaleString('en-IN')} Cr`;
-    document.getElementById('valC_pat').textContent = `₹${Math.round(c.pat_cr).toLocaleString('en-IN')} Cr`;
-    document.getElementById('valC_eps').textContent = `₹${c.eps}`;
-    document.getElementById('valC_pe').textContent = pe.mean ? `${pe.mean}x` : '—';
-    document.getElementById('valC_fv').textContent = `₹${Math.round(fvBase).toLocaleString('en-IN')}`;
-  }
-
-  // ── P/E Gauge ──
-  document.getElementById('valPeMeta').textContent = `mean ${pe.mean}x · sd ${pe.sd}x · ${pe.data_points} obs`;
-  document.getElementById('valMethodPE').textContent =
-    `Dynamic: mean ${pe.mean}x ± ${pe.sd}x SD (${pe.data_points} observations)`;
-  if (c) {
-    document.getElementById('valMethodAnn').textContent =
-      `45DMA × ${c.trading_days} trading days + ₹${c.non_fo_rev_cr} Cr non-F&O revenue and other income`;
-    document.getElementById('valMethodMargin').textContent =
-      `${Math.round(c.pat_margin * 100)}% of total income (PAT ÷ total income, FY26 and Q1 FY27)`;
-  }
-
-  renderPEGauge(s, pe);
-
-  // ── Chart ──
-  renderValuationChart(data.history);
-
-  // ── Data Quality ──
-  document.getElementById('valDQ_rows').textContent = dq.valuation_rows;
-  document.getElementById('valDQ_history').textContent = dq.history_returned;
-  document.getElementById('valDQ_window').textContent = `${dq.revenue_window} days`;
-  document.getElementById('valDQ_latest').textContent = dq.latest_valuation_date;
-  document.getElementById('valDQ_asof').textContent = data.as_of;
-}
-
-function renderPEGauge(snapshot, peBands) {
-  const price = snapshot.latest_price;
-  const fvBear = snapshot.fair_value.bear;
-  const fvBull = snapshot.fair_value.bull;
-  if (!price || !fvBear || !fvBull) return;
-
-  // Gauge range: 0.7× bear to 1.3× bull
-  const gaugeMin = Math.round(fvBear * 0.7);
-  const gaugeMax = Math.round(fvBull * 1.3);
-  const range = gaugeMax - gaugeMin;
-
-  // Position needle
-  const needlePct = Math.max(0, Math.min(100, ((price - gaugeMin) / range) * 100));
-  document.getElementById('valNeedle').style.left = needlePct + '%';
-
-  // Update labels
-  document.getElementById('valGaugeMin').textContent = `₹${gaugeMin.toLocaleString('en-IN')}`;
-  document.getElementById('valGaugeMax').textContent = `₹${gaugeMax.toLocaleString('en-IN')}`;
-
-  // Set zone widths based on actual fair value positions
-  const bearPct = ((fvBear - gaugeMin) / range) * 100;
-  const baseFv = snapshot.fair_value.base;
-  const baseLow = baseFv * 0.95;
-  const baseHigh = baseFv * 1.05;
-  const underPct = ((baseLow - fvBear) / range) * 100;
-  const fairPct = ((baseHigh - baseLow) / range) * 100;
-  const overPct = ((fvBull - baseHigh) / range) * 100;
-  const stretchPct = 100 - bearPct - underPct - fairPct - overPct;
-
-  document.getElementById('valGZ_deep').style.width = Math.max(bearPct, 5) + '%';
-  document.getElementById('valGZ_under').style.width = Math.max(underPct, 5) + '%';
-  document.getElementById('valGZ_fair').style.width = Math.max(fairPct, 5) + '%';
-  document.getElementById('valGZ_over').style.width = Math.max(overPct, 5) + '%';
-  document.getElementById('valGZ_stretch').style.width = Math.max(stretchPct, 5) + '%';
-}
-
-function renderValuationChart(history) {
-  if (!history || history.length === 0) return;
-  const canvas = document.getElementById('valChart');
-  if (!canvas) return;
-
-  const labels = history.map(h => h.date.slice(5)); // MM-DD
-  const prices = history.map(h => h.price);
-  const fairBear = history.map(h => h.fair_bear);
-  const fairBase = history.map(h => h.fair_base);
-  const fairBull = history.map(h => h.fair_bull);
-
-  // Append live CMP as "today" if available and not already in history
-  const livePrice = FC.currentPrice;
-  if (livePrice && history.length > 0) {
-    const today = new Date().toISOString().slice(0, 10);
-    const lastDate = history[history.length - 1].date;
-    if (today > lastDate) {
-      const last = history[history.length - 1];
-      labels.push(today.slice(5));
-      prices.push(livePrice);
-      fairBear.push(last.fair_bear);
-      fairBase.push(last.fair_base);
-      fairBull.push(last.fair_bull);
-    }
-  }
-
-  const isDark = document.documentElement.classList.contains('dark');
-  const gridColor = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
-  const textColor = isDark ? '#888' : '#999';
-
-  if (valChartInst) {
-    valChartInst.destroy();
-    valChartInst = null;
-  }
-
-  valChartInst = new Chart(canvas.getContext('2d'), {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: 'Market Price',
-          data: prices,
-          borderColor: isDark ? '#E0DDD8' : '#1A1A1A',
-          backgroundColor: 'transparent',
-          borderWidth: 2.5,
-          pointRadius: 0,
-          pointHoverRadius: 4,
-          tension: 0.2,
-          spanGaps: true,
-          order: 1,
-        },
-        {
-          label: 'Fair Value (Base)',
-          data: fairBase,
-          borderColor: isDark ? '#5B9CF5' : '#0958D9',
-          backgroundColor: 'transparent',
-          borderWidth: 2,
-          borderDash: [6, 3],
-          pointRadius: 0,
-          tension: 0.2,
-          order: 2,
-        },
-        {
-          label: 'Bear',
-          data: fairBear,
-          borderColor: isDark ? '#52C41A' : '#1B7D3A',
-          backgroundColor: 'transparent',
-          borderWidth: 1,
-          borderDash: [3, 3],
-          pointRadius: 0,
-          tension: 0.2,
-          fill: false,
-          order: 3,
-        },
-        {
-          label: 'Bull',
-          data: fairBull,
-          borderColor: isDark ? '#FF4D4F' : '#CF1322',
-          backgroundColor: 'transparent',
-          borderWidth: 1,
-          borderDash: [3, 3],
-          pointRadius: 0,
-          tension: 0.2,
-          fill: '-1', // fill between bear and bull
-          order: 4,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: {
-          display: true,
-          position: 'top',
-          align: 'end',
-          labels: {
-            font: { family: "'JetBrains Mono'", size: 10 },
-            color: textColor,
-            boxWidth: 16,
-            padding: 12,
-          },
-        },
-        tooltip: {
-          backgroundColor: isDark ? '#333' : '#1A1A1A',
-          titleFont: { family: "'JetBrains Mono'", size: 10 },
-          bodyFont: { family: "'JetBrains Mono'", size: 11 },
-          padding: 10,
-          callbacks: {
-            label: ctx => `${ctx.dataset.label}: ₹${Math.round(ctx.parsed.y).toLocaleString('en-IN')}`,
-          },
-        },
-      },
-      scales: {
-        x: {
-          grid: { color: gridColor },
-          ticks: {
-            font: { family: "'JetBrains Mono'", size: 9 },
-            color: textColor,
-            maxRotation: 45,
-            maxTicksLimit: 12,
-          },
-        },
-        y: {
-          grid: { color: gridColor },
-          ticks: {
-            font: { family: "'JetBrains Mono'", size: 10 },
-            color: textColor,
-            callback: v => '₹' + v.toLocaleString('en-IN'),
-          },
-        },
-      },
-    },
-  });
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 //  MODELS B + C + ENSEMBLE — Multi-Model Signal Dashboard
@@ -1398,7 +1046,8 @@ function renderModels(data) {
 
   // ── Data Quality extension ──
   if (data.data_quality) {
-    document.getElementById('valDQ_mdlRows').textContent = data.data_quality.total_rows || '—';
+    const dqEl = document.getElementById('valDQ_mdlRows');   // on the old Fair value page; gone since Phase 6
+    if (dqEl) dqEl.textContent = data.data_quality.total_rows || '—';
   }
 
   // ── ECM Chart ──

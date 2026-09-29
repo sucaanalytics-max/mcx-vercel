@@ -56,7 +56,40 @@
     return { fo: a, all: b, close: Math.abs(a - b) / ((a + b) / 2) < 0.05 };
   }
 
-  MCX.valueModel = { quarterLede, adjusted, missStory, words };
+  // Data-driven signal from a price and the P/E band (same rules as api/valuation.py)
+  function ddSignal(price, fv) {
+    if (!price || !fv || !fv.base) return 'NO_DATA';
+    if (price < fv.bear) return 'DEEP_VALUE';
+    if (price < fv.base * 0.95) return 'UNDERVALUED';
+    if (price <= fv.base * 1.05) return 'FAIR';
+    if (price <= fv.bull) return 'OVERVALUED';
+    return 'STRETCHED';
+  }
+  // Where the price sits against the house range: within 5% of it counts as close to fair value
+  function houseState(price, lo, hi) {
+    if (lo <= price * 1.05 && hi >= price * 0.95) return 'near';
+    return lo > price ? 'below' : 'above';
+  }
+  // Daily revenue the price implies at the data-driven multiple
+  function revenuePricedIn(price, pe, c) {
+    return ((price / pe) * c.diluted_shares_cr / c.pat_margin - c.non_fo_rev_cr) / c.trading_days;
+  }
+  function fvLede(price, h, v) {
+    const fv = v.snapshot.fair_value, pe = v.pe_bands.mean;
+    const lo = h.blend['48'], hi = h.blend['52'];
+    const st = houseState(price, lo, hi);
+    const prem = (price / fv.base - 1) * 100;
+    const house = st === 'near' ? 'close to fair value' : st === 'below' ? `below fair value: the house range starts ${Math.round((lo / price - 1) * 100)}% above the price`
+                                                        : `above fair value: the house range tops out ${Math.round((1 - hi / price) * 100)}% below the price`;
+    const dd = Math.abs(prem) < 5 ? 'the data-driven view has it near fair value' : `the data-driven view has it about ${Math.round(Math.abs(prem))}% ${prem > 0 ? 'overvalued' : 'undervalued'}`;
+    const head = `The Tusk house view puts MCX ${house}; ${dd}.`;
+    const inside = price >= lo && price <= hi ? 'inside' : price < lo ? 'below' : 'above';
+    const deck = `At ₹${num(price, 0)}, the price sits ${inside} the house range of ₹${num(lo, 0)} – ${num(hi, 0)} and ${Math.abs(prem).toFixed(0)}% ${prem >= 0 ? 'above' : 'below'} the data-driven base of ₹${num(fv.base, 0)}. `
+      + `The gap is the multiple (${h.assumptions.pe[0]}–${h.assumptions.pe[1]}× forward against the stock’s own median of ${num(pe, 1)}×) and the house’s ${Math.round(h.assumptions.fy28_growth * 100)}% FY28 growth assumption.`;
+    return { head, deck, state: st, prem };
+  }
+
+  MCX.valueModel = { quarterLede, adjusted, missStory, words, ddSignal, houseState, revenuePricedIn, fvLede };
   if (window.MCX_TEST) return;
 
   // ════════════════════════════════════════════════════════════════════════
@@ -254,5 +287,191 @@
   });
   onResize($('quarter'), () => QS.data && renderQuarter());
 
-  MCX.value = { quarter: { mount: mountQuarter } };
+  // ════════════════════════════════════════════════════════════════════════
+  //  Fair value
+  // ════════════════════════════════════════════════════════════════════════
+  const FV = { data: null, price: null };
+  const valUrl = () => '/api/valuation?range=' + encodeURIComponent(rangeState.valChart || '60D');
+  const SIGNALS = { DEEP_VALUE: ['strong-up', '▲▲', 'Deep value'], UNDERVALUED: ['up', '▲', 'Undervalued'], FAIR: ['', '', 'Fair'],
+                    OVERVALUED: ['down', '▼', 'Overvalued'], STRETCHED: ['strong-down', '▼▼', 'Stretched'] };
+  const sigPill = sig => { const m = SIGNALS[sig] || ['none', '', 'No data']; return `<span class="pill${m[0] ? ' pill--' + m[0] : ''}">${m[1] ? `<span aria-hidden="true">${m[1]}</span>` : ''}${m[2]}</span>`; };
+  const pct = v => `${v >= 0 ? '+' : '−'}${num(Math.abs(v), 1)}%`;
+  const rs = v => `₹${num(v, 0)}`;
+
+  function currentPrice() {
+    const live = MCX.store.get('price');
+    const snap = FV.data && FV.data.snapshot;
+    if (live && live.price) return { price: live.price, change: live.change_pct, label: live.fetched_at ? `live, ${new Date(live.fetched_at).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' })} IST` : 'live' };
+    return snap && snap.latest_price ? { price: snap.latest_price, change: null, label: `close ${fmt.dayMonth(snap.latest_price_date)}` } : null;
+  }
+
+  // Every method on one scale: bars are ranges, ticks are central values, the dashed line is the price
+  function footballSvg(w, rows, price) {
+    const compact = w < 640;
+    const vals = rows.flatMap(r => (r.group ? [] : [r.lo, r.hi, r.mark].filter(v => v !== null && v !== undefined))).concat(price);
+    const step = 400, lo = Math.floor(Math.min(...vals) * 0.95 / step) * step, hi = Math.ceil(Math.max(...vals) * 1.03 / step) * step;
+    const labW = compact ? 0 : 280, valW = compact ? 0 : 190;
+    const X = v => labW + (w - labW - valW) * (v - lo) / (hi - lo);
+    let y = 34;
+    const body = [];
+    rows.forEach(r => {
+      if (r.group) { y += 8; body.push(V.text(0, y + 4, 'c-label3', esc(r.group))); y += 20; return; }
+      if (compact) { body.push(V.text(0, y + 2, 'c-label', esc(r.name)) + V.text(w, y + 2, 'c-label', r.value, 'end')); y += 12; }
+      else { body.push(V.text(0, y + 9, r.kind === 'blend' ? 'c-label' : 'c-label', esc(r.name)) + V.text(0, y + 25, 'c-label2', r.sub)); }
+      const hgt = r.kind === 'blend' ? 18 : 14, cy = y + 8;
+      if (r.kind === 'whisker') {
+        body.push(`<line x1="${X(r.lo).toFixed(1)}" x2="${X(r.hi).toFixed(1)}" y1="${cy}" y2="${cy}" class="c-whisker"/>`
+          + [r.lo, r.hi].map(v => `<line x1="${X(v).toFixed(1)}" x2="${X(v).toFixed(1)}" y1="${cy - 6}" y2="${cy + 6}" class="c-whisker"/>`).join(''));
+      } else {
+        body.push(`<rect x="${X(r.lo).toFixed(1)}" y="${(cy - hgt / 2).toFixed(1)}" width="${Math.max(X(r.hi) - X(r.lo), 3).toFixed(1)}" height="${hgt}" rx="3" class="${r.kind === 'blend' ? 'c-ff-blend' : r.kind === 'dd' ? 'c-ff-dd' : 'c-ff-leg'}"><title>${esc(r.name)}: ${rs(r.lo)} – ${rs(r.hi)}</title></rect>`);
+      }
+      if (r.mark !== null && r.mark !== undefined) body.push(`<rect x="${(X(r.mark) - 2).toFixed(1)}" y="${cy - 11}" width="4" height="22" rx="1" class="c-dot"/>`);
+      if (!compact) body.push(V.text(w, y + 13, 'c-label', r.value, 'end'));
+      y += compact ? 30 : 48;
+    });
+    const h = y + 18;
+    const s = [V.open(w, h, 'Valuation methods on one scale: ' + rows.filter(r => !r.group).map(r => `${r.name} ${rs(r.lo)} to ${rs(r.hi)}`).join('; ') + `; price ${rs(price)}`)];
+    for (let v = lo; v <= hi; v += step) {
+      s.push(`<line x1="${X(v).toFixed(1)}" x2="${X(v).toFixed(1)}" y1="26" y2="${h - 18}" class="c-grid"/>`);
+      s.push(V.text(X(v), h - 2, 'c-tick', `₹${num(v, 0)}`, 'middle'));
+    }
+    s.push(...body);
+    const px = X(price);
+    s.push(`<line x1="${px.toFixed(1)}" x2="${px.toFixed(1)}" y1="20" y2="${h - 18}" class="c-price"/>`);
+    s.push(V.text(px, 13, 'c-label', `Price ${rs(price)}`, 'middle', true));
+    s.push('</svg>');
+    return s.join('');
+  }
+
+  // Price against the data-driven band over the chosen range
+  function bandSvg(w, hist) {
+    const pts = hist.filter(x => x.fair_base);
+    if (pts.length < 2) return { svg: '' };
+    const compact = w < 520, h = compact ? 220 : 280;
+    const all = pts.flatMap(x => [x.fair_bear, x.fair_bull, x.price].filter(Boolean));
+    const vmin = Math.floor(Math.min(...all) * 0.95 / 100) * 100, vmax = Math.ceil(Math.max(...all) * 1.03 / 100) * 100;
+    const f = V.frame(w, h, vmax, [compact ? 44 : 56, compact ? 8 : 140, 12, 30], vmin);
+    const X = i => f.pl + f.iw * i / (pts.length - 1);
+    const s = [V.open(w, h, `Share price against the data-driven fair value band, ${pts.length} sessions`)];
+    s.push(V.grid(f, V.niceTicks(vmax, compact ? 3 : 4, vmin), v => `₹${num(v, 0)}`));
+    const up = pts.map((p, i) => `${X(i).toFixed(1)},${f.y(p.fair_bull).toFixed(1)}`), dn = pts.map((p, i) => `${X(i).toFixed(1)},${f.y(p.fair_bear).toFixed(1)}`).reverse();
+    s.push(`<path d="M${up.join('L')}L${dn.join('L')}Z" class="c-band"/>`);
+    s.push(`<path d="M${pts.map((p, i) => `${X(i).toFixed(1)},${f.y(p.fair_base).toFixed(1)}`).join('L')}" class="c-typical"/>`);
+    const pp = pts.map((p, i) => (p.price ? `${X(i).toFixed(1)},${f.y(p.price).toFixed(1)}` : null)).filter(Boolean);
+    if (pp.length > 1) s.push(`<path d="M${pp.join('L')}" class="c-line"/>`);
+    if (!compact) {
+      const L = pts[pts.length - 1];
+      V.spread([L.price ? { y: f.y(L.price) + 4, s: `Price ₹${num(L.price, 0)}`, cls: 'c-label' } : null,
+                { y: f.y(L.fair_base) + 4, s: `Base ₹${num(L.fair_base, 0)}`, cls: 'c-label2' },
+                { y: f.y(L.fair_bull) + 4, s: `Bull ₹${num(L.fair_bull, 0)}`, cls: 'c-label3' },
+                { y: f.y(L.fair_bear) + 4, s: `Bear ₹${num(L.fair_bear, 0)}`, cls: 'c-label3' }].filter(Boolean), 14, f.pt + 4, f.h - f.pb)
+        .forEach(it => s.push(V.text(f.w - f.pr + 12, it.y, it.cls, it.s)));
+    }
+    s.push(V.text(f.pl, h - 8, 'c-tick', fmt.dayMonth(pts[0].date)) + V.text(f.w - f.pr, h - 8, 'c-tick', fmt.dayMonth(pts[pts.length - 1].date), 'end'));
+    s.push('</svg>');
+    const xs = pts.map((_, i) => X(i));
+    const tip = i => `<strong>${fmt.day(pts[i].date)}</strong><br>Price ${pts[i].price ? '₹' + num(pts[i].price, 0) : '—'}<br><span class="c-tip-sub">Base ₹${num(pts[i].fair_base, 0)} · bear ₹${num(pts[i].fair_bear, 0)} · bull ₹${num(pts[i].fair_bull, 0)}</span>`;
+    return { svg: s.join(''), f, xs, tip };
+  }
+
+  function chain(steps) {
+    return '<ol class="chain">' + steps.map(([k, v, note], i) => `<li${i === steps.length - 1 ? ' class="last"' : ''}><span><span class="chain-k">${k}</span>${note ? `<span class="chain-n">${note}</span>` : ''}</span><span class="chain-v">${v}</span></li>`).join('') + '</ol>';
+  }
+
+  function renderFairValue() {
+    const v = FV.data;
+    if (!v) return;
+    const h = v.house, snap = v.snapshot, c = snap.eps_chain, pb = v.pe_bands, fv = snap.fair_value;
+    const cp = currentPrice();
+    if (!cp || !h) { MCX.ui.error($('fvStats'), v.house_error ? 'House model unavailable: ' + v.house_error : 'No share price yet.', mountFairValue); return; }
+    const price = cp.price, pe = pb.mean;
+    const l = fvLede(price, h, v);
+    $('fvKicker').textContent = `Fair value · two views · ADR to ${fmt.dayMonth(v.data_quality.latest_valuation_date)}, price ${cp.label}`;
+    $('fvHead').textContent = l.head;
+    $('fvDeck').textContent = l.deck;
+    const lo = h.blend['48'], hi = h.blend['52'];
+    const implied = revenuePricedIn(price, pe, c);
+    const perCr = c.trading_days * c.pat_margin / c.diluted_shares_cr * pe;
+    const stateLabel = { near: ['', 'Near fair value'], below: ['up', 'Below the house range'], above: ['down', 'Above the house range'] }[l.state];
+    $('fvStats').innerHTML =
+      stat('Share price', `₹${num(price, 0)}`, `${cp.change !== null && cp.change !== undefined ? `<span class="${cp.change >= 0 ? 'up' : 'down'}">${cp.change >= 0 ? '▲' : '▼'} ${num(Math.abs(cp.change), 2)}%</span> today · ` : ''}NSE, ${esc(cp.label)}`, true)
+      + stat('Tusk house view', `₹${num(lo, 0)} – ${num(hi, 0)}`, `<div class="stat-pill"><span class="pill${stateLabel[0] ? ' pill--' + stateLabel[0] : ''}">${stateLabel[1]}</span></div>${pct((lo / price - 1) * 100)} to ${pct((hi / price - 1) * 100)} vs price`)
+      + stat('Data-driven view', `₹${num(fv.base, 0)}`, `<div class="stat-pill">${sigPill(ddSignal(price, fv))}</div>price ${Math.abs(l.prem).toFixed(1)}% ${l.prem >= 0 ? 'above' : 'below'}`)
+      + stat('Revenue priced in', `₹${num(implied, 2)}<small>Cr/day</small>`, `at the data-driven multiple · 45-day average ₹${num(c.ma45_rev_cr, 2)} Cr`);
+
+    const reg = h.regression, pvs = h.analysts.map(a => a.present_value);
+    const rows = [
+      { group: 'Data-driven' },
+      { name: 'P/E band on run-rate EPS', sub: `${num(pb.bear_pe, 1)}–${num(pb.bull_pe, 1)}× · base ${num(pe, 1)}×`, lo: fv.bear, hi: fv.bull, mark: fv.base, kind: 'dd',
+        value: `${rs(fv.base)} <tspan class="c-label2">(${num(fv.bear, 0)}–${num(fv.bull, 0)})</tspan>` },
+      { group: 'Tusk house model' },
+      { name: 'ADR model', sub: `${h.assumptions.pe[0]}–${h.assumptions.pe[1]}× FY28E EPS, ${Math.round(h.assumptions.hurdle * 100)}% hurdle`, lo: h.adr_leg['48'], hi: h.adr_leg['52'], mark: null, kind: 'leg', value: `${rs(h.adr_leg['48'])} – ${num(h.adr_leg['52'], 0)}` },
+      reg ? { name: 'Regression', sub: 'price on 45-day ADR · 95% band', lo: reg.low, hi: reg.high, mark: reg.value, kind: 'whisker', value: rs(reg.value) } : null,
+      { name: 'Analyst targets', sub: `${h.analysts.length} brokers, discounted at ${Math.round(h.assumptions.hurdle * 100)}%`, lo: Math.min(...pvs), hi: Math.max(...pvs), mark: h.analyst_leg, kind: 'leg',
+        value: `${rs(h.analyst_leg)} <tspan class="c-label2">(${num(Math.min(...pvs), 0)}–${num(Math.max(...pvs), 0)})</tspan>` },
+      { name: 'House blend', sub: `average of the ${reg ? 'three' : 'two'} legs`, lo, hi, mark: null, kind: 'blend', value: `${rs(lo)} – ${num(hi, 0)}` },
+    ].filter(Boolean);
+    const box = $('fvFootball');
+    box.innerHTML = footballSvg(Math.round(box.clientWidth) || 1000, rows, price);
+    $('fvFootballBasis').innerHTML = INFO + `<span>The regression is refitted on ${reg ? reg.n : '—'} sessions since ${reg ? fmt.dayMonth(reg.since) + ' ' + reg.since.slice(0, 4) : '—'} (price ≈ ${reg ? num(reg.a, 0) : '—'} + ${reg ? num(reg.b, 1) : '—'} × ADR${reg && reg.r_squared ? `, R² ${num(reg.r_squared, 2)}` : ''}). `
+      + `Analyst targets are from the Tusk workbook (reports of ${esc([...new Set(h.analysts.map(a => fmt.dayMonth(a.report_date).split(' ')[1]))].join(' and '))} 2026), each discounted from its 12-month target date.</span>`;
+
+    $('fvHouseChain').innerHTML = chain([
+      ['FY27E EPS', `₹${num(h.eps27, 2)}`, `ADR ₹${num(h.adr_cr, 2)} Cr × ${h.assumptions.days.FY27} days + non-F&amp;O ₹${num(h.non_fo_fy27_cr, 0)} Cr, × ${Math.round(h.assumptions.margin * 100)}% margin, ÷ ${num(h.shares_cr, 3)} Cr shares`],
+      ['FY28E EPS', `₹${num(h.eps28, 2)}`, `House assumption: ADR and non-F&amp;O both +${Math.round(h.assumptions.fy28_growth * 100)}%, over FY28’s ${h.assumptions.days.FY28} trading days`],
+      [`Target price at ${fmt.dayMonth(h.assumptions.target_date)} ${h.assumptions.target_date.slice(0, 4)}`, `₹${num(h.target['48'], 0)} – ${num(h.target['52'], 0)}`, `${h.assumptions.pe[0]}–${h.assumptions.pe[1]}× forward P/E on FY28E EPS`],
+      ['ADR model today', `₹${num(h.adr_leg['48'], 0)} – ${num(h.adr_leg['52'], 0)}`, `Discounted at the ${Math.round(h.assumptions.hurdle * 100)}% hurdle for ${num(h.years_to_target, 2)} years`],
+      ['House blend', `₹${num(lo, 0)} – ${num(hi, 0)}`, `Average of ADR model${reg ? `, regression ₹${num(reg.value, 0)}` : ''} and analysts ₹${num(h.analyst_leg, 0)}`],
+    ]);
+    $('fvDdChain').innerHTML = chain([
+      ['Run-rate EPS', `₹${num(c.eps, 2)}`, `ADR ₹${num(c.ma45_rev_cr, 2)} Cr × ${c.trading_days} days + non-F&amp;O ₹${num(c.non_fo_rev_cr, 1)} Cr, × ${Math.round(c.pat_margin * 100)}%, ÷ ${num(c.diluted_shares_cr, 3)} Cr shares`],
+      ['Multiple', `${num(pe, 1)}×`, `Median of the stock’s own P/E on run-rate EPS; band ±1 SD = ${num(pb.bear_pe, 1)}–${num(pb.bull_pe, 1)}×`],
+      ['Fair value today', `₹${num(fv.base, 0)}`, `Range ₹${num(fv.bear, 0)} – ${num(fv.bull, 0)} · no discounting: a spot multiple on current earnings`],
+      ['Revenue priced in', `₹${num(implied, 2)} Cr/day`, `What today’s price needs at ${num(pe, 1)}×; each ₹1 Cr a day is worth about ₹${num(perCr, 0)} a share`],
+    ]);
+
+    $('fvWhy').innerHTML = table(['', 'Tusk house', 'Data-driven'], [
+      ['Earnings used', `FY28E ₹${num(h.eps28, 2)}`, `Run-rate ₹${num(c.eps, 2)}`],
+      ['Multiple', `${h.assumptions.pe[0]}–${h.assumptions.pe[1]}× forward`, `${num(pe, 1)}× median of own history`],
+      ['Discounting', `${Math.round(h.assumptions.hurdle * 100)}% hurdle, ${num(h.years_to_target, 2)} years`, 'Not applied'],
+      ['Other legs', reg ? 'Regression and analysts, equal weight' : 'Analysts, equal weight', 'Not used'],
+      { cls: 'total', cells: ['Result', `₹${num(lo, 0)} – ${num(hi, 0)}`, `₹${num(fv.base, 0)}`] },
+    ]);
+    const epsGap = (h.eps27 / c.eps - 1) * 100;
+    $('fvWhyBasis').innerHTML = INFO + `<span>On the same year the two methods’ EPS differ by ${num(Math.abs(epsGap), 0)}% (house FY27E ₹${num(h.eps27, 2)} against run-rate ₹${num(c.eps, 2)}); most of the gap is the growth year, the multiple and the blend.</span>`;
+
+    $('fvSens').innerHTML = table(['FY28 growth', 'FY28E EPS', 'ADR model today', 'House blend'], h.sensitivity.map(r => ({
+      cls: Math.abs(r.growth - h.assumptions.fy28_growth) < 1e-9 ? 'total' : '',
+      cells: [`${Math.round(r.growth * 100)}%${Math.abs(r.growth - h.assumptions.fy28_growth) < 1e-9 ? ' <span class="muted">house</span>' : ''}`, `₹${num(r.eps28, 2)}`,
+              `₹${num(r.adr_leg_48, 0)} – ${num(r.adr_leg_52, 0)}`, `₹${num(r.blend_48, 0)} – ${num(r.blend_52, 0)}`] })));
+    $('fvSensBasis').innerHTML = INFO + `<span>For comparison, the ${h.street.brokers} brokers average ${num(h.street.pe, 0)}× on FY28E EPS of ₹${num(h.street.eps28, 1)}; the house uses ${h.assumptions.pe[0]}–${h.assumptions.pe[1]}× on ₹${num(h.eps28, 2)}.</span>`;
+
+    $('fvBrokers').innerHTML = table(['Broker', 'Report', 'Rating', 'Target', 'Target date', 'Worth today', 'FY28E EPS', 'P/E on FY28E'], h.analysts.map(a => [
+      esc(a.broker), fmt.dayMonth(a.report_date) + ' ' + a.report_date.slice(0, 4), esc(a.rating), `₹${num(a.target, 0)}`,
+      fmt.dayMonth(a.target_date) + ' ' + a.target_date.slice(0, 4) + (a.expired ? ' <span class="muted">passed</span>' : ''), `₹${num(a.present_value, 0)}`, `₹${num(a.eps28, 1)}`, `${num(a.pe, 0)}×`]));
+
+    renderBand();
+  }
+
+  function renderBand() {
+    const v = FV.data, box = $('fvBand');
+    if (!v) return;
+    const c = bandSvg(Math.round(box.clientWidth) || 900, v.history || []);
+    box.innerHTML = c.svg;
+    if (c.f) V.hover(box, c.f, c.xs, c.tip);
+  }
+
+  function mountFairValue() {
+    fetchRanged(valUrl()).then(d => {
+      if (!d.success) throw new Error(d.error || 'No data');
+      FV.data = d; renderFairValue();
+    }).catch(e => MCX.ui.error($('fvStats'), 'Could not load fair value: ' + e.message, mountFairValue));
+    MCX.poll.kick('cmp');
+  }
+  MCX.store.on('price', () => { if (FV.data && MCX.router.current() === 'val-fv') renderFairValue(); });
+  makeRangeToggle({ key: 'valChart', containerId: 'fvBandRange', ranges: ['30D', '60D', 'Q', '1Y', '2Y', 'Max'], defaultRange: '60D', labelIds: ['fvBandRangeLabel'],
+                    onChange: () => fetchRanged(valUrl()).then(d => { if (d.success) { FV.data = d; renderBand(); } }) });
+  onResize($('fairvalue'), () => FV.data && renderFairValue());
+
+  MCX.value = { quarter: { mount: mountQuarter }, fairValue: { mount: mountFairValue } };
 })();
