@@ -13,12 +13,24 @@ Returns:
 """
 from http.server import BaseHTTPRequestHandler
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from lib.mcx_config import (
-    SUPABASE_URL, SUPABASE_ANON_KEY, DILUTED_SHARES_CR,
+    SUPABASE_URL, SUPABASE_ANON_KEY, DILUTED_SHARES_CR, SESSION_START,
     MCX_HOLIDAYS_2026, supabase_read, now_ist, make_cors_headers,
 )
+try:
+    from lib.mcx_config import session_end      # seasonal close: 23:55 in US winter
+except ImportError:                             # older lib: fixed 23:30 close
+    from lib.mcx_config import SESSION_END
+
+    def session_end(d=None):
+        return SESSION_END
+
+# Sources whose row for a date is the final full-day figure. A row for today
+# only counts as a completed session if it comes from one of these and the
+# session has closed; anything else could be a partial intraday figure.
+FINAL_ROW_SOURCES = {"mcx_relay_eod", "mcx_historical"}
 
 # ─── Quarterly Actuals (from Screener.in, validated) ─────────────────────────
 QUARTERLY_ACTUALS = [
@@ -73,14 +85,52 @@ def _is_trading_day(d):
     return d.weekday() < 5 and d.strftime("%Y-%m-%d") not in MCX_HOLIDAYS_2026
 
 
-def _count_trading_days(start, end):
-    count = 0
-    cur = start
-    while cur <= end:
-        if _is_trading_day(cur):
-            count += 1
-        cur += timedelta(days=1)
-    return count
+def _classify_days(q_start, q_end, now, rows):
+    """Split the quarter's sessions into completed rows and remaining days.
+
+    A session is completed if it is before today and has a row, or it is today
+    and has a final row (FINAL_ROW_SOURCES, after the close). Every other
+    scheduled session counts as remaining: today until its final row lands,
+    future days, and past days with no row (returned as missing). A row on a
+    day the holiday calendar doesn't list as a session (e.g. a Sunday budget
+    session) counts as completed. So elapsed + remaining always equals the total.
+
+    Returns (completed_rows, remaining, missing_dates, today_status).
+    """
+    today = now.date()
+    now_min = now.hour * 60 + now.minute
+    close = session_end(today)
+    by_date = {r["trading_date"]: r for r in rows}
+    today_row = by_date.get(today.strftime("%Y-%m-%d"))
+    today_final = (bool(today_row) and today_row.get("source") in FINAL_ROW_SOURCES
+                   and now_min >= close)
+
+    completed, missing, remaining = [], [], 0
+    d = q_start
+    while d <= q_end:
+        iso = d.strftime("%Y-%m-%d")
+        row = by_date.get(iso)
+        done = bool(row) and (d < today or (d == today and today_final))
+        if done:
+            completed.append(row)
+        elif _is_trading_day(d) and d >= today:
+            remaining += 1
+        elif _is_trading_day(d):
+            missing.append(iso)
+            remaining += 1
+        d += timedelta(days=1)
+
+    if today_final:
+        today_status = "final"
+    elif not _is_trading_day(today):
+        today_status = "no_session"
+    elif now_min < SESSION_START:
+        today_status = "pre_open"
+    elif now_min < close:
+        today_status = "live"
+    else:
+        today_status = "closed_awaiting_eod"
+    return completed, remaining, missing, today_status
 
 
 def _get_quarter_bounds(d):
@@ -130,9 +180,11 @@ def _compute_tax_dep_rate(actuals):
 
 # ─── Main computation ────────────────────────────────────────────────────────
 
-def generate_quarterly(today=None):
-    if today is None:
-        today = now_ist().date()
+def generate_quarterly(today=None, now=None):
+    """`now` is the IST clock time; `today` alone means midday on that date."""
+    if now is None:
+        now = datetime.combine(today, datetime.min.time()).replace(hour=12) if today else now_ist()
+    today = now.date()
 
     errors = []
     q_label, q_num, fy, q_start, q_end = _get_quarter_bounds(today)
@@ -154,34 +206,51 @@ def generate_quarterly(today=None):
     # Fetch daily revenue for current quarter
     q_start_iso = q_start.strftime("%Y-%m-%d")
     today_iso = today.strftime("%Y-%m-%d")
-    daily_rows = []
+    fetched = []
     try:
         rows = supabase_read(
             "mcx_daily_revenue",
-            f"?select=trading_date,total_rev_cr"
+            f"?select=trading_date,total_rev_cr,source"
             f"&trading_date=gte.{q_start_iso}&trading_date=lte.{today_iso}"
             f"&order=trading_date.asc&limit=100"
         )
-        daily_rows = [r for r in rows if r.get("total_rev_cr") and r["total_rev_cr"] > 0]
+        fetched = [r for r in rows if r.get("total_rev_cr") and r["total_rev_cr"] > 0]
     except Exception as e:
         errors.append(f"supabase fetch: {e}")
 
     # Revenue projection
+    daily_rows, remaining_trading, missing_dates, today_status = _classify_days(
+        q_start, q_end, now, fetched)
     elapsed_trading = len(daily_rows)
-    total_trading = _count_trading_days(q_start, q_end)
-    remaining_trading = _count_trading_days(today + timedelta(days=1), q_end)
+    total_trading = elapsed_trading + remaining_trading
 
     actual_rev = round(sum(r["total_rev_cr"] for r in daily_rows), 2)
     daily_avg = round(actual_rev / elapsed_trading, 2) if elapsed_trading > 0 else 0
 
     last_10 = daily_rows[-10:] if len(daily_rows) >= 10 else daily_rows
+    if not last_10:
+        # No completed session yet this quarter: run the projection off the
+        # last 10 sessions before the quarter started.
+        try:
+            prior = supabase_read(
+                "mcx_daily_revenue",
+                f"?select=trading_date,total_rev_cr"
+                f"&trading_date=lt.{q_start_iso}&total_rev_cr=gt.0"
+                f"&order=trading_date.desc&limit=10"
+            )
+            last_10 = [r for r in prior if r.get("total_rev_cr") and r["total_rev_cr"] > 0]
+        except Exception as e:
+            errors.append(f"supabase fetch (prior quarter): {e}")
     ma10 = round(sum(r["total_rev_cr"] for r in last_10) / len(last_10), 2) if last_10 else daily_avg
 
     if elapsed_trading > 0 and total_trading > 0:
         blend_w = min(elapsed_trading / total_trading, 0.8)
         daily_proj = blend_w * ma10 + (1 - blend_w) * daily_avg
+    elif ma10 > 0:
+        daily_proj = ma10
     else:
-        daily_proj = ma10 if ma10 > 0 else 12.0
+        errors.append("no revenue history: daily projection uses a 12 Cr placeholder")
+        daily_proj = 12.0
 
     remaining_rev = round(daily_proj * remaining_trading, 2)
     total_rev = round(actual_rev + remaining_rev, 2)
@@ -225,6 +294,10 @@ def generate_quarterly(today=None):
         "trading_days_elapsed": elapsed_trading,
         "trading_days_total": total_trading,
         "trading_days_remaining": remaining_trading,
+        "today_status": today_status,
+        "today_in_remaining": today_status in ("pre_open", "live", "closed_awaiting_eod"),
+        "missing_dates": missing_dates,
+        "rows_through": daily_rows[-1]["trading_date"] if daily_rows else None,
         "revenue_actual_cr": actual_rev,
         "revenue_daily_avg_cr": daily_avg,
         "revenue_ma10_cr": ma10,

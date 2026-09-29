@@ -22,6 +22,13 @@ from datetime import datetime, timedelta, timezone
 # Add parent to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib.mcx_config import get_day_type
+try:
+    from lib.mcx_config import session_end      # seasonal close: 23:55 in US winter
+except ImportError:                             # older lib: fixed 23:30 close
+    from lib.mcx_config import SESSION_END
+
+    def session_end(d=None):
+        return SESSION_END
 
 # ── Config ──────────────────────────────────────────────────────────────────
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supabase.co")
@@ -389,11 +396,17 @@ def refresh(lookback_days=5, force_dates=None):
     print(f"mcx_commodity_daily covers {len(commodity_present)} dates since {since_iso}")
 
     if not force_dates:
-        today = now_ist().date()
+        now = now_ist()
+        today = now.date()
+        # Today's figures are partial until the session closes; api/quarterly.py
+        # would count a partial row as a finished day, so wait until 20 min after.
+        today_closed = now.hour * 60 + now.minute >= session_end(today) + 20
         targets = []
         for i in range(lookback_days):
             d = today - timedelta(days=i)
             iso = d.strftime("%Y-%m-%d")
+            if i == 0 and not today_closed:
+                continue
             if is_trading_day(d) and (iso not in existing or iso not in commodity_present):
                 targets.append(iso)
 
