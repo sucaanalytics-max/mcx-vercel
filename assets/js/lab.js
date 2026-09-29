@@ -249,7 +249,7 @@
       const r = corr(S[a], S[b]);
       return r === null ? '—' : `<span class="dg-r" style="--r:${Math.abs(r).toFixed(2)}">${signed(r, 2)}</span>`;
     };
-    $('dgCorr').innerHTML = table([''].concat(keys.map(k => short[k])), keys.map(a => [labs[a]].concat(keys.map(b => cell(a, b)))), 'dg-corr dg-fit');
+    $('dgCorr').innerHTML = table(['<span class="sr-only">Input</span>'].concat(keys.map(k => short[k])), keys.map(a => [labs[a]].concat(keys.map(b => cell(a, b)))), 'dg-corr dg-fit');
     const rt = corr(S.rev, S.turn);
     $('dgCorrBasis').innerHTML = INFO + `<span>${dates.length ? `${fmt.span(dates[k0], dates[dates.length - 1])}. ` : ''}`
       + (rt !== null && rt > 0.7 ? `Revenue and turnover move closely together (${signed(rt, 2)}), so the exchange-activity model is close to a single factor. ` : '')

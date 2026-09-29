@@ -364,6 +364,27 @@
   Object.assign(window, { RANGE_TRADING_DAYS, rangeState, makeRangeToggle, fetchRanged, clearRangedCache });
   MCX.range = { toggle: makeRangeToggle, fetch: fetchRanged, clear: clearRangedCache, state: rangeState, days: RANGE_TRADING_DAYS };
 
+  // ── Tables that scroll sideways: reachable by keyboard, named after their section ──
+  function markScrollables() {
+    document.querySelectorAll('.table-scroll').forEach(el => {
+      const over = el.scrollWidth > el.clientWidth + 1;
+      if (over && !el.hasAttribute('tabindex')) {
+        const cap = el.querySelector('caption'), sec = el.closest('section, figure, .td-card'), h = sec && sec.querySelector('h2, h3, figcaption strong');
+        el.tabIndex = 0;
+        el.setAttribute('role', 'region');
+        el.setAttribute('aria-label', ((cap && cap.textContent) || (h && h.textContent) || 'Table').trim() + ' (scrolls sideways)');
+      } else if (!over && el.hasAttribute('tabindex')) {
+        el.removeAttribute('tabindex'); el.removeAttribute('role'); el.removeAttribute('aria-label');
+      }
+    });
+  }
+  if (window.MutationObserver && document.body) {
+    let queued = null;
+    const later = () => { clearTimeout(queued); queued = setTimeout(markScrollables, 120); };
+    new MutationObserver(later).observe(document.body, { childList: true, subtree: true });
+    window.addEventListener('resize', later);
+  }
+
   // ── Toast: a short message that announces itself to screen readers ──────
   MCX.ui.toast = function (msg, kind) {
     let host = document.getElementById('toasts');

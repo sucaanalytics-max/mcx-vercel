@@ -594,7 +594,7 @@
       ['Revenue priced in', `₹${num(implied, 2)} Cr/day`, `What today’s price needs at ${num(pe, 1)}×; each ₹1 Cr a day is worth about ₹${num(c.trading_days * c.pat_margin / c.diluted_shares_cr * pe, 0)} a share`],
     ]);
 
-    $('fvWhy').innerHTML = table(['', 'Tusk house', 'Data-driven'], [
+    $('fvWhy').innerHTML = table(['<span class="sr-only">Measure</span>', 'Tusk house', 'Data-driven'], [
       ['Revenue per day', `₹${num(inp.adr_fy28, 2)} Cr in FY28`, `₹${num(c.ma45_rev_cr, 2)} Cr, the 45-day average`],
       ['Earnings used', `FY28 EPS ₹${num(hc.eps, 2)}`, `Run-rate EPS ₹${num(c.eps, 2)}`],
       ['Multiple', `${inp.pe.bear} / ${inp.pe.base} / ${inp.pe.bull}×`, `${num(pe, 1)}×, median of own history`],
@@ -672,14 +672,14 @@
     const yrs = ['26', '27', '28'];
     const tRow = (lab, k, step) => `<tr><td>${lab}</td>${yrs.map(y => `<td>${cellInput(`data-pt="${k}" data-yr="${y}"`, SC.trend[y][k], step, `FY${y} ${lab}`)}</td>`).join('')}</tr>`;
     const tOut = (lab, k, cls) => `<tr${cls ? ` class="${cls}"` : ''}><td>${lab}</td>${yrs.map(y => `<td data-pt-out="${k}" data-yr="${y}">—</td>`).join('')}</tr>`;
-    $('patTrend').innerHTML = `<div class="table-scroll"><table class="v2-table house-sheet sc-table"><caption>Based on the latest trend</caption><thead><tr><th scope="col"></th>${yrs.map(y => `<th scope="col">FY${y}</th>`).join('')}</tr></thead><tbody>`
+    $('patTrend').innerHTML = `<div class="table-scroll"><table class="v2-table house-sheet sc-table"><caption>Based on the latest trend</caption><thead><tr><th scope="col"><span class="sr-only">Line</span></th>${yrs.map(y => `<th scope="col">FY${y}</th>`).join('')}</tr></thead><tbody>`
       + tRow('Revenue per day, ₹ Cr', 'adr', 0.1) + tRow('Trading days', 'days', 1) + tOut('Operating revenue', 'op') + tRow('Other revenue, ₹ Cr', 'other', 1)
       + tOut('Total revenue', 'tot', 'sub') + tRow('PAT margin, %', 'margin', 0.1) + tOut('PAT', 'pat') + tOut('EPS', 'eps') + tRow('P/E', 'pe', 0.5) + tOut('Price target', 'px', 'total')
       + '</tbody></table></div>';
     const cs = ['bear', 'base', 'bull'];
     const cRow = (lab, k, step) => `<tr><td>${lab}</td>${cs.map(c => `<td>${cellInput(`data-ps="${k}" data-case="${c}"`, SC.cases[c][k], step, `${c} case ${lab}`)}</td>`).join('')}</tr>`;
     const cOut = (lab, k, cls) => `<tr${cls ? ` class="${cls}"` : ''}><td>${lab}</td>${cs.map(c => `<td data-ps-out="${k}" data-case="${c}">—</td>`).join('')}</tr>`;
-    $('patCases').innerHTML = `<div class="table-scroll"><table class="v2-table house-sheet sc-table"><caption>FY27: bear, base and bull</caption><thead><tr><th scope="col"></th>${cs.map(c => `<th scope="col">${c[0].toUpperCase() + c.slice(1)}</th>`).join('')}</tr></thead><tbody>`
+    $('patCases').innerHTML = `<div class="table-scroll"><table class="v2-table house-sheet sc-table"><caption>FY27: bear, base and bull</caption><thead><tr><th scope="col"><span class="sr-only">Line</span></th>${cs.map(c => `<th scope="col">${c[0].toUpperCase() + c.slice(1)}</th>`).join('')}</tr></thead><tbody>`
       + cRow('Growth in revenue per day, %', 'growth', 1) + cRow('Revenue per day, ₹ Cr', 'adr', 0.1) + cRow('Other income, ₹ Cr', 'other', 1) + cOut('Total income', 'tot', 'sub')
       + cRow('PAT margin, %', 'margin', 0.1) + cOut('EPS', 'eps') + cRow('P/E', 'pe', 0.5) + cOut('Price, FY27', 'px') + cOut('Against the price', 'upside')
       + `<tr><td>Discount, % ${cellInput('id="patDisc"', SC.disc, 0.5, 'Discount, %')}</td><td></td><td></td><td></td></tr>` + cOut('Target price', 'target', 'total')
@@ -722,7 +722,7 @@
       const rv = SC.rev * (1 + dr / 100), p = SC.pe * (1 + dp / 100);
       return { n, rv, p, m: yearModel(rv, p, a) };
     });
-    $('scCases').innerHTML = table(['', ...cases.map(c => c.n)], [
+    $('scCases').innerHTML = table(['<span class="sr-only">Measure</span>', ...cases.map(c => c.n)], [
       ['Revenue per day', ...cases.map(c => `₹${num(c.rv, 2)} Cr`)], ['Revenue, a year', ...cases.map(c => `₹${num(c.m.annualRev, 0)} Cr`)],
       ['P/E', ...cases.map(c => `${num(c.p, 1)}×`)], ['EPS', ...cases.map(c => `₹${num(c.m.eps, 2)}`)], ['Profit after tax', ...cases.map(c => `₹${num(c.m.pat, 0)} Cr`)],
       { cls: 'total', cells: ['Price', ...cases.map(c => `₹${num(c.m.price, 0)}`)] },

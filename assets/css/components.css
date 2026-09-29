@@ -70,8 +70,8 @@
 .md-topic h3 { font-family: var(--mcx-font-serif); font-size: 22px; font-weight: 600; line-height: 1.25; outline: none; }
 .md-topic p { margin-top: 12px; font-size: 14px; line-height: 1.6; color: var(--mcx-text-2); max-width: 62ch; }
 .md-topic p strong { color: var(--mcx-text); font-weight: 600; }
-.md-formula { margin-top: 12px; padding: 10px 12px; border-radius: 6px; background: var(--mcx-surface-2); overflow-x: auto;
-  font: 400 12.5px/1.6 'IBM Plex Mono', ui-monospace, monospace; color: var(--mcx-text); white-space: pre; }
+.md-formula { margin-top: 12px; padding: 10px 12px; border-radius: 6px; background: var(--mcx-surface-2);
+  font: 400 12.5px/1.6 'IBM Plex Mono', ui-monospace, monospace; color: var(--mcx-text); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* The (i) buttons beside section titles */
 .info-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; margin-left: 2px; padding: 0; vertical-align: middle;
