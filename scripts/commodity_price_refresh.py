@@ -21,7 +21,11 @@ from datetime import datetime, timedelta, timezone
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supabase.co")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY",
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2cXdwZWJ2ZXFldHd3emttdHV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDkwMzMsImV4cCI6MjA4Njk4NTAzM30.U_Ug61Fp1NSCesXBkYU7GJGTbuATFtXsz6GTi5948Rw")
-SUPABASE_WRITE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "") or SUPABASE_ANON_KEY
+try:  # write key: SUPABASE_SERVICE_KEY (env or .env.local, via lib.mcx_config) else anon
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from lib.mcx_config import SUPABASE_WRITE_KEY
+except ImportError:
+    SUPABASE_WRITE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "") or SUPABASE_ANON_KEY
 TABLE = "mcx_commodity_prices"
 
 TICKERS = {"CL=F": "WTI", "NG=F": "NATGAS", "INR=X": "USDINR"}

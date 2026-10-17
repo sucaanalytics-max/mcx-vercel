@@ -325,17 +325,19 @@ class handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _check_auth(self):
-        auth_header = self.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer ") and auth_header[7:] == CRON_SECRET:
-            return True
-        parsed = urlparse(self.path)
-        qs = parse_qs(parsed.query)
-        if qs.get("secret", [None])[0] == CRON_SECRET:
-            return True
-        # Fail closed: a missing CRON_SECRET must NOT bypass auth.
+        """Verify cron secret — Vercel sends via Authorization header or query param.
+        Fail closed first: with CRON_SECRET unset, an empty "Bearer " token
+        would otherwise equal it."""
+        import hmac
         if not CRON_SECRET:
             return False
-        return False
+        # Vercel cron sends: Authorization: Bearer <CRON_SECRET>
+        auth_header = self.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer ") and hmac.compare_digest(auth_header[7:], CRON_SECRET):
+            return True
+        # Manual trigger via ?secret=...
+        qs = parse_qs(urlparse(self.path).query)
+        return hmac.compare_digest(qs.get("secret", [""])[0], CRON_SECRET)
 
     def do_GET(self):
         if not self._check_auth():
