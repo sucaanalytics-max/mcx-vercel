@@ -17,6 +17,8 @@
 --     same SQL session:  set local mcx.allow_eod_override = 'on';
 --   * updated_at records when each row last changed.
 --
+-- If guard_mcx_daily_revenue.sql already ran, sections 1–2 below just repeat it.
+--
 -- ORDER MATTERS — do steps 1–2 before running this, or the relay's EOD write
 -- and the 07:00 daily_verify will fail with 42501:
 --   1. Relay Mac: add the service-role key to the repo's .env.local
