@@ -6,6 +6,28 @@ and projection logic. Imported by all API endpoints.
 import os, math, time as _time
 from datetime import datetime, timedelta
 from collections import defaultdict
+from pathlib import Path
+
+
+def _load_project_env():
+    """Project-local secrets for the scripts that run on the relay Mac: reads
+    .env.local then .env (both gitignored) without overriding shell vars. This
+    is how SUPABASE_SERVICE_KEY reaches the relay and the 07:00 jobs, which
+    launchd starts with no environment. No such files exist on Vercel."""
+    root = Path(__file__).resolve().parents[1]
+    for name in (".env.local", ".env"):
+        env = root / name
+        if not env.exists():
+            continue
+        for line in env.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
+_load_project_env()
 
 # ─── FEE SCHEDULE (SEBI Oct 2024 flat rate) ──────────────────────────────────
 FUTURES_RATE = 210.0        # ₹ per crore, both sides
@@ -26,6 +48,9 @@ SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY",
 # scripts/sql/enable_signal_table_writes.sql). Reads always use the anon key.
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 SUPABASE_WRITE_KEY = SUPABASE_SERVICE_KEY or SUPABASE_ANON_KEY
+# Logged by the relay at start-up. mcx_daily_revenue accepts writes only from
+# service_role once scripts/sql/lock_mcx_daily_revenue.sql has been applied.
+SUPABASE_WRITE_ROLE = "service_role" if SUPABASE_SERVICE_KEY else "anon"
 
 # ─── Commodity normalization ─────────────────────────────────────────────────
 # Groups MCX mini/micro/petal variants under their parent commodity so all
