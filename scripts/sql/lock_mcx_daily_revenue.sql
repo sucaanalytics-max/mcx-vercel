@@ -12,10 +12,13 @@
 --   * anon / authenticated can only SELECT (the dashboards and ExchangesDash
 --     read with the anon key, unchanged);
 --   * writes need the service_role key (bypasses RLS);
---   * a row written by the relay (source = 'mcx_relay_eod') cannot be replaced
---     by another source, whatever the key, unless an operator says so in the
---     same SQL session:  set local mcx.allow_eod_override = 'on';
+--   * a row written by the relay (source = 'mcx_relay_eod') is kept when another
+--     source tries to replace it, whatever the key (the update is skipped with
+--     a WARNING, never an error), unless an operator says so in the same SQL
+--     session:  set local mcx.allow_eod_override = 'on';
 --   * updated_at records when each row last changed.
+--
+-- If guard_mcx_daily_revenue.sql already ran, sections 1–2 below just repeat it.
 --
 -- ORDER MATTERS — do steps 1–2 before running this, or the relay's EOD write
 -- and the 07:00 daily_verify will fail with 42501:
@@ -32,25 +35,27 @@
 
 begin;
 
--- 1. Audit column ------------------------------------------------------------
+-- 1. Audit column (already exists in production: then this is a no-op) -------
 alter table public.mcx_daily_revenue
   add column if not exists updated_at timestamptz not null default now();
 
 -- 2. Guard trigger: stamp updated_at; never let another source replace the
---    relay's authoritative EOD row --------------------------------------------
+--    relay's authoritative EOD row (the overwrite is skipped, not an error) ----
 create or replace function public.mcx_daily_revenue_guard()
 returns trigger
 language plpgsql
 as $$
 begin
+  -- Never an error: a writer whose upsert is refused here carries on as if it
+  -- had succeeded (the relay's upsert raises on any error and is not caught,
+  -- so an error would crash it). The row simply keeps the relay's values.
   if tg_op = 'UPDATE'
      and old.source = 'mcx_relay_eod'
      and new.source is distinct from 'mcx_relay_eod'
      and coalesce(current_setting('mcx.allow_eod_override', true), '') <> 'on' then
-    raise exception 'mcx_daily_revenue %: relay EOD row; refusing overwrite by source %',
-      old.trading_date, new.source
-      using errcode = 'P0001',
-            hint = 'Intentional correction? set local mcx.allow_eod_override = ''on'' first.';
+    raise warning 'mcx_daily_revenue %: kept the relay EOD row, skipped an overwrite by source %',
+      old.trading_date, new.source;
+    return null;   -- skip this row's update
   end if;
   new.updated_at := now();
   return new;

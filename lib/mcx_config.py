@@ -9,11 +9,15 @@ from collections import defaultdict
 from pathlib import Path
 
 
+_PROJECT_ENV_KEYS = ("SUPABASE_SERVICE_KEY",)
+
+
 def _load_project_env():
-    """Project-local secrets for the scripts that run on the relay Mac: reads
-    .env.local then .env (both gitignored) without overriding shell vars. This
-    is how SUPABASE_SERVICE_KEY reaches the relay and the 07:00 jobs, which
-    launchd starts with no environment. No such files exist on Vercel."""
+    """SUPABASE_SERVICE_KEY for the scripts that run on the relay Mac, which
+    launchd starts with no environment: read from .env.local then .env (both
+    gitignored), never overriding a shell var. Only the keys in
+    _PROJECT_ENV_KEYS are taken, so nothing else in those files changes how
+    this module behaves. No such files exist on Vercel."""
     root = Path(__file__).resolve().parents[1]
     for name in (".env.local", ".env"):
         env = root / name
@@ -24,7 +28,11 @@ def _load_project_env():
             if not line or line.startswith("#") or "=" not in line:
                 continue
             k, v = line.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+            k = k.strip()
+            if k.startswith("export "):
+                k = k[len("export "):].strip()
+            if k in _PROJECT_ENV_KEYS:
+                os.environ.setdefault(k, v.strip().strip('"').strip("'"))
 
 
 _load_project_env()
