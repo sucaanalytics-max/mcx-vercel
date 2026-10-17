@@ -9,11 +9,11 @@ from datetime import datetime, timedelta, timezone
 
 try:
     from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, make_cors_headers
+        SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY, make_cors_headers
     )
 except ImportError:
     from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, make_cors_headers
+        SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY, make_cors_headers
     )
 
 INDIANAPI_KEY = os.environ.get("INDIANAPI_KEY", "")
@@ -129,8 +129,8 @@ def _write_cache(price, source, change_pct=None):
         }
         body = json.dumps(row).encode("utf-8")
         req = urllib.request.Request(url, data=body, method="POST", headers={
-            "apikey": SUPABASE_ANON_KEY,
-            "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+            "apikey": SUPABASE_WRITE_KEY,
+            "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
             "Content-Type": "application/json",
             "Prefer": "resolution=merge-duplicates,return=representation",
         })

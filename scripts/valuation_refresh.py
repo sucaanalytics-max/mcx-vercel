@@ -21,7 +21,7 @@ SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY",
 
 # Model parameters: the same constants the API and the cron use
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from lib.mcx_config import TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR
+from lib.mcx_config import TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR, SUPABASE_WRITE_KEY
 PE_MEAN_DEFAULT = 34.79
 PE_SD_DEFAULT = 3.49
 MA_WINDOW = 45
@@ -47,8 +47,8 @@ def sb_upsert(table, rows):
     """Batch upsert rows to Supabase."""
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     headers = {
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        "apikey": SUPABASE_WRITE_KEY,
+        "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates",
     }
