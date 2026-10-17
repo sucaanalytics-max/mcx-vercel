@@ -4,10 +4,13 @@
 -- Part one of lock_mcx_daily_revenue.sql, for the days before the relay Mac has
 -- SUPABASE_SERVICE_KEY. It changes no permission, so the relay and the 07:00
 -- jobs keep writing with the anon key exactly as today. It adds:
---   * a trigger that refuses to replace a relay EOD row (source =
---     'mcx_relay_eod') with any other source, whatever the key, unless the
---     session sets  set local mcx.allow_eod_override = 'on';
---   * updated_at, stamped on every insert and update, so any change to the
+--   * a trigger that keeps a relay EOD row (source = 'mcx_relay_eod') when
+--     any other source tries to replace it, whatever the key: that row's
+--     update is skipped with a WARNING in the Postgres log, never an error,
+--     so no writer breaks. An operator correction goes through after
+--       set local mcx.allow_eod_override = 'on';
+--   * updated_at stamped on every insert and update (the column already
+--     exists; until now it only held the insert time), so any change to the
 --     history from now on is visible.
 -- Writers today: the relay writes only 'mcx_relay_eod' rows; catchup_missing
 -- and daily_verify only fill missing dates; bhav_refresh already skips relay
@@ -20,25 +23,27 @@
 
 begin;
 
--- 1. Audit column ------------------------------------------------------------
+-- 1. Audit column (already exists in production: then this is a no-op) -------
 alter table public.mcx_daily_revenue
   add column if not exists updated_at timestamptz not null default now();
 
 -- 2. Guard trigger: stamp updated_at; never let another source replace the
---    relay's authoritative EOD row --------------------------------------------
+--    relay's authoritative EOD row (the overwrite is skipped, not an error) ----
 create or replace function public.mcx_daily_revenue_guard()
 returns trigger
 language plpgsql
 as $$
 begin
+  -- Never an error: a writer whose upsert is refused here carries on as if it
+  -- had succeeded (the relay's upsert raises on any error and is not caught,
+  -- so an error would crash it). The row simply keeps the relay's values.
   if tg_op = 'UPDATE'
      and old.source = 'mcx_relay_eod'
      and new.source is distinct from 'mcx_relay_eod'
      and coalesce(current_setting('mcx.allow_eod_override', true), '') <> 'on' then
-    raise exception 'mcx_daily_revenue %: relay EOD row; refusing overwrite by source %',
-      old.trading_date, new.source
-      using errcode = 'P0001',
-            hint = 'Intentional correction? set local mcx.allow_eod_override = ''on'' first.';
+    raise warning 'mcx_daily_revenue %: kept the relay EOD row, skipped an overwrite by source %',
+      old.trading_date, new.source;
+    return null;   -- skip this row's update
   end if;
   new.updated_at := now();
   return new;
