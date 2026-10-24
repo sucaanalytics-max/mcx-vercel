@@ -44,11 +44,12 @@ begin
       raise notice 'skip %: no such table', t.tbl;
       continue;
     end if;
-    execute format('select count(*) from public.%I where %I < date ''2000-01-01''', t.tbl, t.col) into n;
+    -- ::text: some tables keep the date as text (ISO YYYY-MM-DD sorts as text)
+    execute format('select count(*) from public.%I where %I::text < ''2000-01-01''', t.tbl, t.col) into n;
     if n > 10 then
       raise exception '% has % rows before 2000 — not test debris, nothing deleted', t.tbl, n;
     end if;
-    execute format('delete from public.%I where %I < date ''2000-01-01''', t.tbl, t.col);
+    execute format('delete from public.%I where %I::text < ''2000-01-01''', t.tbl, t.col);
     raise notice '%: deleted % row(s)', t.tbl, n;
   end loop;
 end $$;
