@@ -95,8 +95,11 @@ commit;
 -- Privileges: expect only SELECT for anon / authenticated
 --   select grantee, privilege_type from information_schema.role_table_grants
 --   where table_name = 'mcx_daily_revenue' and grantee in ('anon', 'authenticated');
--- From any machine, an anon write must now fail (42501 / permission denied):
---   curl -X PATCH "$SUPABASE_URL/rest/v1/mcx_daily_revenue?trading_date=eq.1900-01-01" \
+-- From any machine, an anon write must now fail (42501 / permission denied).
+-- The date matches no row, so before the lock (or if it did not take) the
+-- request changes nothing; 1900-01-01 was a real junk row, removed by
+-- cleanup_sentinel_rows.sql:
+--   curl -X PATCH "$SUPABASE_URL/rest/v1/mcx_daily_revenue?trading_date=eq.1800-01-01" \
 --        -H "apikey: $ANON" -H "Authorization: Bearer $ANON" \
 --        -H "Content-Type: application/json" -d '{"source":"probe"}'
 
