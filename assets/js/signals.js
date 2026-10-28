@@ -606,7 +606,7 @@
   const pctOf = v => (v === null || v === undefined ? '—' : `${signed(v * 100, 1)}%`);
 
   function loadOptions() {
-    return fetch('/api/models?view=options').then(r => r.json()).then(d => {
+    return fetchRanged('/api/models?view=options').then(d => {
       OP.data = d; OP.err = d.success || d.setup ? null : (d.error || 'No data'); renderOptions();
     }).catch(e => { OP.err = e.message || String(e); renderOptions(); });
   }
