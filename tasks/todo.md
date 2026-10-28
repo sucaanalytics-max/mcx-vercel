@@ -102,3 +102,12 @@ Scope: "verify and update all tabs and all data" (all 10 tabs, 16 endpoints,
       GitHub Actions, no duplicate Vercel project. Reliable ~16/18 days and the
       14:00 UTC cron catches up when it misses. Candidates: Supabase pg_cron,
       a Supabase Edge Function, or another machine. Harmless but unexplained.
+
+# Options recommendation agent — planning (2026-10-28)
+
+Plan: `Docs/Options_Agent_Plan.md`. Nothing built yet.
+Decided: MCX Ltd stock options only; Tusk book, human places every order; defined-risk only; POSITIONAL 2–4 weeks (intraday dropped as primary after edge test; kept as data/research capability).
+Next: answer §10 open questions (Dhan data plan, intraday history budget, sizing, success metric, alerts), then Phase 0 audit + start the 1-min option-chain collector.
+Edge test 28 Oct (`scripts/options_edge_test.py`): intraday revenue pace IC ≈ 0 at all times (n≈105–127); nightly surprise → next day ≈ 0; 45-day ADR trend → 5/10/20d IC 0.15/0.19/0.27 (t≈2, borderline, weak in last 8 months). Build positional first.
+Stress test 28 Oct (`Docs/ADR_Edge_StressTest_Results.md`, pre-reg + 3 logged deviations): CONDITIONAL PASS. Walk-forward OOS 20d IC 0.29 t2.04, 3/4 yrs (2026 ≈ 0), 9/9 variants (v60/40 strongest). Options: works as a bull-only filter (B·S3 put credit spread when trend > 0: +22%/trade, 75% hit vs +10.7% always-bull — post-hoc). Bear trades lose. No other MCX feature significant. Next: refresh Dhan token → live bid/ask calibration (need half-spread < ~4–8%), then paper-trade ≥6 series bull-only, tracking v45/20 and v60/40.
+Paper trading set up 28 Oct (`Docs/Options_Paper_Trading_Rules.md`, `scripts/options_paper.py`, ledger `data/options_paper/`). Dhan live spreads: near-month half-spread ~0.4% (ATM–5% OTM), next month 8–19% (untradeable) → crossing cost 0.8% (PCS) / 1.6% (CDS) of risk per side vs 4–8% breakeven. First series: expiry 23 Nov, entry 6 Nov 15:10, exit 19 Nov. launchd job `scripts/launchd/com.mcx.options-paper.plist` NOT yet loaded (user must install). TODO: add 2027 NSE holidays before Jan series; Dhan token expiry will raise an ERROR notification.

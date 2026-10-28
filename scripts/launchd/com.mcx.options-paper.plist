@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mcx.options-paper</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/tusk-jvb/.local/bin/uv</string>
+        <string>run</string>
+        <string>--no-project</string>
+        <string>--with</string>
+        <string>dhanhq&lt;2.1</string>
+        <string>--with</string>
+        <string>pandas</string>
+        <string>--with</string>
+        <string>python-dotenv</string>
+        <string>python</string>
+        <string>-I</string>
+        <string>scripts/options_paper.py</string>
+        <string>run</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/tusk-jvb/Claude Projects/mcx-vercel</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>/Users/tusk-jvb</string>
+        <key>PATH</key>
+        <string>/Users/tusk-jvb/.local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
+    <!-- Weekdays 15:10 IST: inside the 14:45–15:29 paper-fill window. The script
+         itself skips NSE holidays and records missed entries if the Mac was asleep. -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>10</integer></dict>
+        <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>10</integer></dict>
+        <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>10</integer></dict>
+        <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>10</integer></dict>
+        <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>10</integer></dict>
+    </array>
+    <key>StandardOutPath</key>
+    <string>/Users/tusk-jvb/Claude Projects/mcx-vercel/logs/options_paper_launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/tusk-jvb/Claude Projects/mcx-vercel/logs/options_paper_launchd.log</string>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
