@@ -3,13 +3,20 @@
 
 Predicts current quarter's PAT by aggregating actual daily revenue,
 projecting remaining days, and applying an expense regression model
-derived from 8 quarters of MCX actuals.
+fitted on MCX's reported quarters.
+
+The daily table holds F&O transaction revenue only, 87-92% of reported revenue
+from operations. The expense model and tax rate are fitted on reported revenue,
+so the model's projection adds estimated non-F&O revenue (the previous quarter's
+non-F&O share of F&O revenue): `non_fo`. `current_quarter` keeps the F&O-only
+figures, which a walk-forward test found 10.2% low on average (Q4 FY25-Q1 FY27),
+against +2.1% for the non-F&O basis.
 
 Returns:
-  - Historical quarterly P&L (8 quarters of actuals)
-  - Current quarter projection (revenue, expenses, PAT with confidence bands)
-  - FY26 full-year projection (3 actual quarters + 1 projected)
-  - Expense regression model parameters
+  - Historical quarterly P&L (reported actuals)
+  - Current quarter projection: F&O only (`current_quarter`) and including non-F&O (`non_fo`)
+  - Full-year projection: reported quarters + the current quarter including non-F&O
+  - Expense regression model parameters and the walk-forward backtest of both bases
 """
 from http.server import BaseHTTPRequestHandler
 import json
@@ -433,12 +440,20 @@ def generate_quarterly(today=None, now=None):
 
     # Only fold the current-quarter projection into the FY total when that quarter
     # belongs to target_fy and has not yet been reported as an actual.
+    # The actuals are reported revenue and PAT, so the projected quarter is added on the
+    # same basis (F&O plus estimated non-F&O). F&O alone ran 8-13% below reported
+    # revenue in every quarter since Q3 FY25, so it is only the fallback.
     reported_labels = {a["quarter"] for a in fy_actuals}
     project_current = (fy == target_fy) and (q_label not in reported_labels)
     if project_current:
-        fy_total_rev = round(fy_actual_rev + total_rev, 1)
-        fy_total_pat = round(fy_actual_pat + pat_proj, 1)
-        projected_q = {"quarter": q_label, "pat_cr": pat_proj, "revenue_cr": total_rev}
+        if non_fo:
+            q_rev, q_pat, q_basis = non_fo["revenue_projected_cr"], non_fo["pat_projected_cr"], "all"
+        else:
+            q_rev, q_pat, q_basis = total_rev, pat_proj, "fo"
+            errors.append("non-F&O share unavailable: full-year projection uses F&O revenue only")
+        fy_total_rev = round(fy_actual_rev + q_rev, 1)
+        fy_total_pat = round(fy_actual_pat + q_pat, 1)
+        projected_q = {"quarter": q_label, "pat_cr": q_pat, "revenue_cr": q_rev, "basis": q_basis}
     else:
         fy_total_rev = round(float(fy_actual_rev), 1)
         fy_total_pat = round(float(fy_actual_pat), 1)
