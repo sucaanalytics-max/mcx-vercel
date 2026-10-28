@@ -43,6 +43,7 @@ for i, (s, e) in enumerate([("2025-04-01", "2025-06-30"), ("2025-07-01", "2025-0
     QS.append({"quarter": f"Q{i}", "label": "", "fy": "FY", "q_num": (i % 4) + 1, "start": s, "end": e,
                "revenue_cr": round(fo * 1.10), "expenses_cr": round(40 + 0.2 * fo * 1.10), "pat_cr": round((fo * 1.10 - (40 + 0.2 * fo * 1.10)) * 0.8)})
 rows = [r for a in QS for r in daily(a["start"], a["end"], 10)]
+ACTUALS = q.QUARTERLY_ACTUALS
 q.QUARTERLY_ACTUALS = QS
 
 fo = q._fo_by_quarter(rows)
@@ -82,6 +83,36 @@ check("bad-data quarter excluded, with its reason", ([r["quarter"] for r in bt3[
 # The PAT model applies the expense floor and the Q4 seasonal addition
 check("expense floor of ₹80 Cr", q._pat_model(100, 10, 0.1, 0.2, 1)[0], 80)
 check("Q4 adds the seasonal expense", q._pat_model(1000, 50, 0.2, 0.2, 4)[0], 50 + 200 + q.Q4_EXPENSE_ADJ_CR)
+
+# generate_quarterly on the real actuals: F&O history at 90% of reported revenue in every
+# quarter, Q2 FY27 at ₹11/session. The model's projection (non_fo) is F&O ÷ 0.9, and the
+# full-year total adds that projection, not the F&O-only one, to the reported quarters.
+q.QUARTERLY_ACTUALS = ACTUALS
+hist = []
+for a in ACTUALS:
+    days = daily(a["start"], a["end"], 0)
+    hist += [dict(r, total_rev_cr=0.9 * a["revenue_cr"] / len(days)) for r in days]
+q2 = [dict(r, source="mcx_relay_eod") for r in daily("2026-07-01", "2026-09-30", 11.0)]
+q.supabase_read = lambda table, params, **kw: q2
+q.supabase_read_all = lambda table, params, **kw: hist
+res = q.generate_quarterly(today=date(2026, 10, 30))
+cq, nf, fy = res["current_quarter"], res["non_fo"], res["fy_projection"]
+check("non-F&O share from Q1 FY27 = reported/F&O − 1", (nf["share"], nf["share_from"]), (round(1 / 0.9 - 1, 4), "Q1 FY27"))
+check("model revenue = F&O sum ÷ the F&O-to-reported ratio", round(nf["revenue_projected_cr"], 1), round(cq["revenue_projected_cr"] / 0.9, 1))
+check("model PAT above F&O-only PAT", nf["pat_projected_cr"] > cq["pat_projected_cr"], True)
+check("full year adds the quarter including non-F&O",
+      (fy["projected_quarter"]["basis"], fy["projected_quarter"]["pat_cr"], fy["fy_pat_cr"]),
+      ("all", nf["pat_projected_cr"], round(413 + nf["pat_projected_cr"], 1)))
+check("no basis error when the share is sound", [e for e in res["errors"] if "non-F&O" in e], [])
+
+def no_history(table, params, **kw):
+    raise RuntimeError("offline")
+q.supabase_read_all = no_history
+res = q.generate_quarterly(today=date(2026, 10, 30))
+check("without history the full year falls back to F&O only, and says so",
+      (res["non_fo"], res["fy_projection"]["projected_quarter"]["basis"], res["fy_projection"]["projected_quarter"]["pat_cr"],
+       any("full-year projection uses F&O revenue only" in e for e in res["errors"])),
+      (None, "fo", res["current_quarter"]["pat_projected_cr"], True))
 
 print(f"\n{failed} FAILED" if failed else "\nAll quarterly basis tests passed.")
 sys.exit(1 if failed else 0)
