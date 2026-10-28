@@ -94,15 +94,17 @@ def historical_record(date_iso, hist):
 
 def replace_with_historical(date_iso, hist):
     """Overwrite the stored row with the historical figure. Returns an error
-    string, or None on success. Confirms the write took: an UPDATE that RLS
-    blocks can come back as success with zero rows."""
+    string, or None on success. Confirms the write took: an UPDATE that RLS or
+    the mcx_daily_revenue_guard trigger (scripts/sql/guard_mcx_daily_revenue.sql,
+    which keeps relay EOD rows) skips comes back as success with zero rows."""
     record = historical_record(date_iso, hist)
     try:
         written = supabase_upsert("mcx_daily_revenue", record, on_conflict="trading_date")
     except Exception as e:
         return str(e)[:200]
     if not written or abs((written[0].get("total_rev_cr") or 0) - record["total_rev_cr"]) > 1e-4:
-        return "upsert returned no updated row (write blocked by RLS?)"
+        return ("upsert changed no row: refused by the mcx_daily_revenue_guard trigger "
+                "(it keeps relay EOD rows) or by RLS")
     return None
 
 

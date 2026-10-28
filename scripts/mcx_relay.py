@@ -55,7 +55,7 @@ from lib.mcx_config import (
     MCX_HOLIDAYS_2026,
     now_ist, get_day_type, get_intraday_weight,
     project_full_day, calc_revenue, calc_uncertainty,
-    check_regime_drift, supabase_upsert,
+    check_regime_drift, supabase_upsert, SUPABASE_WRITE_ROLE,
 )
 
 from lib.cron_margins import (
@@ -493,6 +493,8 @@ def capture_eod(date_iso=None):
         print(f"  ✗ EOD capture failed for {date_iso} — no source available")
         return False
 
+    # data_source too, so a stale value from another writer never survives
+    eod_record.setdefault("data_source", source_tag)
     result = supabase_upsert("mcx_daily_revenue", eod_record)
     tr = eod_record["total_rev_cr"]
     fr = eod_record["fut_rev_cr"]
@@ -822,6 +824,9 @@ def catchup_missing(days=7):
 if __name__ == "__main__":
     # Flush stdout after every print (critical for Windows log files)
     sys.stdout.reconfigure(line_buffering=True)
+    print(f"Supabase writes as: {SUPABASE_WRITE_ROLE}"
+          + ("" if SUPABASE_WRITE_ROLE == "service_role" else
+             " — set SUPABASE_SERVICE_KEY in .env.local; mcx_daily_revenue rejects anon writes once locked"))
 
     if "--loop" in sys.argv:
         catchup_missing(7)  # Self-heal before starting loop

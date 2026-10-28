@@ -6,12 +6,42 @@ and projection logic. Imported by all API endpoints.
 import os, math, time as _time
 from datetime import datetime, timedelta
 from collections import defaultdict
+from pathlib import Path
+
+
+_PROJECT_ENV_KEYS = ("SUPABASE_SERVICE_KEY",)
+
+
+def _load_project_env():
+    """SUPABASE_SERVICE_KEY for the scripts that run on the relay Mac, which
+    launchd starts with no environment: read from .env.local then .env (both
+    gitignored), never overriding a shell var. Only the keys in
+    _PROJECT_ENV_KEYS are taken, so nothing else in those files changes how
+    this module behaves. No such files exist on Vercel."""
+    root = Path(__file__).resolve().parents[1]
+    for name in (".env.local", ".env"):
+        env = root / name
+        if not env.exists():
+            continue
+        for line in env.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            k = k.strip()
+            if k.startswith("export "):
+                k = k[len("export "):].strip()
+            if k in _PROJECT_ENV_KEYS:
+                os.environ.setdefault(k, v.strip().strip('"').strip("'"))
+
+
+_load_project_env()
 
 # ─── FEE SCHEDULE (SEBI Oct 2024 flat rate) ──────────────────────────────────
 FUTURES_RATE = 210.0        # ₹ per crore, both sides
 OPTIONS_RATE = 4180.0       # ₹ per crore of premium, both sides
 NONTX_DAILY  = float(os.environ.get("MCX_NONTX_DAILY", "0.00"))  # removed from daily predictor
-TRADING_DAYS = int(os.environ.get("MCX_TRADING_DAYS", "252"))      # F-04: MCX actual calendar (Excel uses 254)
+TRADING_DAYS = int(os.environ.get("MCX_TRADING_DAYS", "256"))      # FY27 MCX sessions: 261 weekdays − 5 full closures (FY28: 260). Annualises daily revenue for valuation and the Annualized KPI.
 
 # ─── Alpha Vantage (F-07: from env var, not hardcoded) ───────────────────────
 AV_KEY = os.environ.get("ALPHA_VANTAGE_KEY", "")
@@ -26,6 +56,9 @@ SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY",
 # scripts/sql/enable_signal_table_writes.sql). Reads always use the anon key.
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 SUPABASE_WRITE_KEY = SUPABASE_SERVICE_KEY or SUPABASE_ANON_KEY
+# Logged by the relay at start-up. mcx_daily_revenue accepts writes only from
+# service_role once scripts/sql/lock_mcx_daily_revenue.sql has been applied.
+SUPABASE_WRITE_ROLE = "service_role" if SUPABASE_SERVICE_KEY else "anon"
 
 # ─── Commodity normalization ─────────────────────────────────────────────────
 # Groups MCX mini/micro/petal variants under their parent commodity so all
@@ -911,8 +944,10 @@ def supabase_upsert(table, data, timeout=10, on_conflict=None):
 
 # ─── EPS-PATH VALUATION MODEL (Model A) ────────────────────────────────────
 # Economic chain: 45DMA F&O Rev → Annualized → (+Non-F&O) → PAT → EPS → Fair Value
-PAT_MARGIN           = float(os.environ.get("MCX_PAT_MARGIN", "0.55"))        # 55% PAT margin (Excel Triangulation)
-NON_FO_REV_ANNUAL_CR = float(os.environ.get("MCX_NON_FO_REV", "527.0"))      # FY27 non-F&O revenue (₹ Cr/year)
+PAT_MARGIN           = float(os.environ.get("MCX_PAT_MARGIN", "0.55"))        # PAT ÷ total income: FY26 54.8%, Q1 FY27 55.0%
+NON_FO_REV_ANNUAL_CR = float(os.environ.get("MCX_NON_FO_REV", "374.5"))      # ₹ Cr/yr outside F&O fees, last four reported quarters (Q2 FY26–Q1 FY27):
+                                                                              # non-F&O operating revenue 230.3 (reported revenue − daily F&O sums) + other income 144.2.
+                                                                              # Refresh each quarter. Replaces an undocumented 527.
 DILUTED_SHARES_CR    = float(os.environ.get("MCX_DILUTED_SHARES", "25.451"))  # 254.51M diluted shares
 PE_MEAN_DEFAULT      = float(os.environ.get("MCX_PE_MEAN", "34.79"))          # Dynamic PE median (trailing 252 obs)
 PE_SD_DEFAULT        = float(os.environ.get("MCX_PE_SD", "3.49"))             # Scaled MAD (robust PE dispersion)

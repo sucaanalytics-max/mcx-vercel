@@ -3,7 +3,7 @@
 
 Returns:
   - factor_series: raw z-score series (ecm_z, rev_z, turn_z, position_score) — client computes the correlation matrix
-  - rolling_ic: Information Coefficient (signal vs forward 5d return)
+  - rolling_ic: Information Coefficient (signal vs the 5-day return from the next day's close)
   - regime: current bull/bear/neutral + volatility regime
   - rolling_metrics: 60-day Sharpe, win rate, profit factor
   - factor_decomposition: today's ensemble score broken into factor contributions
@@ -17,6 +17,39 @@ from lib.mcx_config import (
     supabase_read_all, now_ist, make_cors_headers,
     safe_float as _f, pearson as _pearson,
 )
+
+# Each day's signal uses that day's MCX revenue, known only after the evening session
+# (23:30 IST), hours after the NSE close. So a signal can first be traded at the NEXT
+# day's close: every evaluation below starts there, and each rolling window only uses
+# returns already known on its date.
+ENTRY_LAG = 1
+
+
+def forward_return(price_dates, price_map, price_date_idx, dt, hold, lag=ENTRY_LAG):
+    """(return, index of the exit price) from the close `lag` days after dt, held `hold` days."""
+    idx = price_date_idx.get(dt)
+    if idx is None:
+        return None
+    a, b = idx + lag, idx + lag + hold
+    if b >= len(price_dates):
+        return None
+    p0, p1 = price_map[price_dates[a]], price_map[price_dates[b]]
+    return (p1 - p0) / p0, b
+
+
+def known_window(signals, i, fwd, price_date_idx, window):
+    """The last `window` signals before or at i whose forward return was known by signal i's date."""
+    now = price_date_idx.get(signals[i]["trading_date"])
+    if now is None:
+        return []
+    out = []
+    for s in reversed(signals[max(0, i - window - 20):i + 1]):
+        f = fwd.get(s["trading_date"])
+        if f is not None and f[1] <= now:
+            out.append(s)
+            if len(out) == window:
+                break
+    return list(reversed(out))
 
 
 def generate_analytics():
@@ -55,40 +88,29 @@ def generate_analytics():
             price_map[p["trading_date"]] = c
             price_dates.append(p["trading_date"])
 
-    # ── 2. Rolling IC (60-day window, forward 5d return) ──
-    # Build forward 5d returns for each signal date
-    sig_dates = [s["trading_date"] for s in signals]
-    fwd_5d = {}
-    for dt in sig_dates:
-        if dt not in price_date_idx:
-            continue
-        idx = price_date_idx[dt]
-        if idx + 5 < len(price_dates):
-            p0 = price_map[dt]
-            p5 = price_map[price_dates[idx + 5]]
-            fwd_5d[dt] = (p5 - p0) / p0
-        else:
-            fwd_5d[dt] = None
+    # ── 2. Rolling IC (60-day window, 5-day return from the next day's close) ──
+    fwd = {}
+    fwd1 = {}
+    for sgl in signals:
+        dt = sgl["trading_date"]
+        f5 = forward_return(price_dates, price_map, price_date_idx, dt, 5)
+        f1 = forward_return(price_dates, price_map, price_date_idx, dt, 1)
+        if f5:
+            fwd[dt] = f5
+        if f1:
+            fwd1[dt] = f1
+    fwd_5d = {dt: f[0] for dt, f in fwd.items()}
 
     ic_history = []
     ic_window = 60
     for i in range(ic_window, len(signals)):
-        window = signals[i - ic_window:i]
-        ens_vals = []
-        ret_vals = []
-        for s in window:
-            dt = s["trading_date"]
+        ens_vals, ret_vals = [], []
+        for s in known_window(signals, i, fwd, price_date_idx, ic_window):
             ens = _f(s.get("ensemble_score"))
-            ret = fwd_5d.get(dt)
-            if ens is not None and ret is not None:
+            if ens is not None:
                 ens_vals.append(ens)
-                ret_vals.append(ret)
-
-        if len(ens_vals) >= 20:
-            ic = _pearson(ens_vals, ret_vals)
-        else:
-            ic = None
-
+                ret_vals.append(fwd_5d[s["trading_date"]])
+        ic = _pearson(ens_vals, ret_vals) if len(ens_vals) >= 20 else None
         ic_history.append({
             "date": signals[i]["trading_date"],
             "ensemble_ic": ic,
@@ -139,23 +161,17 @@ def generate_analytics():
             vol_regime = "LOW"
 
     # ── 4. Rolling Performance Metrics (60-day) ──
+    # Long when the score is positive, short when negative: bought at the next day's
+    # close and held one day. No costs.
     rolling_metrics = []
     for i in range(60, len(signals)):
-        window = signals[i - 60:i]
         daily_rets = []
-        for s in window:
-            dt = s["trading_date"]
+        for s in known_window(signals, i, fwd1, price_date_idx, 60):
             ens = _f(s.get("ensemble_score"))
-            if ens is None or dt not in price_date_idx:
+            if ens is None:
                 continue
-            idx = price_date_idx[dt]
-            if idx + 1 < len(price_dates):
-                p0 = price_map[dt]
-                p1 = price_map[price_dates[idx + 1]]
-                daily_ret = (p1 - p0) / p0
-                # Signal-weighted return: positive ensemble → long, negative → short
-                signal_dir = 1 if ens > 0 else -1 if ens < 0 else 0
-                daily_rets.append(daily_ret * signal_dir)
+            signal_dir = 1 if ens > 0 else -1 if ens < 0 else 0
+            daily_rets.append(fwd1[s["trading_date"]][0] * signal_dir)
 
         if len(daily_rets) >= 30:
             mean_r = sum(daily_rets) / len(daily_rets)
@@ -295,6 +311,8 @@ def generate_analytics():
         "rolling_metrics": rolling_metrics,
         "factor_decomposition": decomposition,
         "weight_sensitivity": weight_sensitivity,
+        "evaluation": {"entry": "the next trading day's close", "entry_lag_days": ENTRY_LAG,
+                       "ic_hold_days": 5, "window": 60},
         "data_quality": {
             "signal_rows": len(signals),
             "price_rows": len(prices),

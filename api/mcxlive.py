@@ -247,23 +247,10 @@ def get_live_data():
             if bhav is not None and len(bhav) > 1000:
                 rev = _compute_revenue_from_bhav(bhav)
                 bhav_results[ds_iso] = rev
-
-                # Cache bhav revenue to Supabase
-                if SUPABASE_ANON_KEY:
-                    try:
-                        supabase_upsert("mcx_daily_revenue", {
-                            "trading_date": ds_iso,
-                            "fut_notl_cr": rev["futures_notional_cr"],
-                            "fut_rev_cr": rev["futures_fee_cr"],
-                            "opt_prem_cr": rev["options_premium_cr"],
-                            "opt_rev_cr": rev["options_fee_cr"],
-                            "total_rev_cr": rev["total_revenue_cr"],
-                            "source": "bhav_mcxpy",
-                            "is_actual": True,
-                            "data_source": "bhav_mcxpy",
-                        })
-                    except Exception:
-                        pass
+                # Display only. This public, unauthenticated endpoint used to
+                # upsert this proxy estimate into mcx_daily_revenue, replacing
+                # the relay's authoritative EOD row (last writer wins). The
+                # relay, daily_verify and bhav_refresh are the only writers.
         except Exception:
             continue
         if len(bhav_results) >= 2:
