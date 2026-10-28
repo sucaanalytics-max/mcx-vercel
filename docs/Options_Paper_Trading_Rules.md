@@ -34,6 +34,24 @@ Crossing the bid/ask on a whole structure in the near month cost **0.8% of capit
 9. **No stops, rolls or adjustments.** Every position is held from entry to exit.
 10. **Return** = P&L after costs ÷ capital at risk, where capital at risk is the debit paid, or the spread width minus the credit received.
 
+## Results-day event trade (H3), added 28 Oct 2026
+
+Rules come from `Docs/Results_Event_Study_Preregistration.md`; the evidence is in `Docs/Results_Event_Study_Q2FY27.md`.
+
+- **Arming:** the event trade runs only once a **confirmed** results date has been set with `options_paper.py set-results-date YYYY-MM-DD`, which writes `data/options_paper/event.json`.
+- **Days:** MCX announces after the close. The pre-day is the results date (or the trading day before it, if the results date isn't a trading day). The reaction day is the next NSE trading day.
+- **Re-measuring at 15:10 on the pre-day:** ATM IV from the Dhan chain. Implied event move = √(2/π)·√(IV²·T_now − (0.865·IV)²·T_post), with T counted in NSE trading days ÷ 252.
+- **Fixed parameters from the study:**
+  - direction **neutral** (our-vs-consensus sign hit 3 of 7, below the 60% bar)
+  - median realised move 3.89%
+  - realised/implied median 0.87
+- **Map:**
+  - implied > 4.67% (1.2 × 3.89%) → **rich** → iron butterfly: sell the ATM CE and PE, buy the CE nearest +7% and the PE nearest −7%.
+  - cheap → long straddle. This can't trigger while the realised/implied ratio is below 1.
+  - fair → no trade. The reading is still logged as `no_trade`.
+- **Exit:** at 15:10 on the reaction day, at bid/ask. Capital at risk = the wider wing − the credit. Same cost model and fill rules as the scheduled trades. A missed pre-day run is logged as `missed`, with a notification.
+- **Preview** (writes nothing): `options_paper.py event-dry-run YYYY-MM-DD`. On 28 Oct, 4 days early: implied 5.38% → rich → 3200 straddle sold, 3400/2950 wings, ₹160.1 credit, ₹89.9 at risk per share.
+
 ## Review gate
 
 After **6 completed series** (about April 2027), compare each book's mean return per trade with the backtest:
