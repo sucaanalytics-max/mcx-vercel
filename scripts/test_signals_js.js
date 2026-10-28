@@ -93,5 +93,30 @@ check('ECM paragraph', M.ecmText(es, 16.32),
   'The price, ₹3,263.5, is 11.0% above the data-driven fair value of ₹2,941. Over the last 60 days the gap has averaged +16.3%, so today it is 0.73 standard deviations below its norm. '
   + 'The model expects the gap to widen back toward its norm, which reads as room for the price to rise relative to fair value.');
 
+// ── Options feed (fixture: the paper trader's feed preview on 28 Oct 2026) ──
+const feed = {
+  trading_date: '2026-10-28', series_expiry: '2026-11-23', entry_date: '2026-11-06', exit_date: '2026-11-19',
+  signals: { v45_20: { signal: 0.0474, z: 0.232, r2: false }, v60_40: { signal: 0.1509, z: 0.701, r2: true } },
+  recommendation: { phase: 'before_entry', next_entry: null, trades: [] }, positions: [],
+  event: { results_date: '2026-11-03', entry: '2026-11-03', exit: '2026-11-04', status: 'pending',
+           reading: { implied_move: 0.0552, threshold_rich: 0.0467, vol_view: 'rich', book: 'EVT_IFLY' } },
+};
+const ol = M.optLede(feed);
+check('options headline before entry, both bullish', ol.head, 'Bullish: next paper entry Fri 6 Nov');
+check('options deck names the results-day pricing', ol.deck,
+  'Both revenue-trend signals are bullish, so the rule takes the bullish spreads. Bearish readings are logged, never traded. '
+  + 'Results on Tue 3 Nov: the options price a 5.5% move, against a 4.67% threshold.');
+const flat = { ...feed, signals: { v45_20: { signal: -0.01 }, v60_40: { signal: -0.02 } }, event: null };
+check('options headline when neither signal is bullish', M.optLede(flat).head, 'No trade lined up: the revenue trend is not rising');
+check('options headline in a trade', M.optLede({ ...feed, recommendation: { phase: 'in_trade', trades: [] },
+  positions: [{ shadow: false }, { shadow: false }, { shadow: true }] }).head, 'Holding 2 paper spreads until Thu 19 Nov');
+check('options headline between series', M.optLede({ ...feed, recommendation: { phase: 'after_exit', next_entry: '2026-12-14', trades: [] } }).head,
+  'Between series: next paper entry Mon 14 Dec');
+check('put credit spread legs', M.legsText([{ strike: 3150, type: 'PE', qty: -1 }, { strike: 3000, type: 'PE', qty: 1 }]),
+  'Sell 3,150 put · Buy 3,000 put');
+check('track rows drop shadows and attach the backtest', M.trackRows(
+  [{ variant: 'v45_20', book: 'PCS', shadow: false, n: 1 }, { variant: 'v45_20', book: 'PCS', shadow: true, n: 1 }],
+  { PCS: { mean: 0.22 } }), [{ variant: 'v45_20', book: 'PCS', shadow: false, n: 1, ref: { mean: 0.22 } }]);
+
 console.log(failed ? `\n${failed} FAILED` : '\nAll Signals model tests passed.');
 process.exit(failed ? 1 : 0);

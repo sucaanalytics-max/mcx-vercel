@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import pandas as pd
 from lib import dhan_client as dc
-from lib.mcx_config import SUPABASE_URL, SUPABASE_ANON_KEY, now_ist
+from lib.mcx_config import SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_ROLE, supabase_upsert, now_ist
 from lib.options_costs import leg_fees
 
 UNDERLYING_ID, SEG = 31181, "NSE_EQ"   # MCX Ltd equity on Dhan
@@ -167,14 +167,19 @@ def log_spreads(oc: dict, expiry: str, ts: dt.datetime):
     row.update({f"half_pct_{b}": round(statistics.median(x), 3) if x else None for b, x in vals.items()})
     new = not SPREADS.exists()
     pd.DataFrame([row]).to_csv(SPREADS, mode="a", header=new, index=False)
+    return row
 
 
 # ---------------------------------------------------------------- actions
-def open_positions(led, client, expiry, oc, today, ts, write: bool):
-    sig = signals(today)
+def open_positions(led, client, expiry, oc, today, ts, write: bool, sig: dict | None = None, quiet: bool = False):
+    """Builds the Schedule B trades at the live bid/ask; appends them to the ledger when write.
+    Returns the trades (the feed shows them as the current recommendation on other days)."""
+    sig = sig or signals(today)
+    trades = []
     if dt.date.fromisoformat(sig["last_rev_date"]) < shift_trading_days(today, 1):
-        log(f"signal_stale: last revenue {sig['last_rev_date']} — no entries")
-        return
+        if not quiet:
+            log(f"signal_stale: last revenue {sig['last_rev_date']} — no entries")
+        return trades
     q, spot, lot = quotes(oc), oc["last_price"], lot_size()
     strikes = sorted({k for k, _ in q})
     for vname in VARIANTS:
@@ -198,11 +203,14 @@ def open_positions(led, client, expiry, oc, today, ts, write: bool):
                 t.update(net_entry=round(net, 2), width=width,
                          risk=round(net if net > 0 else width + net, 2),
                          entry_costs=round(sum(leg_fees(l["entry_fill"], l["qty"], lot) for l in t["legs"]), 4))
-            log(f"{'OPEN' if write else 'WOULD OPEN'} {t['id']} signal={s['signal']} z={s['z']} "
-                f"legs={[(k, typ, qty) for k, typ, qty in legs]} net={t.get('net_entry')} risk={t.get('risk')} status={t['status']}",
-                notify=write and not t["shadow"])
+            if not quiet:
+                log(f"{'OPEN' if write else 'WOULD OPEN'} {t['id']} signal={s['signal']} z={s['z']} "
+                    f"legs={[(k, typ, qty) for k, typ, qty in legs]} net={t.get('net_entry')} risk={t.get('risk')} status={t['status']}",
+                    notify=write and not t["shadow"])
+            trades.append(t)
             if write and not any(x["id"] == t["id"] for x in led):
                 led.append(t)
+    return trades
 
 
 def close_positions(led, oc, today, ts, late: bool, event: bool = False):
@@ -326,6 +334,160 @@ def event_step(led, oc, today, ts, in_window: bool):
         close_positions(led, oc, today, ts, late=today > react, event=True)
 
 
+# ---------------------------------------------------------------- feed (Signals → Options page)
+def leg_view(l: dict) -> dict:
+    return {"strike": l["strike"], "type": l["type"], "qty": l["qty"],
+            "bid": l.get("entry_bid"), "ask": l.get("entry_ask"), "fill": l.get("entry_fill")}
+
+
+def trade_view(t: dict) -> dict:
+    """The fields the page shows for a recommended or open trade."""
+    v = {k: t.get(k) for k in ("id", "variant", "book", "direction", "shadow", "event", "status", "expiry",
+                               "entry_date", "exit_date", "signal", "z", "r2", "net_entry", "risk", "lot", "ret", "pnl_per_lot")}
+    if t.get("legs"):
+        v["legs"] = [leg_view(l) for l in t["legs"]]
+        width = t.get("width") or max(abs(a["strike"] - b["strike"]) for a in t["legs"] for b in t["legs"])
+        net, risk = t.get("net_entry"), t.get("risk")
+        if net is not None and risk is not None:  # credit trades keep the credit; debit spreads keep width − debit
+            v["max_gain"] = round(-net if net < 0 else width - net, 2) if t["book"] != "EVT_STRADDLE" else None
+            v["risk_per_lot"] = round(risk * (t.get("lot") or 0))
+    return v
+
+
+def marks(led: list[dict], oc: dict) -> list[dict]:
+    """Open paper positions marked at the chain's mid."""
+    q, out = quotes(oc), []
+    for t in led:
+        if t.get("status") != "open" or t.get("expiry") != oc["_expiry"]:
+            continue
+        v = trade_view(t)
+        if all((l["strike"], l["type"]) in q for l in t["legs"]):
+            m = sum(l["qty"] * (q[(l["strike"], l["type"])]["mid"] - l["entry_fill"]) for l in t["legs"])
+            v.update(mtm_per_share=round(m, 2), mtm_per_lot=round(m * t["lot"]), mtm_pct=round(m / t["risk"], 4))
+        out.append(v)
+    return out
+
+
+def phase_of(today, entry_d, exit_d, exp_d) -> str:
+    if today < entry_d:
+        return "before_entry"
+    if today == entry_d:
+        return "entry_day"
+    if today < exit_d:
+        return "in_trade"
+    if today == exit_d:
+        return "exit_day"
+    return "after_exit" if today < exp_d else "expired"
+
+
+def event_view(led, oc, today) -> dict | None:
+    if not EVENT_CFG.exists():
+        return None
+    rd = json.loads(EVENT_CFG.read_text())["results_date"]
+    pre, react = event_days(dt.date.fromisoformat(rd))
+    v = {"results_date": rd, "entry": pre.isoformat(), "exit": react.isoformat()}
+    rec = next((t for t in led if t.get("event") and t.get("results_date") == rd), None)
+    if rec:
+        v["status"] = rec["status"]
+        v["reading"] = rec.get("reading")
+        v["trade"] = trade_view(rec) if rec.get("legs") else None
+    elif today <= pre and react < dt.date.fromisoformat(oc["_expiry"]):
+        v["status"] = "pending"
+        v["reading"] = event_reading(oc, today, react)  # today's estimate; the trade re-measures on the pre-day
+    return v
+
+
+def pct(x, dp=1) -> str:
+    return f"{x * 100:+.{dp}f}%"
+
+
+def note_text(ts, spot, sig, phase, expiry, entry_d, exit_d, rec, positions, ev, spreads, closed) -> str:
+    day = f"{ts:%a} {ts.day} {ts:%b}"
+    lines = [f"{day}, {ts:%H:%M} IST · MCX ₹{spot:,.1f}" + (f" · near-month half-spread {spreads['half_pct_atm']:.2f}%" if spreads and spreads.get("half_pct_atm") else "")]
+    vs = [f"{n.replace('_', '/')} {pct(sig[n]['signal'])}" + (f" (z {sig[n]['z']:.2f})" if sig[n]["z"] is not None else "")
+          for n in VARIANTS]
+    bulls = sum(sig[n]["signal"] > 0 for n in VARIANTS)
+    lines.append(f"Revenue trend: {'bullish on both' if bulls == 2 else 'bullish on one' if bulls == 1 else 'not bullish'} ({'; '.join(vs)}).")
+    live = [t for t in rec if not t["shadow"] and t.get("net_entry") is not None]
+    def describe(t):
+        legs = t["legs"]
+        s = "/".join(f"{int(l['strike'])}" for l in legs)
+        kind = {"PCS": "put credit spread", "CDS": "call debit spread"}.get(t["book"], t["book"])
+        money = f"₹{abs(t['net_entry']):.2f} {'credit' if t['net_entry'] < 0 else 'debit'}"
+        return f"{kind} {s} for {money}, ₹{t['risk']:.2f} at risk per share (₹{t['risk'] * t['lot']:,.0f} per lot)"
+    if phase == "entry_day":
+        lines.append("Paper-opened today: " + ("; ".join(describe(t) for t in {x['book']: x for x in live}.values()) if live else "nothing (signals not bullish).")
+                     + (" Both variants agree." if bulls == 2 else ""))
+    elif phase == "before_entry":
+        exp_d = dt.date.fromisoformat(expiry)
+        lines.append(f"Next paper entry {entry_d:%a} {entry_d.day} {entry_d:%b} (series expiring {exp_d.day} {exp_d:%b}). "
+                     + ("If it were today: " + "; ".join(describe(t) for t in {x['book']: x for x in live}.values()) + "." if live
+                        else "If it were today: no trade (signals not bullish)."))
+    elif phase in ("in_trade", "exit_day"):
+        lines.append(f"Positions in the {expiry} series {'close today' if phase == 'exit_day' else f'close {exit_d:%a} {exit_d.day} {exit_d:%b}'}.")
+    else:
+        lines.append(f"The {expiry} series is closed; the next entry follows that expiry.")
+    real = [p for p in positions if not p.get("shadow") and p.get("mtm_per_lot") is not None]
+    if real:
+        tot = sum(p["mtm_per_lot"] for p in real)
+        lines.append(f"Open paper positions: {len(real)}, marked at mid ₹{tot:+,.0f} in total (1 lot each).")
+    if ev:
+        r = ev.get("reading") or {}
+        rd = dt.date.fromisoformat(ev["results_date"])
+        if ev.get("status") == "pending" and r:
+            act = "iron butterfly" if r["book"] == "EVT_IFLY" else "long straddle" if r["book"] == "EVT_STRADDLE" else "no trade"
+            lines.append(f"Results {rd:%a} {rd.day} {rd:%b}: options imply a {r['implied_move'] * 100:.1f}% move today vs the "
+                         f"{r['threshold_rich'] * 100:.2f}% rich threshold → {act} if that still holds at 15:10 on the day "
+                         f"({dt.date.fromisoformat(ev['entry']):%a} {dt.date.fromisoformat(ev['entry']).day} {dt.date.fromisoformat(ev['entry']):%b}).")
+        elif ev.get("status"):
+            lines.append(f"Results {rd:%a} {rd.day} {rd:%b}: event trade {ev['status'].replace('_', ' ')}.")
+    done = [t for t in closed if not t.get("shadow") and t.get("ret") is not None]
+    lines.append(f"Paper record: {len(done)} closed trade{'s' if len(done) != 1 else ''}"
+                 + (f", mean {pct(sum(t['ret'] for t in done) / len(done))} per trade, "
+                    f"{sum(t['ret'] > 0 for t in done)}/{len(done)} winners." if done else " yet."))
+    return "\n".join(lines)
+
+
+def feed_row(led, client, oc, today, ts, exps, sig, spreads) -> dict:
+    expiry = oc["_expiry"]
+    exp_d = dt.date.fromisoformat(expiry)
+    entry_d, exit_d = shift_trading_days(exp_d, ENTRY_OFFSET), shift_trading_days(exp_d, EXIT_OFFSET)
+    phase = phase_of(today, entry_d, exit_d, exp_d)
+    if phase == "entry_day":
+        rec = [t for t in led if not t.get("event") and t.get("entry_date") == today.isoformat()]
+    elif phase == "before_entry":
+        rec = open_positions([], client, expiry, oc, today, ts, write=False, sig=sig, quiet=True)
+    else:
+        rec = []
+    nxt = [e for e in exps if e > expiry]
+    next_entry = shift_trading_days(dt.date.fromisoformat(nxt[0]), ENTRY_OFFSET).isoformat() \
+        if phase in ("after_exit", "expired") and nxt else None
+    positions = marks(led, oc)
+    ev = event_view(led, oc, today)
+    closed = [t for t in led if t.get("status") == "closed"]
+    note = note_text(ts, oc["last_price"], sig, phase, expiry, entry_d, exit_d, rec, positions, ev, spreads, closed)
+    return {"trading_date": today.isoformat(), "run_ts": ts.isoformat(), "spot": oc["last_price"],
+            "series_expiry": expiry, "entry_date": entry_d.isoformat(), "exit_date": exit_d.isoformat(),
+            "signals": sig, "recommendation": {"phase": phase, "next_entry": next_entry, "trades": [trade_view(t) for t in rec]},
+            "positions": positions, "event": ev, "spreads": spreads, "note": note}
+
+
+def publish(led: list[dict], row: dict):
+    """Pushes the feed row and the whole ledger to Supabase (needs the service-role key)."""
+    if SUPABASE_WRITE_ROLE != "service_role":
+        log("feed not published: SUPABASE_SERVICE_KEY is not set in .env")
+        return
+    supabase_upsert("mcx_options_feed", json.loads(json.dumps(row, default=str)))
+    rows = [{"id": t["id"], "variant": t.get("variant"), "book": t.get("book"), "direction": t.get("direction"),
+             "shadow": t.get("shadow"), "event": bool(t.get("event")), "expiry": t.get("expiry"),
+             "entry_date": t.get("entry_date"), "exit_date": t.get("exit_date"), "status": t.get("status"),
+             "signal": t.get("signal"), "z": t.get("z"), "net_entry": t.get("net_entry"), "risk": t.get("risk"),
+             "ret": t.get("ret"), "pnl_per_lot": t.get("pnl_per_lot"), "record": t} for t in led]
+    if rows:
+        supabase_upsert("mcx_options_paper", json.loads(json.dumps(rows, default=str)))
+    log(f"feed published: {row['trading_date']} ({len(rows)} ledger rows)")
+
+
 def main(cmd: str) -> int:
     ts = now_ist()
     today = ts.date()
@@ -384,12 +546,18 @@ def main(cmd: str) -> int:
         open_event([], oc, today, ts, rd, event_days(dt.date.fromisoformat(rd))[1], write=False)
         return 0
 
-    log_spreads(oc, expiry, ts)
+    sig = signals(today)
+    if cmd == "feed-preview":  # the feed row this run would publish; writes nothing
+        row = feed_row(led, client, oc, today, ts, exps, sig, None)
+        print(row["note"]); print(json.dumps(row, default=str))
+        return 0
+
+    spreads = log_spreads(oc, expiry, ts)
     in_window = FILL_WINDOW[0] <= ts.time() <= FILL_WINDOW[1]
     scheduled = [t for t in led if not t.get("event")]
     if today == entry_d:
         if in_window:
-            open_positions(led, client, expiry, oc, today, ts, write=True)
+            open_positions(led, client, expiry, oc, today, ts, write=True, sig=sig)
         elif not any(t["expiry"] == expiry for t in scheduled):
             led.append({"id": f"{expiry}|missed", "expiry": expiry, "status": "missed", "entry_date": today.isoformat(),
                         "flags": [f"run at {ts:%H:%M} outside fill window"]})
@@ -403,6 +571,10 @@ def main(cmd: str) -> int:
     event_step(led, oc, today, ts, in_window)
     save(led)
     log(f"run ok: series {expiry} entry {entry_d} exit {exit_d}; open={sum(t['status'] == 'open' for t in led)}")
+    try:  # the feed is a view of the ledger: a failure here must not undo the run
+        publish(led, feed_row(led, client, oc, today, ts, exps, sig, spreads))
+    except Exception as e:
+        log(f"feed not published: {type(e).__name__}: {e}", notify=True)
     return 0
 
 
