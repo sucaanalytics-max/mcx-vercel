@@ -177,7 +177,8 @@
   // ════════════════════════════════════════════════════════════════════════
   //  Quarter P&L
   // ════════════════════════════════════════════════════════════════════════
-  const QS = { data: null, at: 0, basis: MCX.storage.get('mcx.quarter.basis', 'fo') };
+  // Opens on F&O plus estimated non-F&O: the basis the expense model is fitted on
+  const QS = { data: null, at: 0, basis: MCX.storage.get('mcx.quarter.basis', 'all') };
 
   // Cumulative revenue this quarter, the projection to the end, and (all basis) the non-F&O block
   function buildupSvg(w, d, all) {
@@ -254,7 +255,7 @@
     const cq = d.current_quarter, nf = d.non_fo, bt = d.backtest, em = d.expense_model;
     const all = QS.basis === 'all' && !!nf;
     document.querySelectorAll('#qpBasis button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.basis === (all ? 'all' : 'fo'))));
-    $('qpBasisAllSub').textContent = nf ? `Adds ${cr1(nf.estimate_cr)} estimated` : 'Estimate unavailable';
+    $('qpBasisAllSub').textContent = nf ? `Model · adds ${cr1(nf.estimate_cr)}` : 'Estimate unavailable';
     $('qpBasis').querySelector('[data-basis="all"]').disabled = !nf;
 
     const l = quarterLede(d, all ? 'all' : 'fo');
@@ -295,7 +296,7 @@
     const fy = d.fy_projection;
     if (fy) {
       const parts = fy.quarters_actual.map(q => `${esc(q.quarter)} reported ₹${num(q.pat_cr, 0)} Cr`);
-      if (fy.projected_quarter) parts.push(`${esc(fy.projected_quarter.quarter)} projected ₹${num(fy.projected_quarter.pat_cr, 1)} Cr (F&amp;O only)`);
+      if (fy.projected_quarter) parts.push(`${esc(fy.projected_quarter.quarter)} projected ₹${num(fy.projected_quarter.pat_cr, 1)} Cr (${fy.projected_quarter.basis === 'all' ? 'including non-F&amp;O' : 'F&amp;O only'})`);
       $('qpYear').innerHTML = `<div class="qtr-line"><span><strong>₹${num(fy.fy_pat_cr, 1)} Cr</strong> <span class="muted">profit after tax in ${esc(fy.fy)} ${fy.is_complete ? '' : `so far, ${fy.quarters_actual.length + (fy.projected_quarter ? 1 : 0)} of 4 quarters`}</span></span>`
         + `<span class="muted">EPS ₹${num(fy.fy_eps, 2)} on ${num(fy.diluted_shares_cr, 3)} Cr shares</span></div><p class="note">${parts.join(' · ')}.</p>`;
     }
