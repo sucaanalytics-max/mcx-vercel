@@ -166,8 +166,41 @@
     return t;
   }
 
+  // ── Options feed (scripts/options_paper.py; rules in Docs/Options_Paper_Trading_Rules.md) ──
+  const BOOK = { PCS: 'Put credit spread', CDS: 'Call debit spread', EVT_IFLY: 'Iron butterfly', EVT_STRADDLE: 'Long straddle' };
+  const VARIANT = { v45_20: '45-day trend', v60_40: '60-day trend' };
+  const TREND = { BULL: ['up', '▲', 'Bullish'], FLAT: ['', '■', 'Not bullish'] };
+  const legsText = legs => (legs || []).map(l => `${l.qty > 0 ? 'Buy' : 'Sell'} ${num(l.strike)} ${l.type === 'CE' ? 'call' : 'put'}`).join(' · ');
+  const isBull = s => !!s && s.signal > 0;
+
+  // Headline and deck for the latest feed row
+  function optLede(f) {
+    const sig = f.signals || {}, rec = f.recommendation || {}, ph = rec.phase;
+    const bulls = Object.keys(VARIANT).filter(k => isBull(sig[k])).length;
+    const live = (rec.trades || []).filter(t => !t.shadow && t.status === 'open');
+    const held = (f.positions || []).filter(p => !p.shadow).length;
+    let head;
+    if (ph === 'before_entry') head = bulls ? `Bullish: next paper entry ${fmt.day(f.entry_date)}` : 'No trade lined up: the revenue trend is not rising';
+    else if (ph === 'entry_day') head = live.length ? 'Paper spreads opened today' : 'No paper trade this series: the trend is not rising';
+    else if (ph === 'in_trade') head = held ? `Holding ${held} paper spread${held === 1 ? '' : 's'} until ${fmt.day(f.exit_date)}` : `No paper position this series; it ends ${fmt.day(f.exit_date)}`;
+    else if (ph === 'exit_day') head = 'Paper spreads closed today';
+    else head = rec.next_entry ? `Between series: next paper entry ${fmt.day(rec.next_entry)}` : 'Between series';
+    const trend = bulls === 2 ? 'Both revenue-trend signals are bullish'
+      : bulls === 1 ? 'One of the two revenue-trend signals is bullish' : 'Neither revenue-trend signal is bullish';
+    let deck = `${trend}, so the rule ${bulls ? 'takes' : 'skips'} the bullish spreads. Bearish readings are logged, never traded.`;
+    const ev = f.event, r = ev && ev.reading;
+    if (ev && ev.status === 'pending' && r)
+      deck += ` Results on ${fmt.day(ev.results_date)}: the options price a ${num(r.implied_move * 100, 1)}% move, against a ${num(r.threshold_rich * 100, 2)}% threshold.`;
+    return { head, deck, bulls };
+  }
+
+  // Closed-trade summary rows next to the backtest's reference for the same structure
+  function trackRows(track, backtest) {
+    return (track || []).filter(t => !t.shadow).map(t => ({ ...t, ref: (backtest || {})[t.book] || null }));
+  }
+
   MCX.signalsModel = { HOT, COLD, W, streak, cushion, changes, momLede, overlayText, forward, contributions, ensLede, ecmText, pill,
-                       COMPOSITE, REGIME, OVERLAY, ECM };
+                       COMPOSITE, REGIME, OVERLAY, ECM, optLede, legsText, trackRows, BOOK };
   if (window.MCX_TEST) return;
 
   // ════════════════════════════════════════════════════════════════════════
@@ -565,5 +598,127 @@
     watch('ensemble', EN, renderEnsemble);
   }
 
-  MCX.signals = { momentum: { mount: loadMomentum }, ensemble: { mount: loadModels } };
+  // ════════════════════════════════════════════════════════════════════════
+  //  Options (paper-trading feed)
+  // ════════════════════════════════════════════════════════════════════════
+  const OP = { data: null, err: null };
+  const rs = (v, dp = 2) => (v === null || v === undefined ? '—' : `₹${num(v, dp)}`);
+  const pctOf = v => (v === null || v === undefined ? '—' : `${signed(v * 100, 1)}%`);
+
+  function loadOptions() {
+    return fetchRanged('/api/models?view=options').then(d => {
+      OP.data = d; OP.err = d.success || d.setup ? null : (d.error || 'No data'); renderOptions();
+    }).catch(e => { OP.err = e.message || String(e); renderOptions(); });
+  }
+
+  function renderOptions() {
+    const d = OP.data;
+    if (OP.err || !d) {
+      $('opHead').textContent = 'The options feed could not be loaded.';
+      MCX.ui.error($('opRec'), 'Could not load the options feed: ' + (OP.err || 'no data'), loadOptions);
+      return;
+    }
+    const later = ['opPos', 'opEvent', 'opTrack', 'opNote'].map(id => $(id).closest('.sec'));
+    later.forEach(s => { s.hidden = !d.success; });
+    if (!d.success) {
+      $('opKicker').textContent = 'Options';
+      $('opHead').textContent = 'The options feed is not running yet';
+      $('opDeck').textContent = '';
+      $('opStats').innerHTML = '';
+      $('opRec').innerHTML = '<p class="note">The paper trader publishes here after its 15:10 run, once the feed tables exist in Supabase and the Mac running it has the service key.</p>'
+        + `<p class="note">${esc(d.error || 'No data yet.')}</p>`;
+      return;
+    }
+    const f = d.latest, sig = f.signals || {}, l = optLede(f);
+    const runAt = (f.run_ts || '').slice(11, 16);
+    $('opKicker').textContent = `Options · paper trades · ${fmt.day(f.trading_date)}${runAt ? `, ${runAt} IST` : ''}`;
+    $('opHead').textContent = l.head;
+    $('opDeck').textContent = l.deck;
+
+    const trendStat = (k, lead) => {
+      const s = sig[k];
+      if (!s) return stat(VARIANT[k], val('—'));
+      return stat(VARIANT[k], pillRow(pill(TREND, isBull(s) ? 'BULL' : 'FLAT')),
+        `${signed(s.signal * 100, 1)}% vs ${k === 'v45_20' ? 20 : 40} days ago${s.z !== null && s.z !== undefined ? ` · z ${num(s.z, 2)}` : ''}`, lead);
+    };
+    const ev = f.event, r = ev && ev.reading;
+    $('opStats').innerHTML = trendStat('v45_20', true) + trendStat('v60_40')
+      + stat('This series', val(fmt.dayMonth(f.series_expiry)), `expiry · entry ${fmt.day(f.entry_date)}, exit ${fmt.day(f.exit_date)}`)
+      + (ev ? stat('Results-day move priced', val(r ? `${num(r.implied_move * 100, 1)}%` : '—'),
+          `${fmt.day(ev.results_date)} · ${r ? (r.vol_view === 'rich' ? 'rich' : r.vol_view) + ` vs ${num(r.threshold_rich * 100, 2)}%` : (ev.status || '').replace('_', ' ')}`)
+        : stat('Results day', val('—'), 'no date set'));
+
+    renderOpRec(f);
+    renderOpPos(f);
+    renderOpEvent(ev);
+    renderOpTrack(d, f);
+    $('opNote').innerHTML = `<p class="op-note">${esc(f.note || '')}</p>`;
+    $('opFoot').textContent = `Paper trades only: no orders are placed. From the paper trader's run on ${fmt.day(f.trading_date)}${runAt ? ` at ${runAt} IST` : ''}; fills at the live bid and ask, costs included.`;
+  }
+
+  function tradeTable(rows, cols) {
+    return `<div class="table-scroll"><table class="v2-table"><thead><tr>${cols.map(c => `<th scope="col">${c}</th>`).join('')}</tr></thead><tbody>`
+      + rows.join('') + '</tbody></table></div>';
+  }
+
+  function renderOpRec(f) {
+    const rec = f.recommendation || {}, box = $('opRec');
+    const trades = (rec.trades || []).filter(t => t.legs);
+    $('opRecSub').textContent = rec.phase === 'entry_day' ? 'Opened today at the live bid and ask, one lot each'
+      : rec.phase === 'before_entry' ? 'What the rule would open if today were the entry day, at the live bid and ask, one lot each'
+      : 'New trades open on the entry day of each monthly series';
+    if (!['before_entry', 'entry_day'].includes(rec.phase)) {
+      box.innerHTML = `<p class="note">${rec.phase === 'in_trade' || rec.phase === 'exit_day' ? 'This series is under way: see the open positions.'
+        : `No new trade until the next series${rec.next_entry ? `, entering ${esc(fmt.day(rec.next_entry))}` : ''}.`}</p>`;
+      return;
+    }
+    if (!trades.length) { box.innerHTML = '<p class="note">No trade: neither revenue-trend signal is bullish.</p>'; return; }
+    const rows = trades.map(t => `<tr${t.shadow ? ' class="muted"' : ''}><td>${esc(BOOK[t.book] || t.book)}<small>${esc(VARIANT[t.variant] || t.variant)}${t.shadow ? ' · shadow (bearish, not traded)' : ''}</small></td>`
+      + `<td>${esc(legsText(t.legs))}<small>${t.legs.map(x => `${num(x.strike)} ${x.type === 'CE' ? 'call' : 'put'} ${num(x.bid, 2)}/${num(x.ask, 2)}`).join(' · ')}</small></td>`
+      + `<td>${rs(Math.abs(t.net_entry))}<small>${t.net_entry < 0 ? 'credit' : 'debit'} per share</small></td>`
+      + `<td>${rs(t.risk_per_lot, 0)}</td><td>${t.max_gain != null && t.lot ? rs(t.max_gain * t.lot, 0) : '—'}</td></tr>`);
+    box.innerHTML = tradeTable(rows, ['Trade', 'Legs (bid/ask)', 'Net', 'At risk per lot', 'Most it can make per lot'])
+      + '<p class="note">Both variants pick the same strikes when both are bullish; they are tracked separately so the paper record can tell them apart. Held to two trading days before expiry, no stops.</p>';
+  }
+
+  function renderOpPos(f) {
+    const ps = (f.positions || []).filter(p => !p.shadow), box = $('opPos');
+    if (!ps.length) { box.innerHTML = '<p class="note">No open paper positions.</p>'; return; }
+    box.innerHTML = tradeTable(ps.map(p => `<tr><td>${esc(BOOK[p.book] || p.book)}<small>${esc(p.event ? 'Results day' : VARIANT[p.variant] || p.variant)} · ${esc(legsText(p.legs))}</small></td>`
+      + `<td>${p.entry_date ? fmt.dayMonth(p.entry_date) : '—'}</td><td>${p.mtm_per_lot != null ? `${p.mtm_per_lot >= 0 ? '+' : '−'}₹${num(Math.abs(p.mtm_per_lot))}` : '—'}</td>`
+      + `<td>${pctOf(p.mtm_pct)}</td></tr>`), ['Position', 'Opened', 'Marked per lot', 'Of capital at risk']);
+  }
+
+  function renderOpEvent(ev) {
+    const box = $('opEvent');
+    if (!ev) { box.innerHTML = '<p class="note">No results date set. Once MCX files its board-meeting notice, set it with <code>options_paper.py set-results-date</code>.</p>'; return; }
+    const r = ev.reading;
+    let h = `<p class="note">Results ${esc(fmt.day(ev.results_date))}. The trade is decided at 15:10 on ${esc(fmt.day(ev.entry))} and closed at 15:10 on ${esc(fmt.day(ev.exit))}.</p>`;
+    if (r) {
+      const act = r.book === 'EVT_IFLY' ? 'an iron butterfly (sell the at-the-money call and put, buy wings about 7% away)'
+        : r.book === 'EVT_STRADDLE' ? 'a long straddle' : 'no trade';
+      h += `<p class="note">${ev.status === 'pending' ? 'Measured today' : 'Measured on the day'}: the options price a <strong>${num(r.implied_move * 100, 1)}%</strong> results-day move. `
+        + `MCX's median move on results days since 2022 is 3.9%, so anything above ${num(r.threshold_rich * 100, 2)}% counts as rich. `
+        + `The study gives no view on direction, so the rule ${ev.status === 'pending' ? 'would sell' : 'chose'} ${act}.</p>`;
+    }
+    if (ev.trade && ev.trade.legs) h += `<p class="note">${esc(legsText(ev.trade.legs))} · ${rs(Math.abs(ev.trade.net_entry))} ${ev.trade.net_entry < 0 ? 'credit' : 'debit'}, ${rs(ev.trade.risk_per_lot, 0)} at risk per lot.</p>`;
+    if (ev.status && ev.status !== 'pending') h += `<p class="note">Status: ${esc(ev.status.replace('_', ' '))}.</p>`;
+    box.innerHTML = h;
+  }
+
+  function renderOpTrack(d, f) {
+    const rows = trackRows(d.track, d.backtest), box = $('opTrack');
+    const ref = Object.entries(d.backtest || {}).map(([k, b]) => `${esc(b.label)} ${signed(b.mean * 100, 0)}% per trade, ${num(b.hit * 100, 0)}% winners (${b.n} trades)`).join('; ');
+    if (!rows.length) {
+      box.innerHTML = `<p class="note">No closed paper trades yet. The first series closes ${esc(fmt.day(f.exit_date))}. Backtest for comparison (2022–2026, bullish signal only): ${ref}. The review comes after six series.</p>`;
+      return;
+    }
+    box.innerHTML = tradeTable(rows.map(t => `<tr><td>${esc(BOOK[t.book] || t.book)}<small>${esc(VARIANT[t.variant] || t.variant)}</small></td>`
+      + `<td>${num(t.n)}</td><td>${pctOf(t.mean_ret)}</td><td>${num(t.hit * 100, 0)}%</td><td>${t.pnl_per_lot >= 0 ? '+' : '−'}₹${num(Math.abs(t.pnl_per_lot))}</td>`
+      + `<td>${t.ref ? `${signed(t.ref.mean * 100, 0)}%<small>${num(t.ref.hit * 100, 0)}% winners</small>` : '—'}</td></tr>`),
+      ['Book', 'Trades', 'Mean return', 'Winners', 'P&amp;L, one lot', 'Backtest'])
+      + '<p class="note">Too few trades to judge yet; the review after six series checks for a clear failure, not for proof.</p>';
+  }
+
+  MCX.signals = { momentum: { mount: loadMomentum }, ensemble: { mount: loadModels }, options: { mount: loadOptions } };
 })();

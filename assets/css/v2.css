@@ -508,3 +508,6 @@ html.dark .td-panel { box-shadow: none; }
   .sg-log th:nth-child(3), .sg-log td:nth-child(3), .sg-log th:nth-child(4), .sg-log td:nth-child(4) { display: none; }
   .sg-chg { flex-wrap: wrap; white-space: normal; }
 }
+
+/* Signals → Options: the daily note keeps its line breaks */
+.op-note { margin: 0; white-space: pre-line; font-size: 14px; line-height: 1.6; }
