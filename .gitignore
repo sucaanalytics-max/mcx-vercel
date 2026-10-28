@@ -17,3 +17,6 @@ scripts/.oi_backfill_progress.json
 # Claude worktrees
 .claude/worktrees/
 .superpowers/
+
+# Local job logs
+logs/
