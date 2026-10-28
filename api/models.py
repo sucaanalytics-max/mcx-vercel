@@ -382,6 +382,72 @@ def generate_momentum_response(range_key=DEFAULT_RANGE):
 
 # ─── Vercel handler ──────────────────────────────────────────────────────
 
+# ─── Options feed (Signals → Options) ─────────────────────────────────────
+# Written by scripts/options_paper.py after each 15:10 IST run (tables:
+# scripts/sql/create_options_feed.sql). Paper trades only; no orders are placed.
+# Backtest references: Docs/ADR_Edge_StressTest_Results.md — Schedule B, signal > 0,
+# 2.5% half-spread per leg plus costs, 2022–2026.
+OPTIONS_BACKTEST = {
+    "PCS": {"label": "Put credit spread", "mean": 0.220, "hit": 0.75, "n": 28},
+    "CDS": {"label": "Call debit spread", "mean": 0.320, "hit": 0.607, "n": 28},
+}
+
+
+def summarise_trades(trades):
+    """Closed paper trades grouped by (variant, book, shadow): n, mean return on risk, hit rate, P&L per lot."""
+    groups = {}
+    for t in trades:
+        if t.get("status") != "closed" or t.get("ret") is None:
+            continue
+        key = (t.get("variant") or "event", t.get("book"), bool(t.get("shadow")))
+        groups.setdefault(key, []).append(t)
+    out = []
+    for (variant, book, shadow), ts in sorted(groups.items(), key=lambda kv: (kv[0][2], kv[0][0], kv[0][1] or "")):
+        rets = [float(t["ret"]) for t in ts]
+        out.append({
+            "variant": variant, "book": book, "shadow": shadow, "n": len(ts),
+            "mean_ret": round(sum(rets) / len(rets), 4),
+            "hit": round(sum(r > 0 for r in rets) / len(rets), 3),
+            "pnl_per_lot": round(sum(float(t.get("pnl_per_lot") or 0) for t in ts)),
+            "worst": round(min(rets), 4), "best": round(max(rets), 4),
+        })
+    return out
+
+
+def _trade_row(r):
+    rec = r.get("record") or {}
+    legs = [{"strike": l.get("strike"), "type": l.get("type"), "qty": l.get("qty"),
+             "fill": l.get("entry_fill"), "exit": l.get("exit_fill")} for l in rec.get("legs") or []]
+    keep = ("id", "variant", "book", "direction", "shadow", "event", "status", "expiry",
+            "entry_date", "exit_date", "signal", "z", "net_entry", "risk", "ret", "pnl_per_lot")
+    row = {k: r.get(k) for k in keep}
+    row.update(legs=legs, flags=rec.get("flags") or [], reading=rec.get("reading"))
+    return row
+
+
+def generate_options_response():
+    try:
+        feed = supabase_read("mcx_options_feed", "?select=*&order=trading_date.desc&limit=60")
+    except Exception as e:
+        return {"success": False, "setup": True, "error": f"Options feed tables are not set up: {str(e)[:120]}"}
+    if not feed:
+        return {"success": False, "setup": True, "error": "No options feed published yet"}
+    try:
+        ledger = supabase_read_all("mcx_options_paper", "?select=*&order=entry_date.asc", max_rows=5000)
+    except Exception:
+        ledger = []
+    trades = [_trade_row(r) for r in ledger]
+    return {
+        "success": True,
+        "as_of": now_ist().strftime("%Y-%m-%d %H:%M IST"),
+        "latest": feed[0],
+        "history": [{"date": f["trading_date"], "spot": f.get("spot"), "signals": f.get("signals")} for f in reversed(feed)],
+        "trades": trades,
+        "track": summarise_trades(trades),
+        "backtest": OPTIONS_BACKTEST,
+    }
+
+
 class handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
@@ -419,6 +485,8 @@ class handler(BaseHTTPRequestHandler):
             if view == "momentum":
                 range_key = qs.get("range", [DEFAULT_RANGE])[0]
                 result = generate_momentum_response(range_key=range_key)
+            elif view == "options":
+                result = generate_options_response()
             else:
                 range_key = qs.get("range", [DEFAULT_RANGE])[0]
                 result = generate_models_response(range_key=range_key)

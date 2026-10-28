@@ -52,6 +52,16 @@ Rules come from `Docs/Results_Event_Study_Preregistration.md`; the evidence is i
 - **Exit:** at 15:10 on the reaction day, at bid/ask. Capital at risk = the wider wing − the credit. Same cost model and fill rules as the scheduled trades. A missed pre-day run is logged as `missed`, with a notification.
 - **Preview** (writes nothing): `options_paper.py event-dry-run YYYY-MM-DD`. On 28 Oct, 4 days early: implied 5.38% → rich → 3200 straddle sold, 3400/2950 wings, ₹160.1 credit, ₹89.9 at risk per share.
 
+## The feed (dashboard: Signals → Options)
+
+After each 15:10 run the paper trader publishes one row to `mcx_options_feed`, plus the whole ledger to `mcx_options_paper` (tables: `scripts/sql/create_options_feed.sql`). Each row carries the signals, today's recommendation at the live bid/ask, open positions marked at mid, the results-day reading and a plain-text daily note. `/api/models?view=options` serves it to the Signals → Options page. Preview without writing anything: `options_paper.py feed-preview`.
+
+One-time setup:
+1. Run `scripts/sql/create_options_feed.sql` in the Supabase SQL editor.
+2. Add `SUPABASE_SERVICE_KEY=<service_role key>` to `.env` on the Mac that runs the job.
+
+Until both are done the run logs `feed not published` and the page says the feed isn't running. The paper trades themselves are unaffected.
+
 ## Review gate
 
 After **6 completed series** (about April 2027), compare each book's mean return per trade with the backtest:
