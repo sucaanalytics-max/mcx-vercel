@@ -128,11 +128,16 @@ Scope: "verify and update all tabs and all data" (all 10 tabs, 16 endpoints,
       0.01%. Relay *snapshots* on the six full winter days with data (23 Feb –
       6 Mar 2026) stopped at 23:30 and were 3.3–7.4% (median 4.0%) short.
 - [ ] Before 2 Nov: check MCX's 2026-27 circular matches (add an override if not).
-- [ ] DECIDE before merging PR #8: main's guard trigger
-      (scripts/sql/guard_mcx_daily_revenue.sql) refuses a non-relay source
-      replacing a relay EOD row, so daily_verify's replacement is refused
-      wherever it is applied (reported, no harm). Either let the guard accept
-      `mcx_historical`, or make the morning check flag-only.
+- [x] Guard vs reconciliation DECIDED 28 Oct (user: option 1). The guard
+      trigger now admits a relay-row replacement only with source
+      'mcx_historical' + data_source 'mcx_historical_reconciled', which only
+      daily_verify's >1% reconciliation writes. The relay's same-night
+      historical fallback and bhav-style rows stay refused. Tested on local
+      Postgres 17 (guard.sql and lock.sql, as service_role).
+- [ ] After merging PR #8: re-run scripts/sql/guard_mcx_daily_revenue.sql in
+      the Supabase SQL editor if the guard is already live (create or replace;
+      changes no permission). If the lock is applied, daily_verify needs
+      SUPABASE_SERVICE_KEY in .env.local on its machine.
 - [ ] Repo plist runs daily_verify under /usr/bin/python3 (no curl_cffi), where
       the historical fetch can't load. It now reports this instead of silently
       skipping; the production plist on the relay Mac should use homebrew python.

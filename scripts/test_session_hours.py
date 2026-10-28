@@ -281,6 +281,12 @@ def test_replace_confirms_write():
     check("writes mcx_daily_revenue on trading_date",
           err is None and table == "mcx_daily_revenue" and kw.get("on_conflict") == "trading_date")
     check("row marked historical", row["source"] == "mcx_historical" and row["total_rev_cr"] == 10.42)
+    # The guard trigger (scripts/sql/guard_mcx_daily_revenue.sql) admits a
+    # replacement of a relay row only with this exact pair.
+    check("row carries the guard's reconciliation marker",
+          row["data_source"] == "mcx_historical_reconciled" == dv.RECONCILED_DATA_SOURCE)
+    check("backfill rows keep the ordinary marker",
+          dv.historical_record("2026-11-02", _hist(10.42))["data_source"] == "mcx_historical_detailed")
     dv.supabase_upsert = lambda table, row, **k: []
     check("RLS no-op reported as failure", dv.replace_with_historical("2026-11-02", _hist(10.42)) is not None)
 

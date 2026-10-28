@@ -46,6 +46,10 @@ RECONCILE_TOLERANCE_PCT = 1.0
 # itself on a later morning. Imported Excel rows are left for a human.
 REPLACEABLE_SOURCES = {"mcx_relay_eod", "mcx_historical"}
 REVIEW_THRESHOLD_PCT = 5.0   # flag, don't replace, other sources beyond this
+# data_source on a replacement row. The mcx_daily_revenue_guard trigger lets
+# exactly this (with source 'mcx_historical') replace a relay EOD row; every
+# other non-relay write over a relay row is still refused.
+RECONCILED_DATA_SOURCE = "mcx_historical_reconciled"
 DEFAULT_DAYS = 3             # T-1's options leg is often unsettled at 07:00
 
 
@@ -95,16 +99,17 @@ def historical_record(date_iso, hist):
 def replace_with_historical(date_iso, hist):
     """Overwrite the stored row with the historical figure. Returns an error
     string, or None on success. Confirms the write took: an UPDATE that RLS or
-    the mcx_daily_revenue_guard trigger (scripts/sql/guard_mcx_daily_revenue.sql,
-    which keeps relay EOD rows) skips comes back as success with zero rows."""
-    record = historical_record(date_iso, hist)
+    the mcx_daily_revenue_guard trigger (scripts/sql/guard_mcx_daily_revenue.sql)
+    skips comes back as success with zero rows. The guard admits this write
+    only because of its RECONCILED_DATA_SOURCE marker."""
+    record = {**historical_record(date_iso, hist), "data_source": RECONCILED_DATA_SOURCE}
     try:
         written = supabase_upsert("mcx_daily_revenue", record, on_conflict="trading_date")
     except Exception as e:
         return str(e)[:200]
     if not written or abs((written[0].get("total_rev_cr") or 0) - record["total_rev_cr"]) > 1e-4:
-        return ("upsert changed no row: refused by the mcx_daily_revenue_guard trigger "
-                "(it keeps relay EOD rows) or by RLS")
+        return ("upsert changed no row: refused by RLS, or by an mcx_daily_revenue_guard "
+                "trigger older than this code (re-run scripts/sql/guard_mcx_daily_revenue.sql)")
     return None
 
 
