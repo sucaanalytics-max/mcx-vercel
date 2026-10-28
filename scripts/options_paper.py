@@ -205,10 +205,10 @@ def open_positions(led, client, expiry, oc, today, ts, write: bool):
                 led.append(t)
 
 
-def close_positions(led, oc, today, ts, late: bool):
+def close_positions(led, oc, today, ts, late: bool, event: bool = False):
     q = quotes(oc)
     for t in led:
-        if t["status"] != "open" or t["expiry"] != oc["_expiry"]:
+        if t["status"] != "open" or t["expiry"] != oc["_expiry"] or bool(t.get("event")) != event:
             continue
         if any((l["strike"], l["type"]) not in q for l in t["legs"]):
             log(f"no_quote on exit for {t['id']} — retry next run")
@@ -227,9 +227,115 @@ def close_positions(led, oc, today, ts, late: bool):
         log(f"CLOSE {t['id']} pnl/lot=₹{t['pnl_per_lot']} ret={t['ret']:+.1%}", notify=not t["shadow"])
 
 
+# ---------------------------------------------------------------- results-day event (H3)
+EVENT_CFG = OUT / "event.json"
+# Fixed by Docs/Results_Event_Study_Q2FY27.md (pre-registered rules): direction is neutral
+# (our-vs-consensus sign hit 3/7 < 60%); realised/implied median 0.87 < 1; IV falls to 0.865×.
+H3 = {"direction": "neutral", "median_realised": 0.0389, "ratio_realised_implied": 0.87,
+      "iv_post_pre": 0.865, "wing": 0.07}
+
+
+def trading_days_between(a: dt.date, b: dt.date) -> int:
+    """NSE trading days d with a < d <= b."""
+    return sum(1 for i in range(1, (b - a).days + 1) if is_trading_day(a + dt.timedelta(days=i)))
+
+
+def event_days(results_date: dt.date) -> tuple[dt.date, dt.date]:
+    """MCX announces after the close: pre-day = results day (or the trading day before), reaction = next."""
+    pre = results_date if is_trading_day(results_date) else shift_trading_days(results_date, 1)
+    react = results_date + dt.timedelta(days=1)
+    while not is_trading_day(react):
+        react += dt.timedelta(days=1)
+    return pre, react
+
+
+def event_reading(oc: dict, today: dt.date, react: dt.date) -> dict:
+    q, spot = quotes(oc), oc["last_price"]
+    exp_d = dt.date.fromisoformat(oc["_expiry"])
+    atm = min({k for k, _ in q}, key=lambda k: abs(k - spot))
+    iv = (q[(atm, "CE")]["iv"] + q[(atm, "PE")]["iv"]) / 200
+    t_now, t_post = trading_days_between(today, exp_d) / 252, trading_days_between(react, exp_d) / 252
+    var_e = iv ** 2 * t_now - (H3["iv_post_pre"] * iv) ** 2 * t_post
+    implied = math.sqrt(2 / math.pi) * math.sqrt(var_e) if var_e > 0 else 0.0
+    if implied > 1.2 * H3["median_realised"] and H3["ratio_realised_implied"] < 1:
+        vol = "rich"
+    elif implied < 0.8 * H3["median_realised"] and H3["ratio_realised_implied"] > 1:
+        vol = "cheap"
+    else:
+        vol = "fair"
+    book = {("neutral", "rich"): "EVT_IFLY", ("neutral", "cheap"): "EVT_STRADDLE"}.get((H3["direction"], vol))
+    return {"spot": spot, "atm": atm, "iv_atm": round(iv, 4), "t_now": round(t_now, 4), "t_post": round(t_post, 4),
+            "implied_move": round(implied, 4), "threshold_rich": round(1.2 * H3["median_realised"], 4),
+            "vol_view": vol, "direction": H3["direction"], "book": book}
+
+
+def open_event(led, oc, today, ts, results_date: str, react: dt.date, write: bool):
+    r = event_reading(oc, today, react)
+    q, spot, atm = quotes(oc), r["spot"], r["atm"]
+    strikes = sorted({k for k, _ in q})
+    rid = f"{oc['_expiry']}|event|{results_date}"
+    t = {"id": f"{rid}|{r['book'] or 'none'}", "event": True, "results_date": results_date, "book": r["book"],
+         "direction": r["direction"], "shadow": False, "expiry": oc["_expiry"], "entry_date": today.isoformat(),
+         "entry_ts": ts.strftime("%H:%M"), "spot_entry": spot, "reading": r, "flags": []}
+    if r["book"] is None:
+        t["status"] = "no_trade"
+    else:
+        c7 = min(strikes, key=lambda k: abs(k - spot * (1 + H3["wing"])))
+        p7 = min(strikes, key=lambda k: abs(k - spot * (1 - H3["wing"])))
+        legs = ([(atm, "CE", -1), (atm, "PE", -1), (c7, "CE", 1), (p7, "PE", 1)] if r["book"] == "EVT_IFLY"
+                else [(atm, "CE", 1), (atm, "PE", 1)])
+        if any((k, typ) not in q for k, typ, _ in legs):
+            t["status"] = "no_quote"
+        else:
+            lot = lot_size()
+            t["lot"] = lot
+            t["legs"] = [{"strike": k, "type": typ, "qty": qty, "security_id": q[(k, typ)]["security_id"],
+                          "entry_bid": q[(k, typ)]["bid"], "entry_ask": q[(k, typ)]["ask"],
+                          "entry_fill": fill(q, k, typ, qty, True), "entry_iv": q[(k, typ)]["iv"]} for k, typ, qty in legs]
+            net = sum(l["qty"] * l["entry_fill"] for l in t["legs"])
+            wing = max(c7 - atm, atm - p7)
+            t.update(status="open", net_entry=round(net, 2),
+                     risk=round(wing + net if r["book"] == "EVT_IFLY" else net, 2),
+                     entry_costs=round(sum(leg_fees(l["entry_fill"], l["qty"], lot) for l in t["legs"]), 4))
+    log(f"{'EVENT' if write else 'EVENT (dry run)'} {t['id']} implied={r['implied_move']:.2%} vs rich>{r['threshold_rich']:.2%} "
+        f"view={r['direction']}+{r['vol_view']} status={t['status']} net={t.get('net_entry')} risk={t.get('risk')}",
+        notify=write)
+    if write and not any(x["id"].startswith(rid) for x in led):
+        led.append(t)
+    return t
+
+
+def event_step(led, oc, today, ts, in_window: bool):
+    if not EVENT_CFG.exists():
+        return
+    rd = json.loads(EVENT_CFG.read_text())["results_date"]
+    pre, react = event_days(dt.date.fromisoformat(rd))
+    if react >= dt.date.fromisoformat(oc["_expiry"]):
+        if today == pre:
+            log(f"event {rd}: reaction day {react} is not before expiry {oc['_expiry']} — no event trade")
+        return
+    done = any(t.get("event") and t.get("results_date") == rd for t in led)
+    if today == pre and not done:
+        if in_window:
+            open_event(led, oc, today, ts, rd, react, write=True)
+        else:
+            led.append({"id": f"{oc['_expiry']}|event|{rd}|missed", "event": True, "results_date": rd,
+                        "expiry": oc["_expiry"], "status": "missed", "flags": [f"run at {ts:%H:%M} outside fill window"]})
+            log(f"missed event entry for results {rd}: ran at {ts:%H:%M}", notify=True)
+    if today >= react and in_window:
+        close_positions(led, oc, today, ts, late=today > react, event=True)
+
+
 def main(cmd: str) -> int:
     ts = now_ist()
     today = ts.date()
+    if cmd == "set-results-date":
+        rd = dt.date.fromisoformat(sys.argv[2])
+        pre, react = event_days(rd)
+        OUT.mkdir(parents=True, exist_ok=True)
+        EVENT_CFG.write_text(json.dumps({"results_date": rd.isoformat(), "set_at": ts.strftime("%Y-%m-%d %H:%M")}))
+        log(f"results date set to {rd}: event entry {pre} ~15:10, exit {react} ~15:10")
+        return 0
     if today > HOLIDAY_COVERAGE_END:
         log("NSE holiday list does not cover today — update NSE_HOLIDAYS before trading continues")
         return 2
@@ -252,6 +358,12 @@ def main(cmd: str) -> int:
         q = quotes(oc)
         print(f"series {expiry}: entry {entry_d} exit {exit_d} | spot {oc['last_price']}")
         print("signals (as of today):", json.dumps(signals(today)))
+        if EVENT_CFG.exists():
+            rd = json.loads(EVENT_CFG.read_text())["results_date"]
+            pre, react = event_days(dt.date.fromisoformat(rd))
+            print(f"results-day event: results {rd}, entry {pre} ~15:10, exit {react} ~15:10")
+        else:
+            print("results-day event: no date set (python ... options_paper.py set-results-date YYYY-MM-DD)")
         for t in led:
             if t["status"] == "open":
                 mtm = sum(l["qty"] * (q[(l["strike"], l["type"])]["mid"] - l["entry_fill"]) for l in t["legs"]
@@ -267,21 +379,28 @@ def main(cmd: str) -> int:
         open_positions([], client, expiry, oc, today, ts, write=False)
         return 0
 
+    if cmd == "event-dry-run":  # the results-day rule as if today were the pre-day
+        rd = sys.argv[2] if len(sys.argv) > 2 else json.loads(EVENT_CFG.read_text())["results_date"]
+        open_event([], oc, today, ts, rd, event_days(dt.date.fromisoformat(rd))[1], write=False)
+        return 0
+
     log_spreads(oc, expiry, ts)
     in_window = FILL_WINDOW[0] <= ts.time() <= FILL_WINDOW[1]
+    scheduled = [t for t in led if not t.get("event")]
     if today == entry_d:
         if in_window:
             open_positions(led, client, expiry, oc, today, ts, write=True)
-        elif not any(t["expiry"] == expiry for t in led):
+        elif not any(t["expiry"] == expiry for t in scheduled):
             led.append({"id": f"{expiry}|missed", "expiry": expiry, "status": "missed", "entry_date": today.isoformat(),
                         "flags": [f"run at {ts:%H:%M} outside fill window"]})
             log(f"missed entry for {expiry}: ran at {ts:%H:%M}")
-    elif entry_d < today < exit_d and not any(t["expiry"] == expiry for t in led):
+    elif entry_d < today < exit_d and not any(t["expiry"] == expiry for t in scheduled):
         led.append({"id": f"{expiry}|missed", "expiry": expiry, "status": "missed", "entry_date": entry_d.isoformat(),
                     "flags": ["no run on entry day"]})
         log(f"missed entry for {expiry}: no run on {entry_d}")
     if today >= exit_d and today < exp_d and in_window:
         close_positions(led, oc, today, ts, late=today > exit_d)
+    event_step(led, oc, today, ts, in_window)
     save(led)
     log(f"run ok: series {expiry} entry {entry_d} exit {exit_d}; open={sum(t['status'] == 'open' for t in led)}")
     return 0
