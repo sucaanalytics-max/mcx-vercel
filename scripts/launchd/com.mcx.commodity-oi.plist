@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mcx.commodity-oi</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/tusk-jvb/.local/bin/uv</string>
+        <string>run</string>
+        <string>--no-project</string>
+        <string>--with</string>
+        <string>dhanhq&lt;2.1</string>
+        <string>--with</string>
+        <string>pandas</string>
+        <string>python</string>
+        <string>-I</string>
+        <string>scripts/backfill_commodity_oi.py</string>
+        <string>--nightly</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/tusk-jvb/Claude Projects/mcx-vercel</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>/Users/tusk-jvb</string>
+        <key>PATH</key>
+        <string>/Users/tusk-jvb/.local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    </dict>
+    <!-- Tue–Sat 07:30 IST: after the 07:00 job writes the previous session's
+         mcx_commodity_daily rows (OI is only written onto existing rows) and well
+         before the 19:50 commodity-signals cron. Re-fetches 30 days, so a missed
+         run, a late row or a bhav re-write that zeroed OI is repaired next time. -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>7</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>7</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>7</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>7</integer><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Weekday</key><integer>6</integer><key>Hour</key><integer>7</integer><key>Minute</key><integer>30</integer></dict>
+    </array>
+    <key>StandardOutPath</key>
+    <string>/Users/tusk-jvb/Claude Projects/mcx-vercel/logs/commodity_oi_launchd.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/tusk-jvb/Claude Projects/mcx-vercel/logs/commodity_oi_launchd.log</string>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

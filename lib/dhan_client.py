@@ -1,7 +1,8 @@
 """
 Dhan API client wrapper and per-commodity live-OI fetcher for MCX.
 
-Wraps `dhanhq` with project-local .env loading and a cached scrip master so we
+Wraps `dhanhq` with an auto-renewing token (shared with the Demat project via
+~/.dhan/credentials.json, .env as fallback) and a cached scrip master so we
 can resolve MCX commodity instruments and fetch live OI in a single call.
 
 Usage:
@@ -43,17 +44,124 @@ _load_project_env()
 DHAN_CLIENT_ID = os.environ.get("DHAN_CLIENT_ID", "")
 DHAN_ACCESS_TOKEN = os.environ.get("DHAN_ACCESS_TOKEN", "")
 
+# ── token: shared with the Demat project ─────────────────────────────────
+# Dhan tokens last 24 h. The Demat project (~/Documents/Demat/dhan_auth.py)
+# keeps the live token in ~/.dhan/credentials.json and re-mints it from
+# PIN + TOTP. We read and renew the same file, so one renewal serves both.
+# Minting a new token REVOKES earlier PIN+TOTP tokens within minutes (29 Oct
+# 2026: Demat's 08:31 token went DH-906 shortly after two test mints; a token
+# made on Dhan Web survived). So never mint anywhere but into this file, and
+# always re-read it rather than holding a token across runs.
+# Without the file we fall back to DHAN_ACCESS_TOKEN from .env.
+DHAN_CREDS_FILE = Path.home() / ".dhan" / "credentials.json"
+_AUTH_URL = "https://auth.dhan.co/app/generateAccessToken"
+_PROFILE_URL = "https://api.dhan.co/v2/profile"
+_TOKEN_LIFETIME_S = 23 * 3600   # Demat's conservative note; Dhan gives ~24 h
+_REFRESH_MARGIN_S = 3600        # renew when < 1 h is left
+
+
+def _totp(secret: str, at: float) -> str:
+    """RFC 6238 TOTP (SHA-1, 6 digits, 30 s) — the same codes pyotp makes."""
+    import base64, hashlib, hmac, struct
+    key = base64.b32decode(secret.upper().replace(" ", "") + "=" * (-len(secret) % 8))
+    mac = hmac.new(key, struct.pack(">Q", int(at) // 30), hashlib.sha1).digest()
+    o = mac[-1] & 0x0F
+    return f"{(struct.unpack('>I', mac[o:o + 4])[0] & 0x7FFFFFFF) % 1_000_000:06d}"
+
+
+def _token_rejected(client_id: str, token: str) -> bool:
+    """True only when Dhan explicitly refuses the token: 401 (DH-901, expired)
+    or 400 DH-906 'Invalid Token' (revoked — seen 29 Oct 2026 on a token minted
+    earlier the same day, after newer tokens were minted). Network errors say
+    nothing about the token and must not trigger a re-mint."""
+    import urllib.request, urllib.error
+    req = urllib.request.Request(_PROFILE_URL, headers={
+        "access-token": token, "client-id": client_id, "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=10):
+            return False
+    except urllib.error.HTTPError as e:
+        return e.code == 401 or (e.code == 400 and b"DH-906" in e.read())
+    except Exception:
+        return False
+
+
+def _mint_token(creds: dict) -> dict:
+    """POST PIN + TOTP to Dhan's auth endpoint; return creds with the new token.
+    Retries once across the 30 s boundary on 'Invalid TOTP' (window race)."""
+    import json, urllib.parse, urllib.request
+    cid, pin, secret = creds.get("client_id"), creds.get("pin"), creds.get("totp_secret")
+    if not (cid and pin and secret):
+        raise RuntimeError(f"{DHAN_CREDS_FILE} lacks client_id / pin / totp_secret")
+
+    def attempt() -> dict:
+        left = 30 - int(time.time()) % 30
+        if left <= 3:
+            time.sleep(left + 1)
+        qs = urllib.parse.urlencode({"dhanClientId": cid, "pin": pin,
+                                     "totp": _totp(secret, time.time())})
+        with urllib.request.urlopen(urllib.request.Request(
+                f"{_AUTH_URL}?{qs}", method="POST"), timeout=15) as r:
+            return json.loads(r.read().decode())
+
+    body = attempt()
+    token = body.get("accessToken") or body.get("access_token")
+    if not token and "TOTP" in str(body.get("message", "")):
+        time.sleep(31 - int(time.time()) % 30)
+        body = attempt()
+        token = body.get("accessToken") or body.get("access_token")
+    if not token:
+        # Dhan's error body carries no secrets; keep it short for the log.
+        raise RuntimeError(f"Dhan token mint failed: {str(body)[:200]}")
+    return {**creds, "access_token": token,
+            "token_expires_at": int(time.time()) + _TOKEN_LIFETIME_S}
+
+
+def _save_creds(creds: dict) -> None:
+    """Atomic write, 0600 — the file holds the PIN and TOTP secret."""
+    import json
+    tmp = DHAN_CREDS_FILE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(creds, indent=2))
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, DHAN_CREDS_FILE)
+
+
+def _credentials() -> tuple[str, str]:
+    """(client_id, access_token), renewing the shared token when it is near
+    expiry or Dhan refuses it. Raises if no usable token can be found."""
+    import json, sys
+    if DHAN_CREDS_FILE.exists():
+        creds = json.loads(DHAN_CREDS_FILE.read_text())
+        cid, tok = str(creds.get("client_id", "")), creds.get("access_token", "")
+        stale = (not tok or
+                 time.time() > creds.get("token_expires_at", 0) - _REFRESH_MARGIN_S)
+        if stale or _token_rejected(cid, tok):
+            try:
+                creds = _mint_token(creds)
+                _save_creds(creds)
+                tok = creds["access_token"]
+            except Exception as e:
+                # Dhan allows one mint per 2 min, so a failure here often means
+                # Demat renewed a moment ago: re-read the file before giving up.
+                print(f"[dhan_client] token renewal failed: {e}", file=sys.stderr)
+                fresh = json.loads(DHAN_CREDS_FILE.read_text()).get("access_token", "")
+                if fresh and fresh != tok and not _token_rejected(cid, fresh):
+                    tok = fresh
+        if cid and tok:
+            return cid, tok
+    if DHAN_CLIENT_ID and DHAN_ACCESS_TOKEN:
+        return DHAN_CLIENT_ID, DHAN_ACCESS_TOKEN
+    raise RuntimeError(
+        f"No Dhan token: neither {DHAN_CREDS_FILE} (shared with the Demat "
+        "project) nor DHAN_CLIENT_ID / DHAN_ACCESS_TOKEN in .env."
+    )
+
 
 @lru_cache(maxsize=1)
 def get_client():
-    """Singleton dhanhq client. Raises if env vars are missing."""
-    if not (DHAN_CLIENT_ID and DHAN_ACCESS_TOKEN):
-        raise RuntimeError(
-            "DHAN_CLIENT_ID / DHAN_ACCESS_TOKEN not set. "
-            "Add them to the project-local .env file (gitignored)."
-        )
+    """Singleton dhanhq client on a token that Dhan currently accepts."""
     from dhanhq import dhanhq
-    return dhanhq(DHAN_CLIENT_ID, DHAN_ACCESS_TOKEN)
+    return dhanhq(*_credentials())
 
 
 @lru_cache(maxsize=1)
@@ -160,9 +268,102 @@ def fetch_mcx_commodity_oi(commodities: Iterable[str],
     return rows
 
 
+# ── historical OI ────────────────────────────────────────────────────────
+# For MCX futures, Dhan's /charts/historical ignores expiryCode. Each contract's
+# security id instead returns a history stitched by expiry POSITION: the current
+# front-month id gives whichever contract was front on each past date, the
+# second id the then-second contract, and so on, back to 2020. Summing over
+# all live ids therefore gives total OI per day with no roll sawtooth.
+# Validated 29 Oct 2026 against the dhan_live snapshot of 27 May: within 0.1%
+# for SILVER, SILVERM, GOLD, CRUDEOIL, NATURALGAS, ZINC; GOLDM −3%, COPPER −4%
+# (far contracts that have since expired drop out of the scrip master).
+GLITCH_JUMP = 0.30      # a day this far from BOTH neighbours ...
+GLITCH_NEIGHBOURS = 0.30  # ... whose neighbours agree within this is a glitch
+
+
+def _post_historical(security_id: int, from_date: str, to_date: str) -> dict:
+    import json, urllib.request, urllib.error
+    cid, tok = _credentials()
+    body = {"securityId": str(security_id), "exchangeSegment": "MCX_COMM",
+            "instrument": "FUTCOM", "oi": True,
+            "fromDate": from_date, "toDate": to_date}
+    req = urllib.request.Request(
+        "https://api.dhan.co/v2/charts/historical", data=json.dumps(body).encode(),
+        method="POST", headers={"access-token": tok, "client-id": cid,
+                                "Content-Type": "application/json",
+                                "Accept": "application/json"})
+    for attempt in range(4):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            err = e.read()
+            if e.code == 400 and b"DH-907" in err:
+                return {}   # far contract with no trades yet: nothing to add
+            if e.code == 429 and attempt < 3:   # DH-904 rate limit: back off
+                time.sleep(2 * (attempt + 1))
+                continue
+            raise RuntimeError(f"Dhan historical {security_id}: HTTP {e.code} "
+                               f"{err[:200]!r}") from None
+
+
+def _flag_glitches(oi: pd.Series) -> pd.Series:
+    """True on one-day spikes/dips that revert: the day differs from both
+    neighbours by > GLITCH_JUMP in the same direction, while the neighbours
+    agree within GLITCH_NEIGHBOURS. Seen on 9 Mar 2026 in every commodity and
+    on some monthly roll days (double counting). The last day can't be judged
+    until the next one exists, so nightly runs re-fetch a trailing window."""
+    prev, nxt = oi.shift(1), oi.shift(-1)
+    up = (oi > prev * (1 + GLITCH_JUMP)) & (oi > nxt * (1 + GLITCH_JUMP))
+    down = (oi < prev * (1 - GLITCH_JUMP)) & (oi < nxt * (1 - GLITCH_JUMP))
+    agree = (nxt / prev - 1).abs() < GLITCH_NEIGHBOURS
+    return (up | down) & agree
+
+
+def fetch_commodity_oi_history(commodity: str, from_date: str,
+                               to_date: str) -> pd.DataFrame:
+    """Daily total futures OI for one MCX commodity from Dhan's stitched history.
+
+    Returns a DataFrame indexed by trading date (IST) with columns
+    open_interest (lots, None on glitch days), oi_value_cr (₹ Cr at each
+    position's close and current lot size, None on glitch days), raw_oi and
+    glitch. `to_date` is exclusive (Dhan's convention).
+    """
+    futs = list_front_futures(commodity)
+    today = dt.date.today().isoformat()
+    futs = [f for f in futs if f["expiry"] >= today]
+    if not futs:
+        return pd.DataFrame()
+    oi, val = None, None
+    for f in futs:
+        r = _post_historical(f["security_id"], from_date, to_date)
+        if not r.get("timestamp"):
+            time.sleep(0.5)
+            continue
+        # Dhan stamps daily bars at IST midnight (18:30 UTC the day before).
+        idx = (pd.to_datetime(r["timestamp"], unit="s")
+               + pd.Timedelta(hours=5, minutes=30)).normalize()
+        s = pd.Series(r["open_interest"], index=idx, dtype=float)
+        v = s * pd.Series(r["close"], index=idx, dtype=float) * (f["lot_size"] or 0) / 1e7
+        s, v = s[~s.index.duplicated(keep="last")], v[~v.index.duplicated(keep="last")]
+        oi = s if oi is None else oi.add(s, fill_value=0)
+        val = v if val is None else val.add(v, fill_value=0)
+        time.sleep(0.5)
+    if oi is None:
+        return pd.DataFrame()
+    df = pd.DataFrame({"raw_oi": oi, "raw_value": val}).sort_index()
+    df = df[df.raw_oi > 0]
+    df["glitch"] = _flag_glitches(df.raw_oi)
+    df["open_interest"] = df.raw_oi.where(~df.glitch).astype("Int64")
+    df["oi_value_cr"] = df.raw_value.where(~df.glitch).round(2)
+    df.index = df.index.strftime("%Y-%m-%d")
+    return df[["open_interest", "oi_value_cr", "raw_oi", "glitch"]]
+
+
 __all__ = [
     "get_client",
     "list_front_futures",
     "days_to_next_expiry",
     "fetch_mcx_commodity_oi",
+    "fetch_commodity_oi_history",
 ]
