@@ -402,6 +402,21 @@ def main():
     else:
         print("  margin_refresh FAILED (non-fatal; freshness scanner will flag if stale)")
 
+    # 5c. OI participants. The Vercel cron for this could never succeed: it
+    # fires at 16:00 UTC (21:30 IST) and requests the SAME day's file, which MCX
+    # normally publishes the next day, so it almost never finds data; and its
+    # retry budget (3 attempts x 30s timeout + 2 x 3s sleep ~ 96s) exceeds the
+    # 60s maxDuration, which is the "Task timed out after 60 seconds" Vercel
+    # logged. Removed from vercel.json. The relay already fills this table
+    # locally; refresh the trailing 5 calendar days here too (covers a weekend +
+    # T+1). Existing dates are skipped and writes are merge-duplicates upserts,
+    # so re-runs are idempotent. Soft-fail like the blocks above.
+    print("\nOI participants refresh (backfill, trailing 5 days)...")
+    if _run_script("backfill_oi_participants.py", ["--recent", "5"], timeout=180):
+        print("  backfill_oi_participants OK")
+    else:
+        print("  backfill_oi_participants FAILED (non-fatal; freshness scanner will flag if stale)")
+
     # 6. Derived signal tables (models / momentum / commodity_signals).
     # The Vercel crons that own these fire at 14:10-14:20 UTC, but mcx_valuation
     # for the same session is not written until ~20:27 UTC — so those runs can

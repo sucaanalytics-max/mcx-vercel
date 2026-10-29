@@ -5,7 +5,12 @@ Downloads MCX's "Disclosure of Open Interest and Turnover" XLSX,
 parses Part A ("Number of participants in each category"),
 and upserts to mcx_oi_participants in Supabase.
 
-Schedule: 20:00 IST weekdays (after market close).
+Schedule: none on Vercel. The old 16:00 UTC (21:30 IST) cron requested the SAME day's
+file, which MCX publishes T+1, so it almost never found data, and its retries
+(3 x 30s timeout + 2 x 3s sleep ~ 96s) exceeded the 60s maxDuration ('Task timed
+out after 60 seconds'). The table is filled locally by scripts/mcx_relay.py
+(refresh_oi_participants_local) and scripts/backfill_oi_participants.py, run from
+scripts/daily_verify.py.
 Source: https://www.mcxindia.com/docs/default-source/market-operations/
         trading-survelliance/reports/disclosure-of-open-interest-and-
         turnover-for-various-categories-of-market-participants/
