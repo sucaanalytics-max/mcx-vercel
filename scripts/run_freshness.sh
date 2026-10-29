@@ -11,8 +11,9 @@
 #   .claude/settings.recommended.json  ->  .claude/settings.local.json
 # so the run is non-interactive for exactly the freshness scripts.
 
-cd "/Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel" || exit 1
-export PATH="/Users/pranayagarwal/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+# Repo root = parent of this script's directory (any user, paths with spaces ok).
+cd "$(dirname "$0")/.." || exit 1
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 
 LOG="logs/freshness-$(date +%Y-%m-%d).log"
 mkdir -p logs
