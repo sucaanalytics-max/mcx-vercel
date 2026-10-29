@@ -163,6 +163,10 @@ def sweep_api():
         results = list(ex.map(probe, ENDPOINTS))
     for path, (code, problem) in zip(ENDPOINTS, results):
         if code != 200 or problem:
+            # One re-probe: a cold, uncached function can exceed the timeout
+            # once (seen 29 Oct on ?view=margins: >40s, then 0.25s x3).
+            code, problem = probe(path)
+        if code != 200 or problem:
             out.append(finding("api", "api", path, f"Endpoint unhealthy: {path}",
                                f"HTTP {code}; {problem}", "high", "triage"))
     return out
