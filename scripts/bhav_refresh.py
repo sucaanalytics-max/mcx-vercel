@@ -62,6 +62,17 @@ def is_trading_day(d):
     return d.weekday() < 5 and d.strftime("%Y-%m-%d") not in MCX_HOLIDAYS
 
 
+try:                                            # weekend Muhurat etc.: backfill these too
+    from lib.mcx_config import MCX_SPECIAL_SESSIONS
+except ImportError:
+    MCX_SPECIAL_SESSIONS = {}
+
+
+def has_session(d):
+    """A trading day or a special session (MCX's historical report covers both)."""
+    return is_trading_day(d) or d.strftime("%Y-%m-%d") in MCX_SPECIAL_SESSIONS
+
+
 def check_relay_eod(date_iso):
     """Check if relay has already captured EOD data for this date.
     Returns the row dict if found (source='mcx_relay_eod'), else None."""
@@ -359,7 +370,10 @@ def fetch_and_compute(date_iso, commodity_present=None):
     # fetch_mcx_historical() also upserts the commodity breakdown internally.
     hist = fetch_mcx_historical(date_iso)
     if hist:
-        if hist["total_rev_cr"] < 1.0 or hist["total_rev_cr"] > 50.0:
+        # A ~1-hour special session books well under Rs 1 Cr (2024 Muhurat: 0.4964).
+        rev = hist["total_rev_cr"]
+        too_low = rev <= 0 if date_iso in MCX_SPECIAL_SESSIONS else rev < 1.0
+        if too_low or rev > 50.0:
             print(f"  ⚠ {date_iso}: historical API revenue {hist['total_rev_cr']} out of range")
         else:
             dt = datetime.strptime(date_iso, "%Y-%m-%d")
@@ -407,7 +421,7 @@ def refresh(lookback_days=5, force_dates=None):
             iso = d.strftime("%Y-%m-%d")
             if i == 0 and not today_closed:
                 continue
-            if is_trading_day(d) and (iso not in existing or iso not in commodity_present):
+            if has_session(d) and (iso not in existing or iso not in commodity_present):
                 targets.append(iso)
 
     if not targets:

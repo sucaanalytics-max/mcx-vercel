@@ -135,6 +135,10 @@ check('nice ticks across zero', M.niceTicks(40, 6, -30), [-20, 0, 20, 40]);
 // Rolling averages move with the data (the old 45-day line was one flat value)
 const rows = [1, 2, 3, 4, 5, 6].map(t => ({ total: t }));
 check('rolling 3-day mean, empty until 3 rows exist', M.rolling(rows, 3), [null, null, 2, 3, 4, 5]);
+check('a special session (Muhurat) is never the headline day',
+  M.typicalDays([{ total: 14 }, { total: 1, special: 'Muhurat' }]).map(x => x.total), [14]);
+check('a special session (Muhurat) is skipped by the rolling mean',
+  M.rolling([...rows.slice(0, 4), { total: 0.5, special: 'Muhurat' }, ...rows.slice(4)], 3), [null, null, 2, 3, 3, 4, 5]);
 
 console.log(failed ? `\n${failed} FAILED` : '\nAll Today model tests passed.');
 process.exit(failed ? 1 : 0);

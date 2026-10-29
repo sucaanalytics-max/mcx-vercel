@@ -176,9 +176,17 @@
   const spread = MCX.svg.spread, niceTicks = MCX.svg.niceTicks;
 
   // Rolling mean of the last n totals ending at each row (null until n rows exist)
+  // A special session (a ~1-hour Muhurat) keeps its bar but stays out of the averages:
+  // the line carries the previous value across it.
   function rolling(rows, n) {
-    let sum = 0;
-    return rows.map((r, i) => { sum += r.total; if (i >= n) sum -= rows[i - n].total; return i >= n - 1 ? sum / n : null; });
+    const win = []; let sum = 0, last = null;
+    return rows.map(r => {
+      if (r.special) return last;
+      win.push(r.total); sum += r.total;
+      if (win.length > n) sum -= win.shift();
+      last = win.length >= n ? sum / n : null;
+      return last;
+    });
   }
 
   // Session profile: each bucket's share of a day's turnover on the median day, scaled so the
@@ -201,8 +209,12 @@
     return Math.min(acc, 100);
   }
 
+  // The days the headline compares: a special session (a ~1-hour Muhurat) keeps its chart
+  // bar but is never "the last session" and never in the 45-day or rank comparisons.
+  const typicalDays = daily => daily.filter(x => !x.special);
+
   MCX.todayModel = { profileShares, doneBy, sessionState, gridAt, likelyRange, finalBand, rangePct, bandWords, headlineLive, bookedNote, vsAvg, ladderTakeaway,
-                     vsPrev45, rankText, takeaway, change, spread, niceTicks, rolling };
+                     vsPrev45, rankText, takeaway, change, spread, niceTicks, rolling, typicalDays };
   if (window.MCX_TEST) return;
 
   // ════════════════════════════════════════════════════════════════════════
@@ -267,10 +279,11 @@
       const todayFinal = h && h.today_final;
       if (state === 'closed' && !todayFinal) {
         d.last = { date: ist.iso, fut: r.proj_fut_rev_cr, opt: r.proj_opt_rev_cr, total: r.proj_rev_cr, provisional: true };
-        d.before = d.daily;
+        d.before = typicalDays(d.daily);
       } else if (d.daily.length) {
-        d.last = d.daily[d.daily.length - 1];
-        d.before = d.daily.slice(0, -1);
+        const days = typicalDays(d.daily);
+        d.last = days[days.length - 1];
+        d.before = days.slice(0, -1);
       }
       if (d.last) {
         d.vs45 = vsPrev45(d.last.total, d.before.slice(-45));

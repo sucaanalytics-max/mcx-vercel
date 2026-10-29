@@ -27,6 +27,10 @@ except ImportError:
         SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
         now_ist, make_cors_headers,
     )
+try:
+    from lib.mcx_config import MCX_SPECIAL_SESSIONS   # weekend Muhurat etc.
+except ImportError:
+    MCX_SPECIAL_SESSIONS = {}
 
 import os
 
@@ -91,9 +95,11 @@ def compute_valuations(rev_rows, price_rows, pe_mean=None, pe_sd=None):
         if r.get("close"):
             price_map[r["trading_date"]] = float(r["close"])
 
+    # A special session (a ~1-hour Muhurat) is not a typical day: in the 45-day
+    # MA it would pull fair value ~2% low for 45 sessions.
     rev_list = []
     for r in rev_rows:
-        if r.get("total_rev_cr") is not None:
+        if r.get("total_rev_cr") is not None and r["trading_date"] not in MCX_SPECIAL_SESSIONS:
             rev_list.append({"date": r["trading_date"], "rev": float(r["total_rev_cr"])})
 
     if len(rev_list) < MA_WINDOW:

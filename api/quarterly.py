@@ -24,7 +24,8 @@ from datetime import date, datetime, timedelta
 
 from lib.mcx_config import (
     SUPABASE_URL, SUPABASE_ANON_KEY, DILUTED_SHARES_CR, SESSION_START,
-    MCX_HOLIDAYS_2026, supabase_read, supabase_read_all, now_ist, make_cors_headers,
+    MCX_HOLIDAYS_2026, MCX_SPECIAL_SESSIONS, supabase_read, supabase_read_all, now_ist,
+    make_cors_headers,
 )
 try:
     from lib.mcx_config import session_end      # seasonal close: 23:55 in US winter
@@ -300,9 +301,13 @@ def generate_quarterly(today=None, now=None):
     total_trading = elapsed_trading + remaining_trading
 
     actual_rev = round(sum(r["total_rev_cr"] for r in daily_rows), 2)
-    daily_avg = round(actual_rev / elapsed_trading, 2) if elapsed_trading > 0 else 0
+    # Special sessions (a ~1-hour Muhurat) count as revenue but would drag the
+    # run-rate for every remaining full session, so the averages skip them.
+    rate_rows = [r for r in daily_rows if r["trading_date"] not in MCX_SPECIAL_SESSIONS]
+    rate_rev = round(sum(r["total_rev_cr"] for r in rate_rows), 2)
+    daily_avg = round(rate_rev / len(rate_rows), 2) if rate_rows else 0
 
-    last_10 = daily_rows[-10:] if len(daily_rows) >= 10 else daily_rows
+    last_10 = rate_rows[-10:]
     if not last_10:
         # No completed session yet this quarter: run the projection off the
         # last 10 sessions before the quarter started.
@@ -318,7 +323,7 @@ def generate_quarterly(today=None, now=None):
             errors.append(f"supabase fetch (prior quarter): {e}")
     ma10 = round(sum(r["total_rev_cr"] for r in last_10) / len(last_10), 2) if last_10 else daily_avg
 
-    if elapsed_trading > 0 and total_trading > 0:
+    if rate_rows and total_trading > 0:
         blend_w = min(elapsed_trading / total_trading, 0.8)
         daily_proj = blend_w * ma10 + (1 - blend_w) * daily_avg
     elif ma10 > 0:

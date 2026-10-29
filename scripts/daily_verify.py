@@ -32,6 +32,10 @@ from lib.mcx_config import (
     FUTURES_RATE, OPTIONS_RATE,
     now_ist, is_trading_day, get_day_type, session_total, supabase_upsert, supabase_read,
 )
+try:
+    from lib.mcx_config import has_session, MCX_SPECIAL_SESSIONS
+except ImportError:                             # older lib: no special sessions
+    has_session, MCX_SPECIAL_SESSIONS = is_trading_day, {}
 
 # ── Relay EOD reconciliation ─────────────────────────────────────────────────
 # A relay EOD row is the market-watch cumulative taken just after the close;
@@ -65,7 +69,10 @@ def reconcile_decision(stored, hist, tolerance_pct=RECONCILE_TOLERANCE_PCT):
     delta_pct is (historical - stored) / historical × 100, or None.
     """
     total = hist.get("total_rev_cr") or 0
-    if (hist.get("opt_rev_cr") or 0) <= 0 or not (1.0 <= total <= 50.0):
+    # A ~1-hour special session books well under Rs 1 Cr some years (2024: 0.4964).
+    special = stored.get("trading_date") in MCX_SPECIAL_SESSIONS
+    in_range = (0 < total <= 50.0) if special else (1.0 <= total <= 50.0)
+    if (hist.get("opt_rev_cr") or 0) <= 0 or not in_range:
         return "unsettled", None, "options leg missing or total out of range"
     # MCX publishes T-1's report in pieces. A leg under half of what the relay
     # saw is a partial report, not a correction.
@@ -174,7 +181,12 @@ def get_snapshot_summary(date_iso):
 def backfill_from_historical(date_iso):
     """Backfill daily revenue + commodities from Historical API."""
     hist = fetch_mcx_historical(date_iso)
-    if not hist or hist["total_rev_cr"] < 0.5 or hist["total_rev_cr"] > 50.0:
+    # A ~1-hour special session books well under Rs 0.5 Cr some years (2024: 0.4964).
+    if not hist:
+        return None
+    rev = hist["total_rev_cr"]
+    too_low = rev <= 0 if date_iso in MCX_SPECIAL_SESSIONS else rev < 0.5
+    if too_low or rev > 50.0:
         return None
 
     record = historical_record(date_iso, hist)
@@ -225,9 +237,28 @@ def run_bhav_refresh(date_iso):
 
 # ── Main Verification ────────────────────────────────────────────────────────
 
+def dates_to_verify(t, days):
+    """The last `days` trading days before t, newest first, plus any special
+    session (weekend Muhurat) among them, so it gets a row too. Scans up to 30
+    calendar days back."""
+    out = []
+    for i in range(1, days + 30):
+        d = (t - timedelta(days=i)).date()
+        if not has_session(d):
+            continue
+        out.append(d.strftime("%Y-%m-%d"))
+        days -= is_trading_day(d)           # a special session doesn't use up the N days
+        if days <= 0:
+            break
+    return out
+
+
 def verify_date(date_iso):
     """Verify a single trading date. Returns dict with status."""
     result = {"date": date_iso, "issues": [], "actions": []}
+    # A special session (Muhurat) is ~1 hour with no relay: low revenue and no
+    # snapshots are expected there, not faults.
+    special = date_iso in MCX_SPECIAL_SESSIONS
 
     # 1. Check daily revenue record
     rev = get_daily_revenue(date_iso)
@@ -242,7 +273,7 @@ def verify_date(date_iso):
             result["issues"].append(f"Math mismatch: {fut_r}+{opt_r} != {rev['total_rev_cr']}")
 
         # Range check
-        if rev["total_rev_cr"] < 2.0:
+        if rev["total_rev_cr"] < 2.0 and not special:
             result["issues"].append(f"Revenue unusually low: {rev['total_rev_cr']:.4f}")
         elif rev["total_rev_cr"] > 30.0:
             result["issues"].append(f"Revenue unusually high: {rev['total_rev_cr']:.4f}")
@@ -306,7 +337,7 @@ def verify_date(date_iso):
         if snap["last_elapsed"] < 800 and not snap["session_closed"]:
             result["issues"].append(
                 f"Relay died early: {snap['last_elapsed']}/{session_total(date_iso)} min")
-    else:
+    elif not special:
         result["snapshots"] = 0
         result["issues"].append("No relay snapshots")
 
@@ -341,12 +372,7 @@ def main():
     print("=" * 70)
 
     all_ok = True
-    for i in range(1, days + 30):  # scan up to 30 calendar days to find N trading days
-        d = (t - timedelta(days=i)).date()
-        if not is_trading_day(d):
-            continue
-
-        date_iso = d.strftime("%Y-%m-%d")
+    for date_iso in dates_to_verify(t, days):
         result = verify_date(date_iso)
 
         status_icon = "OK" if result["status"] == "OK" else "!!"
@@ -365,10 +391,6 @@ def main():
 
         if result["status"] != "OK":
             all_ok = False
-
-        days -= 1
-        if days <= 0:
-            break
 
     # 4. iCOMDEX index levels (BULLDEX & siblings) — trailing-week self-heal.
     # Data publishes T+1, so the 07:00 run picks up yesterday. Soft-fail:

@@ -22,6 +22,10 @@ from lib.mcx_config import (
     SESSION_START, MCX_MORNING_CLOSE, MCX_EVENING_CLOSE,
 )
 try:
+    from lib.mcx_config import MCX_SPECIAL_SESSIONS   # weekend Muhurat etc.
+except ImportError:
+    MCX_SPECIAL_SESSIONS = {}
+try:
     from lib.mcx_config import session_end      # seasonal close: 23:55 in US winter
 except ImportError:                             # older lib: fixed 23:30 close
     from lib.mcx_config import SESSION_END
@@ -252,7 +256,10 @@ def generate_home(now=None, rows=None, snaps=None):
     days = completed_days(rows, now)
     if not days:
         return {"success": False, "error": "No completed trading days"}
-    last45 = days[-45:]
+    # A special session (a ~1-hour Muhurat) is a real day with a bar of its own,
+    # but at ~10% of a normal day it would drag every average it falls in.
+    typical = [r for r in days if r["date"].isoformat() not in MCX_SPECIAL_SESSIONS]
+    last45 = typical[-45:]
     return {
         "success": True,
         "as_of": now.strftime("%Y-%m-%d %H:%M IST"),
@@ -264,8 +271,11 @@ def generate_home(now=None, rows=None, snaps=None):
         "ma45": round(_mean(last45), 4),
         "ma45_window": _window(last45),
         "daily": [{"date": r["date"].isoformat(), "fut": round(r["fut"], 4), "opt": round(r["opt"], 4),
-                   "total": round(r["total"], 4)} for r in days[-DAILY_KEEP:]],
-        "averages": averages(days, today),
+                   "total": round(r["total"], 4),
+                   **({"special": MCX_SPECIAL_SESSIONS[r["date"].isoformat()]}
+                      if r["date"].isoformat() in MCX_SPECIAL_SESSIONS else {})}
+                  for r in days[-DAILY_KEEP:]],
+        "averages": averages(typical, today),
         "missing_sessions": missing_sessions(days, today),
         "accuracy": projection_accuracy(snaps, days, today),
     }
