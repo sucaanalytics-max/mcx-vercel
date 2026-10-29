@@ -111,6 +111,25 @@ def _get_hist_session(force_new=False):
         raise last_err  # all impersonation targets failed
     return _hist_session
 
+# MCX renamed the JSON keys when it moved the endpoint (Jun-2026). Accept both
+# spellings so a rollback on their side doesn't break us again.
+_FIELD_ALIASES = {
+    "InstrumentName": ("Instrumentname", "InstrumentName"),
+    "Symbol":         ("Commodity", "Symbol"),
+    "CommodityHead":  ("Segment", "CommodityHead"),
+    "TradedContract": ("TradedContract", "NoOfContract"),
+    "Volume":         ("Quantity", "Volume"),
+}
+
+
+def _field(row, logical, default=None):
+    """Read a logical field from a raw MCX row under either key spelling."""
+    for key in _FIELD_ALIASES.get(logical, (logical,)):
+        if key in row and row[key] not in (None, ""):
+            return row[key]
+    return default
+
+
 def _fetch_mcx_raw(date_iso):
     """Fetch raw contract-level rows from MCX Historical API for one date.
     Returns (raw_rows, None) on success or (None, error_msg) on failure."""
@@ -153,10 +172,9 @@ def _aggregate_commodity_rows(date_iso, raw_rows):
     Returns list of dicts for mcx_commodity_daily table."""
     groups = {}
     for r in raw_rows:
-        symbol = (r.get("Symbol") or r.get("Commodity") or "").strip()
-        # Sitefinity endpoint renamed the field to "Instrumentname" (lowercase n).
-        inst = (r.get("Instrumentname") or r.get("InstrumentName") or "").strip()
-        chead = (r.get("CommodityHead") or r.get("Segment") or "").strip()
+        symbol = str(_field(r, "Symbol", "")).strip()
+        inst = str(_field(r, "InstrumentName", "")).strip()
+        chead = str(_field(r, "CommodityHead", "")).strip()
         if not symbol or not inst:
             continue
         key = (symbol, inst)
@@ -167,8 +185,8 @@ def _aggregate_commodity_rows(date_iso, raw_rows):
                            "premium_turnover_lacs": 0.0, "open_interest": 0,
                            "oi_value_lacs": 0.0}
         g = groups[key]
-        g["contracts"] += int(r.get("NoOfContract", 0) or r.get("TradedContract", 0) or 0)
-        g["volume_lots"] += int(r.get("Volume", 0) or r.get("Quantity", 0) or 0)
+        g["contracts"] += int(_field(r, "TradedContract", 0) or 0)
+        g["volume_lots"] += int(_field(r, "Volume", 0) or 0)
         g["turnover_lacs"] += float(r.get("TotalValue", 0) or 0)
         prem_str = str(r.get("PremiumTurnover", "-")).strip()
         if prem_str not in ("-", "", "0"):
@@ -200,7 +218,11 @@ def _aggregate_commodity_rows(date_iso, raw_rows):
 
 
 def _upsert_commodity_batch(rows):
-    """Upsert commodity rows to mcx_commodity_daily."""
+    """Upsert commodity rows to mcx_commodity_daily.
+
+    merge-duplicates needs UPDATE rights. With the anon key the RLS USING
+    clause rejects it (42501) and a plain PATCH silently matches zero rows, so
+    existing dates can only be corrected with SUPABASE_SERVICE_KEY set."""
     url = f"{SUPABASE_URL}/rest/v1/mcx_commodity_daily"
     body = json.dumps(rows).encode()
     req = urllib.request.Request(url, data=body, method="POST", headers={
@@ -213,14 +235,22 @@ def _upsert_commodity_batch(rows):
         with urllib.request.urlopen(req, timeout=15) as resp:
             return True
     except Exception as e:
-        print(f"  ⚠ commodity upsert failed: {e}")
+        detail = ""
+        if hasattr(e, "read"):
+            try: detail = e.read().decode()[:200]
+            except Exception: pass
+        print(f"  ⚠ commodity upsert failed: {e} {detail}".rstrip())
+        if "42501" in detail:
+            print("      RLS blocked the write: set SUPABASE_SERVICE_KEY "
+                  "(worktrees have no .env — run writes from the main checkout).")
         return False
 
 
-def fetch_mcx_historical(date_iso):
+def fetch_mcx_historical(date_iso, write_commodity=True):
     """Fetch daily revenue from MCX Historical Detailed Report API.
     Returns revenue dict with exact PremiumTurnover (no proxy), or None on failure.
-    Also upserts commodity-level breakdown to mcx_commodity_daily."""
+    Also upserts commodity-level breakdown to mcx_commodity_daily unless
+    write_commodity is False (tests and dry runs)."""
     raw_rows, err = _fetch_mcx_raw(date_iso)
     if raw_rows is None:
         if err and err != "no data":
@@ -229,7 +259,7 @@ def fetch_mcx_historical(date_iso):
 
     # ── Commodity-level upsert (new) ──
     commodity_rows = _aggregate_commodity_rows(date_iso, raw_rows)
-    if commodity_rows:
+    if commodity_rows and write_commodity:
         ok = _upsert_commodity_batch(commodity_rows)
         if ok:
             print(f"  ✓ {len(commodity_rows)} commodity rows → mcx_commodity_daily")
@@ -242,7 +272,7 @@ def fetch_mcx_historical(date_iso):
     n_opt = 0
 
     for r in raw_rows:
-        inst = (r.get("Instrumentname") or r.get("InstrumentName") or "").strip().upper()
+        inst = str(_field(r, "InstrumentName", "")).strip().upper()
         total_val = float(r.get("TotalValue", 0) or 0)
         prem_str = str(r.get("PremiumTurnover", "-")).strip()
 
@@ -294,12 +324,18 @@ def get_existing_dates():
 
 
 def get_commodity_dates(since_iso):
-    """Distinct trading_dates already present in mcx_commodity_daily on/after
-    since_iso. Paginated (Supabase caps at 1000 rows/request)."""
+    """Distinct trading_dates that already have a REAL breakdown in
+    mcx_commodity_daily on/after since_iso. Paginated (Supabase caps at 1000
+    rows/request).
+
+    The turnover_cr > 0 filter matters: the Dhan OI jobs insert OI-only stub
+    rows (turnover_cr = 0), often before bhav_refresh runs. Counting those as
+    coverage made ensure_commodity_breakdown() skip the date for good (found
+    2026-05-27/28)."""
     dates, offset = set(), 0
     while True:
         url = (f"{SUPABASE_URL}/rest/v1/mcx_commodity_daily"
-               f"?select=trading_date&trading_date=gte.{since_iso}"
+               f"?select=trading_date&trading_date=gte.{since_iso}&turnover_cr=gt.0"
                f"&order=trading_date.asc&limit=1000&offset={offset}")
         req = urllib.request.Request(url, headers={
             "apikey": SUPABASE_ANON_KEY,
