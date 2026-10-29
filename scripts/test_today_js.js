@@ -71,7 +71,7 @@ check('before 09:30 there is no range to lean on',
 
 // Where the rest of the day comes from (under the booked bar)
 check('before 17:00 the rest comes mostly in the evening', M.bookedNote(15.32, 5.28, 342),
-  'The other ₹10.04 Cr is expected later, mostly in the evening hours (17:00–23:30), when trading is usually heaviest.');
+  'The other ₹10.04 Cr is expected later, mostly in the evening hours (17:00 to the close), when trading is usually heaviest.');
 check('from 17:00, before the close', M.bookedNote(12, 11.2, 760), 'The other ₹0.80 Cr is expected before the close.');
 check('nothing left to book', M.bookedNote(12, 12, 860), '');
 

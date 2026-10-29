@@ -110,22 +110,106 @@ ALLOWED_ORIGINS = os.environ.get(
 ).split(",")
 
 # ─── SESSION TIMING ──────────────────────────────────────────────────────────
-SESSION_START = 540    # 09:00 IST in minutes since midnight
-SESSION_END   = 1410   # 23:30 IST
-SESSION_TOTAL = SESSION_END - SESSION_START   # 870 min
+# Non-agri commodities (bullion, energy, base metals — ~all of MCX turnover)
+# open at 09:00 IST year-round but close with the US clock:
+#   23:30 IST while the US is on daylight time
+#   23:55 IST while the US is on standard time
+# MCX announces each switch by circular. It takes effect on the first trading
+# day after the US change and the old hours run to the Friday before it:
+#   MCX/TRD/643/2024  23:55 from 2024-11-04 to 2025-03-07
+#   MCX/TRD/071/2025  23:30 from 2025-03-10
+#   MCX/TRD/491/2025  23:55 from 2025-11-03 to 2026-03-06
+#   MCX/TRD/068/2026  23:30 from 2026-03-09
+# The US rule (DST from the 2nd Sunday of March to the 1st Sunday of November)
+# reproduces every date above, so it is computed rather than listed. If a
+# circular ever departs from it, put the exception in SESSION_END_OVERRIDES.
+# Agri contracts close at 17:00 or 21:00 all year; their turnover is too small
+# to move the exchange total, so the session model ignores them.
+SESSION_START      = 540    # 09:00 IST in minutes since midnight
+SESSION_END_US_DST = 1410   # 23:30 IST, US on daylight time (Mar–Nov)
+SESSION_END_US_STD = 1435   # 23:55 IST, US on standard time (Nov–Mar)
+SESSION_END_OVERRIDES = {}  # {"YYYY-MM-DD": close in minutes since midnight IST}
+
+
+def _as_date(d=None):
+    """Coerce None (today, IST) / date / datetime / 'YYYY-MM-DD' to a date."""
+    if d is None:
+        return now_ist().date()
+    if isinstance(d, str):
+        return datetime.strptime(d[:10], "%Y-%m-%d").date()
+    if isinstance(d, datetime):
+        return d.date()
+    return d
+
+
+def _nth_sunday(year, month, n):
+    first = datetime(year, month, 1).date()
+    return first + timedelta(days=(6 - first.weekday()) % 7 + 7 * (n - 1))
+
+
+def us_on_standard_time(d=None) -> bool:
+    """True if US clocks are on standard time on trading date d."""
+    d = _as_date(d)
+    return not (_nth_sunday(d.year, 3, 2) <= d < _nth_sunday(d.year, 11, 1))
+
+
+def session_end(d=None) -> int:
+    """MCX close for trading date d, in minutes since midnight IST."""
+    d = _as_date(d)
+    override = SESSION_END_OVERRIDES.get(d.strftime("%Y-%m-%d"))
+    if override is not None:
+        return override
+    return SESSION_END_US_STD if us_on_standard_time(d) else SESSION_END_US_DST
+
+
+def session_total(d=None) -> int:
+    """Session length for trading date d in minutes (870 summer, 895 winter)."""
+    return session_end(d) - SESSION_START
+
+
+def fmt_ist_minutes(m: int) -> str:
+    """1435 -> '23:55'."""
+    return f"{m // 60:02d}:{m % 60:02d}"
+
 
 # ─── INTRADAY VOLUME CURVE (calibrated MCX energy-heavy session) ─────────────
-# MCX evening session (17:00–23:30) = ~67% of daily turnover.
-# Weights sum to 1.0 exactly.
-INTRADAY_BUCKETS = [
+# MCX evening session (17:00–close) = ~67% of daily turnover.
+# Weights sum to 1.0 exactly. The last bucket runs from 22:00 to the day's
+# close, so it is 90 min in summer and 115 min in winter.
+_BUCKETS_BEFORE_LATE = [
     ( 540,  630, 0.06),   # 09:00–10:30  Opening + metals
     ( 630,  750, 0.10),   # 10:30–12:30  Mid-morning
     ( 750,  900, 0.07),   # 12:30–15:00  Post-lunch lull
     ( 900, 1020, 0.10),   # 15:00–17:00  Pre-evening
     (1020, 1170, 0.18),   # 17:00–19:30  Europe open
     (1170, 1320, 0.34),   # 19:30–22:00  ★ PRIME: NYMEX open
-    (1320, 1410, 0.15),   # 22:00–23:30  Late session
 ]
+LATE_BUCKET_START = 1320  # 22:00
+_LATE_WEIGHT = 0.15       # 22:00–23:30 in a summer session
+# Share of a winter day's turnover traded 23:30–23:55. The static curve gives
+# it to the late bucket and scales the rest down so the weights still sum to 1.
+# Measured on the six full winter days with relay snapshots (23 Feb – 6 Mar
+# 2026): the 23:30 cumulative was 3.3–7.4% (median 4.0%) short of MCX's
+# full-day historical report. The adaptive curve replaces this once enough
+# 23:55 days have snapshots.
+WINTER_EXTENSION_SHARE = 0.04
+
+
+def intraday_buckets(d=None):
+    """[(start_min, end_min, weight), ...] for trading date d. Seven buckets."""
+    end = session_end(d)
+    if end == SESSION_END_US_DST:
+        return _BUCKETS_BEFORE_LATE + [(LATE_BUCKET_START, end, _LATE_WEIGHT)]
+    # Winter (or an override): the extension's share goes to the late bucket.
+    ext = WINTER_EXTENSION_SHARE if end > SESSION_END_US_DST else 0.0
+    scale = 1.0 - ext
+    return ([(s, e, w * scale) for s, e, w in _BUCKETS_BEFORE_LATE]
+            + [(LATE_BUCKET_START, end, _LATE_WEIGHT * scale + ext)])
+
+
+def bucket_labels(d=None):
+    """['09:00–10:30', ..., '22:00–23:55'] for trading date d."""
+    return [f"{fmt_ist_minutes(s)}–{fmt_ist_minutes(e)}" for s, e, _ in intraday_buckets(d)]
 
 # ─── MCX HOLIDAYS — Official calendar (2026 verified Feb 25, 2026) ────────────
 # Source: mcxindia.com / 5paisa.com / ICICI Direct
@@ -322,11 +406,11 @@ def get_day_type(dt: datetime) -> str:
 
 # ─── SHARED FUNCTIONS ────────────────────────────────────────────────────────
 
-def get_intraday_weight(elapsed_minutes: int) -> float:
+def get_intraday_weight(elapsed_minutes: int, trading_date=None) -> float:
     """Return cumulative volume fraction completed at elapsed_minutes into session."""
-    e = min(elapsed_minutes, SESSION_TOTAL)
+    e = min(elapsed_minutes, session_total(trading_date))
     cumulative = 0.0
-    for start, end, share in INTRADAY_BUCKETS:
+    for start, end, share in intraday_buckets(trading_date):
         s  = start - SESSION_START
         en = end   - SESSION_START
         if e >= en:
@@ -338,15 +422,16 @@ def get_intraday_weight(elapsed_minutes: int) -> float:
     return min(cumulative, 1.0)
 
 
-def get_intraday_weight_dynamic(elapsed_minutes: int, bucket_weights: list = None) -> float:
+def get_intraday_weight_dynamic(elapsed_minutes: int, bucket_weights: list = None,
+                                trading_date=None) -> float:
     """Return cumulative volume fraction using custom bucket weights.
-    If bucket_weights is None, falls back to static INTRADAY_BUCKETS.
+    If bucket_weights is None, falls back to the static intraday_buckets().
     bucket_weights should be a list of 7 floats summing to ~1.0."""
     if bucket_weights is None:
-        return get_intraday_weight(elapsed_minutes)
-    e = min(elapsed_minutes, SESSION_TOTAL)
+        return get_intraday_weight(elapsed_minutes, trading_date)
+    e = min(elapsed_minutes, session_total(trading_date))
     cumulative = 0.0
-    for i, (start, end, _) in enumerate(INTRADAY_BUCKETS):
+    for i, (start, end, _) in enumerate(intraday_buckets(trading_date)):
         w = bucket_weights[i] if i < len(bucket_weights) else 0
         s = start - SESSION_START
         en = end - SESSION_START
@@ -362,7 +447,7 @@ def get_intraday_weight_dynamic(elapsed_minutes: int, bucket_weights: list = Non
 # ─── ADAPTIVE CURVE (EWMA) ──────────────────────────────────────────────────
 # VWAP-style exponentially weighted moving average of intraday bucket weights.
 # Halflife=10 trading days — adapts to regime shifts in ~5 days.
-_adaptive_cache = {"weights": None, "ts": 0}
+_adaptive_cache = {}   # keyed by session close (minutes since midnight IST)
 ADAPTIVE_HALFLIFE = 10   # trading days
 ADAPTIVE_MIN_DAYS = 3    # minimum clean days (MCX API data quality limits availability)
 ADAPTIVE_TTL = 900       # cache for 15 min (aligned with relay cycle)
@@ -381,7 +466,7 @@ def _rolling_median_outlier(vols):
     return False
 
 
-def _bucket_volumes(snaps, vol_fn=None):
+def _bucket_volumes(snaps, vol_fn=None, trading_date=None):
     """Compute (vol, completion) per bucket. Used for both Phase 2 (EWMA) and
     Phase 4 (regime drift). Only fully-completed buckets contribute meaningful
     shares — partial-bucket data can't be normalized without knowing the day's
@@ -392,7 +477,7 @@ def _bucket_volumes(snaps, vol_fn=None):
     last_elapsed = max(s["elapsed_min"] for s in snaps)
     out = []
     prev_cum = 0.0
-    for start, end, _share in INTRADAY_BUCKETS:
+    for start, end, _share in intraday_buckets(trading_date):
         bucket_start = max(0, start - SESSION_START)
         bucket_end = end - SESSION_START
         bucket_width = bucket_end - bucket_start
@@ -436,12 +521,20 @@ def _interpolate_vol_at(snaps, target_elapsed, vol_fn=None):
 ADAPTIVE_MIN_ELAPSED = 800
 
 
-def _compute_adaptive_weights(vol_fn=None):
+def _compute_adaptive_weights(vol_fn=None, close_min=None):
     """Generic adaptive bucket-weight EWMA over recent (full-session) days.
 
     Returns list of 7 floats (sums to 1.0) or None if insufficient data.
     Caller can pass a vol_fn to compute Fut-only or Opt-only curves.
+
+    Only days whose session closed at close_min (default: today's close) are
+    used. A 23:30 day and a 23:55 day give the late bucket different shares, so
+    mixing them would bias the curve for the first weeks after each switch;
+    until ADAPTIVE_MIN_DAYS same-season days exist this returns None and the
+    caller falls back to the static curve for that season.
     """
+    if close_min is None:
+        close_min = session_end()
     try:
         ist = now_ist()
         start_date = (ist - timedelta(days=60)).strftime("%Y-%m-%d")
@@ -459,7 +552,7 @@ def _compute_adaptive_weights(vol_fn=None):
 
         by_date = defaultdict(list)
         for s in snapshots:
-            if s.get("elapsed_min") is not None:
+            if s.get("elapsed_min") is not None and session_end(s["trading_date"]) == close_min:
                 by_date[s["trading_date"]].append(s)
 
         if vol_fn is None:
@@ -491,7 +584,7 @@ def _compute_adaptive_weights(vol_fn=None):
             if _rolling_median_outlier(vols):
                 continue
 
-            buckets = _bucket_volumes(snaps, vol_fn)
+            buckets = _bucket_volumes(snaps, vol_fn, dt_str)
             day_total = sum(v for v, _ in buckets)
             if day_total <= 0:
                 continue
@@ -513,31 +606,34 @@ def _compute_adaptive_weights(vol_fn=None):
         return None
 
 
-def get_adaptive_bucket_weights():
-    """Return EWMA-weighted bucket weights from recent snapshots (combined Fut+Opt).
-    Returns list of 7 floats summing to ~1.0, or None (falls back to static)."""
-    if _adaptive_cache["ts"] > 0 and (_time.time() - _adaptive_cache["ts"]) < ADAPTIVE_TTL:
-        return _adaptive_cache["weights"]
-    result = _compute_adaptive_weights(vol_fn=None)
-    _adaptive_cache["weights"] = result
-    _adaptive_cache["ts"] = _time.time()
+def get_adaptive_bucket_weights(trading_date=None):
+    """Return EWMA-weighted bucket weights from recent snapshots (combined Fut+Opt)
+    for trading_date's season. Returns list of 7 floats summing to ~1.0, or None
+    (falls back to static)."""
+    close = session_end(trading_date)
+    hit = _adaptive_cache.get(close)
+    if hit and (_time.time() - hit["ts"]) < ADAPTIVE_TTL:
+        return hit["weights"]
+    result = _compute_adaptive_weights(vol_fn=None, close_min=close)
+    _adaptive_cache[close] = {"weights": result, "ts": _time.time()}
     return result
 
 
-# Cache for split (Fut, Opt) curves — Phase 3
-_adaptive_split_cache = {"weights": None, "ts": 0}
+# Cache for split (Fut, Opt) curves — Phase 3. Keyed by session close.
+_adaptive_split_cache = {}
 
 
-def get_adaptive_bucket_weights_split():
+def get_adaptive_bucket_weights_split(trading_date=None):
     """Return (fut_weights, opt_weights) — separate EWMA curves for Fut and Opt.
     Each is a list of 7 floats summing to ~1.0, or None if insufficient data."""
-    if _adaptive_split_cache["ts"] > 0 and (_time.time() - _adaptive_split_cache["ts"]) < ADAPTIVE_TTL:
-        return _adaptive_split_cache["weights"]
-    fut_w = _compute_adaptive_weights(vol_fn=lambda s: s.get("fut_notl_cr") or 0)
-    opt_w = _compute_adaptive_weights(vol_fn=lambda s: s.get("opt_prem_cr") or 0)
+    close = session_end(trading_date)
+    hit = _adaptive_split_cache.get(close)
+    if hit and (_time.time() - hit["ts"]) < ADAPTIVE_TTL:
+        return hit["weights"]
+    fut_w = _compute_adaptive_weights(vol_fn=lambda s: s.get("fut_notl_cr") or 0, close_min=close)
+    opt_w = _compute_adaptive_weights(vol_fn=lambda s: s.get("opt_prem_cr") or 0, close_min=close)
     result = (fut_w, opt_w) if (fut_w and opt_w) else None
-    _adaptive_split_cache["weights"] = result
-    _adaptive_split_cache["ts"] = _time.time()
+    _adaptive_split_cache[close] = {"weights": result, "ts": _time.time()}
     return result
 
 
@@ -593,7 +689,7 @@ def _multiplier_from_curve(time_pct, hist_wt, day_type, regime_drift_factor=1.0)
 
 
 def project_full_day(realized_fut, realized_opt, elapsed_min, day_type="LOW",
-                     today_snapshots=None):
+                     today_snapshots=None, trading_date=None):
     """Project full-day Fut/Opt notionals using separate adaptive curves.
 
     Returns (proj_fut, proj_opt, confidence_label).
@@ -602,22 +698,26 @@ def project_full_day(realized_fut, realized_opt, elapsed_min, day_type="LOW",
     check_regime_drift() to detect bucket-level divergence and scale the
     volume-curve multiplier in real time. Falls back to static behavior if
     not provided or if drift detection has insufficient data.
+
+    trading_date (optional, default today IST) picks the session length and
+    curve: 870 min to 23:30 in summer, 895 min to 23:55 in winter.
     """
+    total = session_total(trading_date)
     if elapsed_min <= 0:
         return realized_fut, realized_opt, "LOW"
-    if elapsed_min >= SESSION_TOTAL:
+    if elapsed_min >= total:
         return realized_fut, realized_opt, "CERTAIN"
 
-    time_pct = elapsed_min / SESSION_TOTAL
+    time_pct = elapsed_min / total
 
     # Try split Fut/Opt curves first; fall back to combined or static.
-    split = get_adaptive_bucket_weights_split()
-    combined = get_adaptive_bucket_weights()
+    split = get_adaptive_bucket_weights_split(trading_date)
+    combined = get_adaptive_bucket_weights(trading_date)
     fut_wts = split[0] if split else combined
     opt_wts = split[1] if split else combined
 
-    fut_hist_wt = get_intraday_weight_dynamic(elapsed_min, fut_wts)
-    opt_hist_wt = get_intraday_weight_dynamic(elapsed_min, opt_wts)
+    fut_hist_wt = get_intraday_weight_dynamic(elapsed_min, fut_wts, trading_date)
+    opt_hist_wt = get_intraday_weight_dynamic(elapsed_min, opt_wts, trading_date)
 
     # Phase 4: regime-drift correction. If today's actual bucket shape
     # diverges from the baseline by >2σ, scale the curve multiplier
@@ -625,7 +725,8 @@ def project_full_day(realized_fut, realized_opt, elapsed_min, day_type="LOW",
     fut_drift = opt_drift = 1.0
     if today_snapshots and len(today_snapshots) >= 3:
         try:
-            drift_alerts = check_regime_drift(today_snapshots, threshold_z=2.0)
+            drift_alerts = check_regime_drift(today_snapshots, threshold_z=2.0,
+                                              trading_date=trading_date)
             if drift_alerts:
                 # Average drift ratio across flagged buckets — completed buckets only
                 ratios = [a.get("ratio") for a in drift_alerts if a.get("completed")]
@@ -644,12 +745,12 @@ def project_full_day(realized_fut, realized_opt, elapsed_min, day_type="LOW",
     return realized_fut * mult_fut, realized_opt * mult_opt, conf_label
 
 
-def check_regime_drift(today_snapshots, threshold_z=2.0):
+def check_regime_drift(today_snapshots, threshold_z=2.0, trading_date=None):
     """Compare today's developing volume shape against adaptive baseline.
     Returns list of bucket alerts where z-score > threshold, or empty list."""
     if not today_snapshots or len(today_snapshots) < 3:
         return []
-    adaptive_wts = get_adaptive_bucket_weights()
+    adaptive_wts = get_adaptive_bucket_weights(trading_date)
     if not adaptive_wts:
         return []
     # Derive today's completed bucket weights
@@ -658,11 +759,11 @@ def check_regime_drift(today_snapshots, threshold_z=2.0):
     if total_vol <= 0:
         return []
     alerts = []
-    _LABELS = ["09:00-10:30", "10:30-12:30", "12:30-15:00", "15:00-17:00",
-               "17:00-19:30", "19:30-22:00", "22:00-23:30"]
+    buckets = intraday_buckets(trading_date)
+    labels = bucket_labels(trading_date)
     prev_cum = 0.0
-    for i in range(len(INTRADAY_BUCKETS)):
-        edge_end = INTRADAY_BUCKETS[i][1] - SESSION_START
+    for i in range(len(buckets)):
+        edge_end = buckets[i][1] - SESSION_START
         completed = max_elapsed >= edge_end
         if not completed:
             break  # bucket not yet complete (Phase 4 only acts on completed buckets)
@@ -676,7 +777,7 @@ def check_regime_drift(today_snapshots, threshold_z=2.0):
         if z > threshold_z:
             ratio = (today_w / adapt_w) if adapt_w > 0 else 1.0
             alerts.append({
-                "bucket": _LABELS[i],
+                "bucket": labels[i],
                 "today_weight": round(today_w, 4),
                 "adaptive_weight": round(adapt_w, 4),
                 "z_score": round(z, 1),
@@ -752,7 +853,7 @@ def is_market_open(dt=None) -> bool:
     if dt is None:
         dt = now_ist()
     mins = dt.hour * 60 + dt.minute
-    return dt.weekday() < 5 and 540 <= mins <= 1410
+    return dt.weekday() < 5 and SESSION_START <= mins <= session_end(dt)
 
 
 def make_cors_headers(origin: str = "") -> dict:
@@ -814,10 +915,17 @@ def supabase_read_all(table, params="", page_size=1000, max_rows=10000, timeout=
     return all_rows[:max_rows]
 
 
-def supabase_upsert(table, data, timeout=10):
-    """Upsert data into Supabase table (uses the service-role write key when set)."""
+def supabase_upsert(table, data, timeout=10, on_conflict=None):
+    """Upsert data into Supabase table (uses the service-role write key when set).
+
+    on_conflict names the unique column(s) to merge on. Without it PostgREST
+    merges on the primary key, so rows that carry a surrogate id (e.g.
+    mcx_daily_revenue, unique on trading_date) insert and fail on the unique
+    column instead of updating."""
     import urllib.request, urllib.error, json
     url = f"{SUPABASE_URL}/rest/v1/{table}"
+    if on_conflict:
+        url += f"?on_conflict={on_conflict}"
     headers = {
         "apikey": SUPABASE_WRITE_KEY,
         "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",

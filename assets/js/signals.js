@@ -102,7 +102,7 @@
   }
 
   // Share price change over h rows, grouped by each day's signal. A day's signal uses that day's
-  // MCX revenue, known only after the evening session (23:30), so it is first tradeable at the
+  // MCX revenue, known only after the evening session (23:30, or 23:55 in US winter), so it is first tradeable at the
   // next day's close: the change runs from row i + lag to row i + lag + h. Overlapping windows;
   // days without an outcome yet are left out. priceKey: 'close_price' (momentum) or 'price' (models).
   function forward(rows, key, order, h = 10, priceKey = 'close_price', lag = 1) {

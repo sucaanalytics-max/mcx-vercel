@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from lib.mcx_config import (
     SUPABASE_URL, SUPABASE_ANON_KEY,
-    SESSION_TOTAL,
+    session_total,
     now_ist, is_trading_day, get_day_type,
     supabase_read, supabase_read_all,
     project_full_day, calc_revenue,
@@ -84,10 +84,12 @@ def percentile(xs, p):
 
 # ── Backtest ───────────────────────────────────────────────────────────────
 
+# Fractions of the day's session: 870 min to 23:30, or 895 min to 23:55 while
+# the US is on standard time.
 ELAPSED_TARGETS = [
-    (218, "25%"),  # 870 * 0.25 = 217.5
-    (435, "50%"),  # 870 * 0.50
-    (652, "75%"),  # 870 * 0.75
+    (0.25, "25%"),
+    (0.50, "50%"),
+    (0.75, "75%"),
 ]
 
 
@@ -137,7 +139,8 @@ def backtest(days=30, recompute=False):
 
         day_type = eod.get("day_type") or "LOW"
 
-        for target_min, label in ELAPSED_TARGETS:
+        for target_frac, label in ELAPSED_TARGETS:
+            target_min = round(session_total(date_iso) * target_frac)
             snap = find_at_elapsed(snaps, target_min)
             if not snap:
                 continue
@@ -147,6 +150,7 @@ def backtest(days=30, recompute=False):
                 proj_fut, proj_opt, _ = project_full_day(
                     snap["fut_notl_cr"], snap["opt_prem_cr"],
                     snap["elapsed_min"], snap.get("day_type") or day_type,
+                    trading_date=date_iso,
                 )
                 _, _, _, proj = calc_revenue(proj_fut, proj_opt)
             else:

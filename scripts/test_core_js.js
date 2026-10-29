@@ -54,6 +54,12 @@ const at = (iso) => new Date(iso);
 check('open Tue 10:00 IST', MCX.market.nseOpen(at('2026-09-29T04:30:00Z')), true);
 check('closed Tue 09:00 IST', MCX.market.nseOpen(at('2026-09-29T03:30:00Z')), false);
 check('closed Tue 15:31 IST', MCX.market.nseOpen(at('2026-09-29T10:01:00Z')), false);
+// MCX close follows the US clock; dates from MCX circulars 491/2025 and 068/2026, then 2026-27 expected
+check('MCX close by date',
+  ['2025-10-31', '2025-11-03', '2026-03-06', '2026-03-09', '2026-10-30', '2026-11-02', '2027-03-12', '2027-03-15'].map(MCX.market.closeMin),
+  [1410, 1435, 1435, 1410, 1410, 1435, 1435, 1410]);
+check('MCX session length and label in winter', [MCX.market.sessionMin('2026-11-02'), MCX.market.closeLabel('2026-11-02')], [895, '23:55']);
+check('MCX close label in summer', MCX.market.closeLabel('2026-10-28'), '23:30');
 check('closed Sat 11:00 IST', MCX.market.nseOpen(at('2026-10-03T05:30:00Z')), false);
 
 // Poll scheduler: runs only while the condition holds, and not more than once per interval

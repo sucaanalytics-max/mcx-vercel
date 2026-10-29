@@ -17,18 +17,19 @@ import sys, os, json
 from datetime import timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from lib.mcx_config import now_ist, is_trading_day, supabase_read  # noqa: E402
+from lib.mcx_config import now_ist, is_trading_day, session_end, supabase_read  # noqa: E402
 
 MANIFEST = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                         ".claude", "state", "freshness-manifest.json")
 
 
 def expected_trading_day(ref=None):
-    """Latest COMPLETED trading day. Today counts only after the 23:30 IST
-    session close; otherwise walk back to the previous trading day."""
+    """Latest COMPLETED trading day. Today counts only after the session close
+    (23:30 IST, or 23:55 while the US is on standard time); otherwise walk back
+    to the previous trading day."""
     d = ref or now_ist()
     today = d.date()
-    complete_today = is_trading_day(today) and (d.hour > 23 or (d.hour == 23 and d.minute >= 30))
+    complete_today = is_trading_day(today) and d.hour * 60 + d.minute >= session_end(today)
     cur = today if complete_today else today - timedelta(days=1)
     while not is_trading_day(cur):
         cur -= timedelta(days=1)

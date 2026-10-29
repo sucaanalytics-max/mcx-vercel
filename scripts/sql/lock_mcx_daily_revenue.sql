@@ -14,8 +14,10 @@
 --   * writes need the service_role key (bypasses RLS);
 --   * a row written by the relay (source = 'mcx_relay_eod') is kept when another
 --     source tries to replace it, whatever the key (the update is skipped with
---     a WARNING, never an error), unless an operator says so in the same SQL
---     session:  set local mcx.allow_eod_override = 'on';
+--     a WARNING, never an error), unless it is daily_verify's reconciliation
+--     (source 'mcx_historical', data_source 'mcx_historical_reconciled') or an
+--     operator says so in the same SQL session:
+--       set local mcx.allow_eod_override = 'on';
 --   * updated_at records when each row last changed.
 --
 -- If guard_mcx_daily_revenue.sql already ran, sections 1–2 below just repeat it.
@@ -52,6 +54,13 @@ begin
   if tg_op = 'UPDATE'
      and old.source = 'mcx_relay_eod'
      and new.source is distinct from 'mcx_relay_eod'
+     -- The one admitted replacement: daily_verify's morning reconciliation,
+     -- which writes MCX's settled full-day report only when it is more than 1%
+     -- from the relay row (e.g. a capture that missed the 23:55 winter close).
+     -- It alone sets this data_source; the relay's own same-night fallback
+     -- (source 'mcx_historical', often missing the options leg) stays refused.
+     and not (new.source = 'mcx_historical'
+              and new.data_source = 'mcx_historical_reconciled')
      and coalesce(current_setting('mcx.allow_eod_override', true), '') <> 'on' then
     raise warning 'mcx_daily_revenue %: kept the relay EOD row, skipped an overwrite by source %',
       old.trading_date, new.source;

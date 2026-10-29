@@ -102,6 +102,17 @@
     ist: d => istNow(d),
     // NSE equity session, 09:15–15:30 IST on weekdays (exchange holidays not modelled)
     nseOpen(d) { const t = istNow(d); return t.dow >= 1 && t.dow <= 5 && t.min >= 555 && t.min <= 930; },
+    // MCX close for a trading date ('YYYY-MM-DD'), minutes since midnight IST: 23:55 while the US
+    // is on standard time (Monday after the 1st Sunday of November to the Friday before the 2nd
+    // Sunday of March), else 23:30. Mirrors session_end() in lib/mcx_config.py.
+    closeMin(iso) {
+      const [y, m, d] = iso.split('-').map(Number), t = Date.UTC(y, m - 1, d);
+      const sunday = (mo, n) => { const f = new Date(Date.UTC(y, mo, 1)); return Date.UTC(y, mo, 1 + (7 - f.getUTCDay()) % 7 + 7 * (n - 1)); };
+      return t >= sunday(2, 2) && t < sunday(10, 1) ? 1410 : 1435;
+    },
+    // Session length in minutes after 09:00 (870, or 895 in US winter) and the close as 'HH:MM'
+    sessionMin(iso) { return MCX.market.closeMin(iso) - 540; },
+    closeLabel(iso) { const c = MCX.market.closeMin(iso); return `${Math.floor(c / 60)}:${String(c % 60).padStart(2, '0')}`; },
   };
 
   // ── Poll scheduler: run fn every ms, but only while when() holds ────────

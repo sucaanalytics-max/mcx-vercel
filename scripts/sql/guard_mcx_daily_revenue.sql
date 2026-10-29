@@ -7,16 +7,21 @@
 --   * a trigger that keeps a relay EOD row (source = 'mcx_relay_eod') when
 --     any other source tries to replace it, whatever the key: that row's
 --     update is skipped with a WARNING in the Postgres log, never an error,
---     so no writer breaks. An operator correction goes through after
+--     so no writer breaks. Two things get through: daily_verify's morning
+--     reconciliation (source 'mcx_historical' with data_source
+--     'mcx_historical_reconciled', written only when MCX's settled report is
+--     >1% from the relay row), and an operator correction after
 --       set local mcx.allow_eod_override = 'on';
 --   * updated_at stamped on every insert and update (the column already
 --     exists; until now it only held the insert time), so any change to the
 --     history from now on is visible.
--- Writers today: the relay writes only 'mcx_relay_eod' rows; catchup_missing
--- and daily_verify only fill missing dates; bhav_refresh already skips relay
--- rows. None of them is blocked.
+-- Writers today: the relay writes 'mcx_relay_eod' rows (and 'mcx_historical'
+-- when its live fetch fails); catchup_missing fills missing dates; daily_verify
+-- fills missing dates and reconciles as above; bhav_refresh already skips relay
+-- rows. None of them is blocked in normal running.
 --
--- Run in the MCX project's Supabase SQL editor. Safe to run more than once;
+-- Run in the MCX project's Supabase SQL editor. Safe to run more than once
+-- (re-run it to pick up the reconciliation exception, added 2026-10-28);
 -- lock_mcx_daily_revenue.sql repeats it, so running both is fine.
 -- Undo: drop trigger mcx_daily_revenue_guard on public.mcx_daily_revenue;
 -- ============================================================================
@@ -40,6 +45,13 @@ begin
   if tg_op = 'UPDATE'
      and old.source = 'mcx_relay_eod'
      and new.source is distinct from 'mcx_relay_eod'
+     -- The one admitted replacement: daily_verify's morning reconciliation,
+     -- which writes MCX's settled full-day report only when it is more than 1%
+     -- from the relay row (e.g. a capture that missed the 23:55 winter close).
+     -- It alone sets this data_source; the relay's own same-night fallback
+     -- (source 'mcx_historical', often missing the options leg) stays refused.
+     and not (new.source = 'mcx_historical'
+              and new.data_source = 'mcx_historical_reconciled')
      and coalesce(current_setting('mcx.allow_eod_override', true), '') <> 'on' then
     raise warning 'mcx_daily_revenue %: kept the relay EOD row, skipped an overwrite by source %',
       old.trading_date, new.source;

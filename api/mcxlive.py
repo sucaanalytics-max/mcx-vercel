@@ -11,13 +11,13 @@ from datetime import datetime, timedelta
 try:
     from lib.mcx_config import (
         FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY,
-        calc_revenue, now_ist, is_market_open, make_cors_headers,
+        calc_revenue, now_ist, is_market_open, make_cors_headers, session_total,
         SUPABASE_ANON_KEY, supabase_read, supabase_upsert,
     )
 except ImportError:
     from lib.mcx_config import (
         FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY,
-        calc_revenue, now_ist, is_market_open, make_cors_headers,
+        calc_revenue, now_ist, is_market_open, make_cors_headers, session_total,
         SUPABASE_ANON_KEY, supabase_read, supabase_upsert,
     )
 
@@ -202,12 +202,13 @@ def get_live_data():
             # Push to Supabase for caching
             if SUPABASE_ANON_KEY:
                 try:
+                    total = session_total(ist)   # 870, or 895 in US winter
                     elapsed = ist.hour * 60 + ist.minute - 540
-                    elapsed = max(0, min(elapsed, 870))
+                    elapsed = max(0, min(elapsed, total))
                     supabase_upsert("mcx_snapshots", {
                         "trading_date": ist.strftime("%Y-%m-%d"),
                         "elapsed_min": elapsed,
-                        "session_closed": elapsed >= 870,
+                        "session_closed": elapsed >= total,
                         "fut_notl_cr": revenue["futures_notional_cr"],
                         "opt_notl_cr": revenue.get("options_notional_cr", 0),
                         "opt_prem_cr": revenue["options_premium_cr"],

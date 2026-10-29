@@ -83,7 +83,7 @@
     const rest = P - B;
     if (!(rest > 0.005)) return '';
     return min < EVENING
-      ? `The other ₹${num(rest, 2)} Cr is expected later, mostly in the evening hours (17:00–23:30), when trading is usually heaviest.`
+      ? `The other ₹${num(rest, 2)} Cr is expected later, mostly in the evening hours (17:00 to the close), when trading is usually heaviest.`
       : `The other ₹${num(rest, 2)} Cr is expected before the close.`;
   }
 
@@ -469,7 +469,8 @@
     const top = Math.ceil(hiMax / 10) * 10, bot = Math.floor(loMin / 10) * 10;
     const h = compact ? 190 : 220;
     const f = frame(w, h, top, [52, compact ? 10 : 16, 18, 30], bot);
-    const X = m => f.pl + f.iw * m / 870, Y = v => f.y(Math.max(bot, Math.min(top, v)));
+    const iso = MCX.market.ist().iso, span = MCX.market.sessionMin(iso);   // 870, or 895 in US winter
+    const X = m => f.pl + f.iw * m / span, Y = v => f.y(Math.max(bot, Math.min(top, v)));
     const s = [svgOpen(w, h, 'Where the final landed relative to the projection made at each time of day, on 8 of 10 past days: '
       + pts.map(p => `${p.time} ${rangePct(p.lo, p.hi)}`).join(', '))];
     s.push(MCX.svg.grid(f, niceTicks(top, compact ? 4 : 6, bot), v => (v > 0 ? '+' : '') + num(v, 0) + '%'));
@@ -486,9 +487,9 @@
       const right = xn < f.w - f.pr - 150;
       s.push(txt(xn + (right ? 8 : -8), f.pt + 8, 'c-label', `Now: ${rangePct(-nowBand.below, nowBand.above)}`, right ? null : 'end', true));
     }
-    [[0, '09:00'], [180, '12:00'], [360, '15:00'], [540, '18:00'], [720, '21:00'], [870, '23:30']].forEach(([m, lab]) => {
+    [[0, '09:00'], [180, '12:00'], [360, '15:00'], [540, '18:00'], [720, '21:00'], [span, MCX.market.closeLabel(iso)]].forEach(([m, lab]) => {
       if (compact && (m === 180 || m === 540)) return;
-      s.push(txt(X(m), h - 8, 'c-tick', lab, m === 0 ? 'start' : m === 870 ? 'end' : 'middle'));
+      s.push(txt(X(m), h - 8, 'c-tick', lab, m === 0 ? 'start' : m === span ? 'end' : 'middle'));
     });
     s.push('</svg>');
     return s.join('');
@@ -901,7 +902,8 @@
     const top = bs.reduce((a, b) => (b.share / (b.end - b.start) > a.share / (a.end - a.start) ? b : a));
     const r = S.refresh, live = r && r.success && !r.session_closed && r.trading_date === MCX.market.ist().iso;
     const n = d.rolling_average.days_used;
-    $('tdProfLede').textContent = `On the median day of the last ${n}, ${num(evening, 0)}% of turnover came in the evening session (17:00–23:30). `
+    const span = bs[bs.length - 1].end, closeLab = bs[bs.length - 1].label.split('–')[1];   // 23:30, or 23:55 in US winter
+    $('tdProfLede').textContent = `On the median day of the last ${n}, ${num(evening, 0)}% of turnover came in the evening session (17:00–${closeLab}). `
       + `The busiest stretch per hour is ${top.label}.` + (live ? ` By ${clock(r.elapsed_min)} a typical day has done ${num(doneBy(bs, r.elapsed_min), 0)}% of its turnover.` : '');
     const mx = Math.max(...bs.map(b => Math.max(b.p90 || 0, b.share, b.fixed))) * 1.08;
     const X = v => (v / mx * 100).toFixed(2);
@@ -913,7 +915,7 @@
     // Cumulative: share of the day done by each time
     const box = $('tdProfCum'), w = Math.round(box.clientWidth) || 420, h = 190;
     const f = V.frame(w, h, 100, [40, 8, 10, 26]);
-    const Xm = m => f.pl + f.iw * m / 870;
+    const Xm = m => f.pl + f.iw * m / span;
     const pts = [0].concat(bs.map(b => b.end));
     const typical = pts.map(m => `${Xm(m).toFixed(1)},${f.y(doneBy(bs, m)).toFixed(1)}`).join('L');
     let fixedAcc = 0;
@@ -926,7 +928,7 @@
       sv.push(`<line x1="${xn.toFixed(1)}" x2="${xn.toFixed(1)}" y1="${f.pt}" y2="${(f.h - f.pb).toFixed(1)}" class="c-now"/>`);
       sv.push(txt(xn + (xn < w - 90 ? 6 : -6), f.pt + 10, 'c-label2', `Now ${num(doneBy(bs, r.elapsed_min), 0)}%`, xn < w - 90 ? null : 'end', true));
     }
-    [[0, '09:00'], [360, '15:00'], [720, '21:00'], [870, '23:30']].forEach(([m, lab]) => sv.push(txt(Xm(m), h - 8, 'c-tick', lab, m === 0 ? 'start' : m === 870 ? 'end' : 'middle')));
+    [[0, '09:00'], [360, '15:00'], [720, '21:00'], [span, closeLab]].forEach(([m, lab]) => sv.push(txt(Xm(m), h - 8, 'c-tick', lab, m === 0 ? 'start' : m === span ? 'end' : 'middle')));
     sv.push('</svg>');
     box.innerHTML = sv.join('');
     $('tdProfLegend').innerHTML = '<span><i class="sw sw--line"></i>Median day</span><span><i class="sw sw--typical"></i>Fixed weights (the engine’s fallback)</span>';
