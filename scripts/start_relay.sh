@@ -7,7 +7,13 @@
 # silently kill the loop (this happened Jun 10).
 
 # Repo root = parent of this script's directory (any user, paths with spaces ok)
-cd "$(dirname "$0")/.." || exit 1
+src="$0"
+while [ -L "$src" ]; do  # follow symlinks (portable; no readlink -f on old macOS)
+  d="$(cd -P "$(dirname "$src")" && pwd)"
+  src="$(readlink "$src")"
+  [ "${src#/}" = "$src" ] && src="$d/$src"
+done
+cd -P "$(dirname "$src")/.." || exit 1
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 
