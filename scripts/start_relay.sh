@@ -6,7 +6,8 @@
 # only — adding `-s` also blocks system sleep so lid-close mid-session can't
 # silently kill the loop (this happened Jun 10).
 
-cd "/Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel"
+# Repo root = parent of this script's directory (any user, paths with spaces ok)
+cd "$(dirname "$0")/.." || exit 1
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 
