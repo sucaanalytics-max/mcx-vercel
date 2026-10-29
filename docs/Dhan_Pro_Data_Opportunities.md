@@ -46,11 +46,17 @@
 
 ### P0 — Automate token renewal — **DONE 29 Oct**
 `lib/dhan_client.py` now uses the Demat project's shared token file, `~/.dhan/credentials.json` (written by `~/Documents/Demat/dhan_auth.py`, renewed by its 09:10/15:35 launchd job). If the token has less than 1 h left, or Dhan returns 401, it mints a new one from PIN + TOTP and saves it atomically (0600). The `.env` token is only a fallback when the file is missing.
-- Minting does not revoke older tokens (both projects' tokens were accepted side by side).
+- **Minting a token revokes earlier PIN+TOTP tokens within minutes.** On 29 Oct, Demat's 08:31 token was still accepted right after two test mints, then started failing with `400 DH-906 Invalid Token`. A token made on Dhan Web survived. So all minting must go through the one shared file. A revoked token gives DH-906 (HTTP 400), not 401, so the check treats both as rejected.
 - **Dhan allows one mint every 2 minutes.** If both projects renew at once, the loser re-reads the file and uses the token the other just wrote.
+- **Demat's own `dhan_auth.py` only re-mints on 401**, so a revoked (DH-906) token leaves it stuck until its 23 h expiry note runs out. It needs the same one-line fix.
 - Tested: TOTP matches `pyotp` at 50 time steps; the normal path doesn't touch the file; forced renewal on a scratch copy minted a token Dhan accepts; a corrupted token is detected (401) and replaced; the race fallback picks up the other project's token; `options_paper.py status` runs through it.
 
-### P1 — Commodity OI history + a nightly OI job (data, ~1 day) — **validated, ready to build**
+### P1 — Commodity OI history + a nightly OI job — **built 29 Oct; OI kept out of the composite**
+`scripts/backfill_commodity_oi.py` (2022 → today, `--nightly` for the trailing 30 days) writes only `open_interest` / `oi_value_cr` onto existing FUTCOM rows. Dry run: 23,107 rows, 29 commodities, no fetch failures. Dhan has no futures history for COTTONCNDY, CPO and RUBBER, and about 23 days per commodity have no Dhan bar (e.g. 16–20 Nov 2023). Glitch days and those gaps are stored as 0, which the signals cron now treats as missing.
+
+**Signal impact (measured before writing):** putting OI into the composite would flip 35% of commodity-day signals across history and 39% in the last 30 days, and 7 of 10 on 28 Oct (base metals NEUTRAL → SELL in their expiry week; crude and natural gas SELL → NEUTRAL). Part of that is an expiry-cycle effect. Decision (29 Oct): store and show the OI z-score, keep it out of the composite (`OI_IN_COMPOSITE = False` in `lib/cron_commodity_signals.py`) until tested. Composite and signals were verified identical with the data present. **Open test:** does OI z add information once the expiry cycle is removed, and should it use ₹ value rather than lots summed across contract sizes?
+
+Original plan:
 Backfill `mcx_commodity_daily.open_interest` from 2020 using the summed stitched series, with the revert filter. Replace the never-scheduled live-quote job with the same historical call run nightly, so past and future values come from one method. Then recompute the OI z-score and check whether it adds anything to the commodity signals; it has never been tested with real history.
 
 ### P1 — MCX Ltd options intraday history (research)

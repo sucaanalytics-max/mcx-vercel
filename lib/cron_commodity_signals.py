@@ -31,6 +31,12 @@ ROLLING_WINDOW = 60
 # Top commodities by turnover — skip tiny ones to keep compute fast
 MIN_AVG_TURNOVER_CR = 50  # minimum avg daily turnover to process
 
+# OI z-score is computed and stored but kept OUT of the composite until tested.
+# Dhan OI history (2022+) was backfilled 29 Oct 2026; adding it would flip
+# ~35-39% of signals, and part of that is an expiry-cycle effect (monthly
+# contracts shed OI in expiry week) rather than information.
+OI_IN_COMPOSITE = False
+
 
 def sb_get(table, params=""):
     url = f"{SUPABASE_URL}/rest/v1/{table}{params}"
@@ -88,6 +94,8 @@ def _f(v):
 
 def _zscore(values, idx, window):
     """Rolling z-score for values[idx] over `window` trailing observations."""
+    if values[idx] is None:
+        return None
     start = max(0, idx - window + 1)
     w = [v for v in values[start:idx + 1] if v is not None]
     if len(w) < 30:
@@ -148,6 +156,12 @@ def compute_commodity_signals(mode="recent"):
         a["total_premium_cr"] += float(r.get("premium_turnover_cr") or 0)
         a["total_open_interest"] += int(r.get("open_interest") or 0)
         a["total_oi_value_cr"] += float(r.get("oi_value_cr") or 0)
+        # OI comes from Dhan (scripts/backfill_commodity_oi.py) and 0 means
+        # missing: a Dhan gap or a filtered glitch day. If any futures leg of
+        # the complex lacks it, the parent total would be a partial sum, so
+        # the whole day is excluded from the OI z-score.
+        if r.get("instrument_type") == "FUTCOM" and not r.get("open_interest"):
+            a["oi_missing"] = True
 
     # Group aggregated rows by commodity, sorted by date
     by_commodity = {}
@@ -183,7 +197,8 @@ def compute_commodity_signals(mode="recent"):
     results = []
     for c, hist in filtered.items():
         turnovers = [h["total_turnover_cr"] for h in hist]
-        ois = [float(h["total_open_interest"]) for h in hist]
+        ois = [None if h.get("oi_missing") or not h["total_open_interest"]
+               else float(h["total_open_interest"]) for h in hist]
         volumes = [float(h["total_volume_lots"]) for h in hist]
 
         # Determine slice based on mode
@@ -202,8 +217,9 @@ def compute_commodity_signals(mode="recent"):
             oi_z = _zscore(ois, i, ROLLING_WINDOW)
             vol_z = _zscore(volumes, i, ROLLING_WINDOW)
 
-            # Composite = average of available z-scores
-            zs = [z for z in [to_z, oi_z, vol_z] if z is not None]
+            # Composite = average of available z-scores (see OI_IN_COMPOSITE)
+            zs = [z for z in [to_z, oi_z if OI_IN_COMPOSITE else None, vol_z]
+                  if z is not None]
             composite = round(sum(zs) / len(zs), 3) if zs else None
 
             # Discrete signal
