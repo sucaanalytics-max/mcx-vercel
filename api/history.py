@@ -24,6 +24,10 @@ except ImportError:
         DAY_MULTIPLIER,
         SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_read_all, supabase_upsert,
     )
+try:
+    from lib.mcx_config import MCX_SPECIAL_SESSIONS   # weekend Muhurat etc.
+except ImportError:
+    MCX_SPECIAL_SESSIONS = {}
 
 import urllib.request
 
@@ -106,8 +110,10 @@ def generate_history(days=60):
     fetch_limit = None if window is None else max(60, window + 15)
     supabase_cache = _fetch_supabase_history(limit=fetch_limit)
 
-    # True trailing-45 MA from actual data, independent of the display window
-    cache_vals = [supabase_cache[k]["rev"] for k in sorted(supabase_cache.keys())[-45:]]
+    # True trailing-45 MA from actual data, independent of the display window.
+    # Special sessions (a ~1-hour Muhurat) are left out, as in home_view and fair value.
+    cache_vals = [supabase_cache[k]["rev"] for k in sorted(supabase_cache.keys())
+                  if k not in MCX_SPECIAL_SESSIONS][-45:]
     ma_45 = round(sum(cache_vals) / len(cache_vals), 2) if cache_vals else 0.0
 
     # Recent walk (last 75 calendar days) supplies today + recent gap dates;
