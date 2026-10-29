@@ -267,10 +267,12 @@
     d.bandAt = key => { const g = grid.find(x => x.min === key); return g && g.q10_pct !== null ? finalBand(g.q10_pct, g.q90_pct) : null; };
     if (state === 'live') {
       d.P = r.proj_rev_cr; d.B = r.booked_rev_cr; d.min = r.elapsed_min;
-      const early = d.min < FIRST_RANGE_MIN;
+      // range_min = minutes traded: on a part-day session the range is read there, not at the clock
+      const rmin = r.range_min != null ? r.range_min : d.min;
+      const early = rmin < FIRST_RANGE_MIN;
       d.pending = !early && !(h && h.accuracy);                   // the measured error hasn't loaded yet
-      d.q10 = early ? null : gridAt(grid, d.min, 'q10_pct');
-      d.q90 = early ? null : gridAt(grid, d.min, 'q90_pct');
+      d.q10 = early ? null : gridAt(grid, rmin, 'q10_pct');
+      d.q90 = early ? null : gridAt(grid, rmin, 'q90_pct');
       d.range = likelyRange(d.P, d.q10, d.q90);
       d.nowBand = d.range ? finalBand(d.q10, d.q90) : null;
       d.clock = clock(d.min);
