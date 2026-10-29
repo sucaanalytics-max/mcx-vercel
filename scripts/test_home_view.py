@@ -145,5 +145,15 @@ check("US holiday flag for today", hv.generate_home(now=datetime(2026, 9, 7, 12,
 check("45-day average is the d45 window", home["ma45"], [a for a in home["averages"] if a["key"] == "d45"][0]["value"])
 check("daily strip keeps about a year", (len(home["daily"]), home["daily"][-1]["date"]), (hv.DAILY_KEEP, "2026-09-28"))
 
+# ── A special session (Muhurat, Sun 8 Nov 2026): its own bar, out of every average ──
+nov_rows = rows_for(sessions(date(2026, 7, 1), date(2026, 11, 6)), total=14.0)
+nov_rows.append({"trading_date": "2026-11-08", "fut_rev_cr": 0.2, "opt_rev_cr": 0.8, "total_rev_cr": 1.0,
+                 "source": "mcx_historical"})
+nov = hv.generate_home(now=datetime(2026, 11, 9, 10, 0), rows=nov_rows, snaps=[])
+check("Muhurat Sunday shows as the last session, flagged special",
+      (nov["sessions_through"], "special" in nov["daily"][-1], "special" in nov["daily"][-2]), ("2026-11-08", True, False))
+check("Muhurat stays out of the 5-day average and the 45-day MA",
+      (round([a for a in nov["averages"] if a["key"] == "d5"][0]["value"], 4), round(nov["ma45"], 4)), (14.0, 14.0))
+
 print(f"\n{failed} FAILED" if failed else "\nAll home view tests passed.")
 sys.exit(1 if failed else 0)

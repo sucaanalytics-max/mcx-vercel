@@ -370,7 +370,10 @@ def fetch_and_compute(date_iso, commodity_present=None):
     # fetch_mcx_historical() also upserts the commodity breakdown internally.
     hist = fetch_mcx_historical(date_iso)
     if hist:
-        if hist["total_rev_cr"] < 1.0 or hist["total_rev_cr"] > 50.0:
+        # A ~1-hour special session books well under Rs 1 Cr (2024 Muhurat: 0.4964).
+        rev = hist["total_rev_cr"]
+        too_low = rev <= 0 if date_iso in MCX_SPECIAL_SESSIONS else rev < 1.0
+        if too_low or rev > 50.0:
             print(f"  ⚠ {date_iso}: historical API revenue {hist['total_rev_cr']} out of range")
         else:
             dt = datetime.strptime(date_iso, "%Y-%m-%d")

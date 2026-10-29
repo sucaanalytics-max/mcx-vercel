@@ -8,10 +8,12 @@ from tomorrow, so today was in neither until its end-of-day row landed
 (~23:30-23:45 IST): on 29 Sep at 09:10 it showed 64 + 1 of 66 days and
 Rs 733.9 Cr instead of Rs 747.7 Cr. On a quarter's last day it dropped the
 whole session, on a first day it fell back to a hard-coded Rs 12 Cr/day, and a
-missing past row vanished from the projection.
+missing past row vanished from the projection. Also covers special sessions
+(a weekend Muhurat): captured by daily_verify / bhav_refresh, counted as
+revenue, kept out of the run-rate and fair value's 45-day MA.
 
-Offline: supabase_read is replaced with an in-memory table.
-Run:  python3 scripts/test_quarterly_days.py
+Offline: supabase_read and the MCX fetches are replaced with in-memory data.
+Run:  scripts/run_tests.sh   (needs curl_cffi: it imports scripts/bhav_refresh)
 """
 import sys, os
 from datetime import date, datetime
@@ -125,7 +127,7 @@ if len(r["current_quarter"]["missing_dates"]) != 21:   # January's sessions have
 # ── Special sessions (Muhurat, Sun 8 Nov 2026): revenue counts, run-rate doesn't ─
 # A ~1-hour session books ~Rs 0.5-1.3 Cr (2024: 0.4964, 2025: 1.2612). Counted
 # in the 10-day and quarter averages it would cut the projection of every
-# remaining session by ~Rs 0.9 Cr (~Rs 30 Cr on Q3) to add Rs 1 Cr of revenue.
+# remaining session by ~Rs 0.8 Cr (~Rs 30 Cr on Q3) to add Rs 1 Cr of revenue.
 from lib.mcx_config import MCX_SPECIAL_SESSIONS, has_session, is_trading_day
 check_q3 = lambda name, ok: (print(("PASS " if ok else "FAIL ") + name), ok or FAILED.append(name))
 check_q3("8 Nov 2026 is a special session", "2026-11-08" in MCX_SPECIAL_SESSIONS)
@@ -143,6 +145,33 @@ check_q3("daily_verify on an ordinary Monday skips the weekend",
 import scripts.bhav_refresh as br
 check_q3("bhav_refresh backfills the Muhurat Sunday but not an ordinary Sunday",
          br.has_session(date(2026, 11, 8)) and not br.has_session(date(2026, 11, 15)))
+# Revenue floors: a 2024-sized Muhurat (Rs 0.4964 Cr) is real on a special
+# session; on a normal day the old floors (0.5 backfill, 1.0 bhav/reconcile) hold.
+SMALL = {"total_rev_cr": 0.4964, "fut_rev_cr": 0.2, "opt_rev_cr": 0.2964,
+         "fut_notl_cr": 4639.49, "opt_prem_cr": 360.67}
+dv.fetch_mcx_historical = lambda iso: dict(SMALL)
+dv.supabase_upsert = lambda table, rec: None
+br.check_relay_eod = lambda iso: None
+br.fetch_mcx_historical = lambda iso: dict(SMALL)
+check_q3("daily_verify backfills a Rs 0.4964 Cr Muhurat row", dv.backfill_from_historical("2026-11-08") is not None)
+check_q3("daily_verify still rejects Rs 0.4964 Cr on a normal day", dv.backfill_from_historical("2026-11-06") is None)
+check_q3("bhav_refresh keeps a Rs 0.4964 Cr Muhurat row", br.fetch_and_compute("2026-11-08") is not None)
+check_q3("bhav_refresh still rejects Rs 0.4964 Cr on a normal day", br.fetch_and_compute("2026-11-06") is None)
+stored = lambda iso, v: {"trading_date": iso, "total_rev_cr": v, "source": "mcx_historical",
+                         "fut_notl_cr": 1, "opt_prem_cr": 1}
+check_q3("reconcile settles a Rs 0.4964 Cr Muhurat report",
+         dv.reconcile_decision(stored("2026-11-08", 0.4964), SMALL)[0] == "ok")
+check_q3("reconcile keeps a sub-Rs 1 Cr report unsettled on a normal day",
+         dv.reconcile_decision(stored("2026-11-06", 0.4964), SMALL)[0] == "unsettled")
+check_q3("reconcile still accepts exactly Rs 1.0 Cr on a normal day",
+         dv.reconcile_decision(stored("2026-11-06", 1.0), dict(SMALL, total_rev_cr=1.0))[0] == "ok")
+import lib.cron_valuation as cv
+val_days = [d for d in (date(2026, 8, 1) + q.timedelta(days=i) for i in range(110)) if q._is_trading_day(d)]
+rev = [{"trading_date": d.isoformat(), "total_rev_cr": 14.0} for d in val_days]
+px = [{"trading_date": d.isoformat(), "close": 3000.0} for d in val_days]
+with_muh = sorted(rev + [{"trading_date": "2026-11-08", "total_rev_cr": 1.0}], key=lambda r: r["trading_date"])
+fv = lambda rows: {v["trading_date"]: v["ma45_rev_cr"] for v in cv.compute_valuations(rows, px)[0]}
+check_q3("fair value's 45-day MA ignores the Muhurat row", fv(with_muh) == fv(rev) and fv(rev)["2026-11-09"] == 14.0)
 mon = datetime(2026, 11, 9, 10, 0)
 plain = run(mon, Q3_ROWS)["current_quarter"]
 check("before its row lands, the Muhurat Sunday is not projected",

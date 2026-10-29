@@ -176,9 +176,17 @@
   const spread = MCX.svg.spread, niceTicks = MCX.svg.niceTicks;
 
   // Rolling mean of the last n totals ending at each row (null until n rows exist)
+  // A special session (a ~1-hour Muhurat) keeps its bar but stays out of the averages:
+  // the line carries the previous value across it.
   function rolling(rows, n) {
-    let sum = 0;
-    return rows.map((r, i) => { sum += r.total; if (i >= n) sum -= rows[i - n].total; return i >= n - 1 ? sum / n : null; });
+    const win = []; let sum = 0, last = null;
+    return rows.map(r => {
+      if (r.special) return last;
+      win.push(r.total); sum += r.total;
+      if (win.length > n) sum -= win.shift();
+      last = win.length >= n ? sum / n : null;
+      return last;
+    });
   }
 
   // Session profile: each bucket's share of a day's turnover on the median day, scaled so the

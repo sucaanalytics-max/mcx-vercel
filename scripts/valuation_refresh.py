@@ -22,6 +22,10 @@ SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY",
 # Model parameters: the same constants the API and the cron use
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib.mcx_config import TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR, SUPABASE_WRITE_KEY
+try:
+    from lib.mcx_config import MCX_SPECIAL_SESSIONS   # weekend Muhurat etc.
+except ImportError:
+    MCX_SPECIAL_SESSIONS = {}
 PE_MEAN_DEFAULT = 34.79
 PE_SD_DEFAULT = 3.49
 MA_WINDOW = 45
@@ -92,10 +96,11 @@ def compute_valuations(rev_rows, price_rows, pe_mean=None, pe_sd=None):
         if r.get("close"):
             price_map[r["trading_date"]] = float(r["close"])
 
-    # Build daily revenue list (ascending by date)
+    # Build daily revenue list (ascending by date). Special sessions (a ~1-hour
+    # Muhurat) stay out: in the 45-day MA they'd pull fair value ~2% low.
     rev_list = []
     for r in rev_rows:
-        if r.get("total_rev_cr") is not None:
+        if r.get("total_rev_cr") is not None and r["trading_date"] not in MCX_SPECIAL_SESSIONS:
             rev_list.append({
                 "date": r["trading_date"],
                 "rev": float(r["total_rev_cr"]),

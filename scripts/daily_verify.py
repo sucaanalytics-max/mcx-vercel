@@ -69,7 +69,10 @@ def reconcile_decision(stored, hist, tolerance_pct=RECONCILE_TOLERANCE_PCT):
     delta_pct is (historical - stored) / historical × 100, or None.
     """
     total = hist.get("total_rev_cr") or 0
-    if (hist.get("opt_rev_cr") or 0) <= 0 or not (1.0 <= total <= 50.0):
+    # A ~1-hour special session books well under Rs 1 Cr some years (2024: 0.4964).
+    special = stored.get("trading_date") in MCX_SPECIAL_SESSIONS
+    in_range = (0 < total <= 50.0) if special else (1.0 <= total <= 50.0)
+    if (hist.get("opt_rev_cr") or 0) <= 0 or not in_range:
         return "unsettled", None, "options leg missing or total out of range"
     # MCX publishes T-1's report in pieces. A leg under half of what the relay
     # saw is a partial report, not a correction.
@@ -178,7 +181,12 @@ def get_snapshot_summary(date_iso):
 def backfill_from_historical(date_iso):
     """Backfill daily revenue + commodities from Historical API."""
     hist = fetch_mcx_historical(date_iso)
-    if not hist or hist["total_rev_cr"] < 0.5 or hist["total_rev_cr"] > 50.0:
+    # A ~1-hour special session books well under Rs 0.5 Cr some years (2024: 0.4964).
+    if not hist:
+        return None
+    rev = hist["total_rev_cr"]
+    too_low = rev <= 0 if date_iso in MCX_SPECIAL_SESSIONS else rev < 0.5
+    if too_low or rev > 50.0:
         return None
 
     record = historical_record(date_iso, hist)
