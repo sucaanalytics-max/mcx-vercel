@@ -251,6 +251,15 @@ MCX_EVENING_CLOSE = {
     "2026-01-01",  # New Year Day
     # ── 2027: ADD when published ──
 }
+# Special sessions on days that are otherwise closed (Muhurat trading on a
+# weekend). Capture-only: daily_verify and bhav_refresh backfill the day's row
+# from MCX's historical report, api/quarterly.py counts its revenue but keeps it
+# out of the run-rate, and is_trading_day() stays False so the day is never
+# projected as a full session. MCX's historical report covers these sessions
+# (2025-10-21 Muhurat reproduces the stored Rs 1.2612 Cr exactly).
+MCX_SPECIAL_SESSIONS = {
+    "2026-11-08": "Muhurat trading (Diwali, Sunday) — timings not yet notified",
+}
 # Backward-compat aliases — several modules import the *_2026 names.
 MCX_HOLIDAYS_2026 = MCX_HOLIDAYS
 MCX_MORNING_CLOSE_2026 = MCX_MORNING_CLOSE
@@ -846,6 +855,11 @@ def now_ist() -> datetime:
 def is_trading_day(d) -> bool:
     """Check if date is a weekday and not a full-closure MCX holiday."""
     return d.weekday() < 5 and d.strftime("%Y-%m-%d") not in MCX_HOLIDAYS_2026
+
+
+def has_session(d) -> bool:
+    """True if MCX trades at all on d: a regular trading day or a special session."""
+    return is_trading_day(d) or d.strftime("%Y-%m-%d") in MCX_SPECIAL_SESSIONS
 
 
 def is_market_open(dt=None) -> bool:

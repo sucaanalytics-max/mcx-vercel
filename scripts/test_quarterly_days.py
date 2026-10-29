@@ -122,6 +122,38 @@ check("Sunday budget session counts as a finished day on top of the calendar", r
 if len(r["current_quarter"]["missing_dates"]) != 21:   # January's sessions have no rows here
     print("FAIL January sessions should be listed as missing"); FAILED.append("jan missing")
 
+# ── Special sessions (Muhurat, Sun 8 Nov 2026): revenue counts, run-rate doesn't ─
+# A ~1-hour session books ~Rs 0.5-1.3 Cr (2024: 0.4964, 2025: 1.2612). Counted
+# in the 10-day and quarter averages it would cut the projection of every
+# remaining session by ~Rs 0.9 Cr (~Rs 30 Cr on Q3) to add Rs 1 Cr of revenue.
+from lib.mcx_config import MCX_SPECIAL_SESSIONS, has_session, is_trading_day
+check_q3 = lambda name, ok: (print(("PASS " if ok else "FAIL ") + name), ok or FAILED.append(name))
+check_q3("8 Nov 2026 is a special session", "2026-11-08" in MCX_SPECIAL_SESSIONS)
+check_q3("a special session is captured but never projected as a full day",
+         has_session(date(2026, 11, 8)) and not is_trading_day(date(2026, 11, 8)))
+Q3_ROWS = [{"trading_date": d.isoformat(), "total_rev_cr": 14.0, "source": "mcx_relay_eod"}
+           for d in (date(2026, 10, 1) + q.timedelta(days=i) for i in range(37))  # to 6 Nov
+           if q._is_trading_day(d)]
+MUHURAT = {"trading_date": "2026-11-08", "total_rev_cr": 1.0, "source": "mcx_historical"}
+import scripts.daily_verify as dv
+check_q3("daily_verify on Mon 9 Nov visits the Muhurat Sunday on top of 3 trading days",
+         dv.dates_to_verify(datetime(2026, 11, 9, 7, 0), 3) == ["2026-11-08", "2026-11-06", "2026-11-05", "2026-11-04"])
+check_q3("daily_verify on an ordinary Monday skips the weekend",
+         dv.dates_to_verify(datetime(2026, 11, 16, 7, 0), 3) == ["2026-11-13", "2026-11-12", "2026-11-11"])
+import scripts.bhav_refresh as br
+check_q3("bhav_refresh backfills the Muhurat Sunday but not an ordinary Sunday",
+         br.has_session(date(2026, 11, 8)) and not br.has_session(date(2026, 11, 15)))
+mon = datetime(2026, 11, 9, 10, 0)
+plain = run(mon, Q3_ROWS)["current_quarter"]
+check("before its row lands, the Muhurat Sunday is not projected",
+      run(datetime(2026, 11, 6, 12, 0), Q3_ROWS[:-1]), trading_days_total=plain["trading_days_total"])
+check("Muhurat revenue is counted, the day is a session, the run-rate ignores it",
+      run(mon, Q3_ROWS + [MUHURAT]),
+      revenue_actual_cr=plain["revenue_actual_cr"] + 1.0,
+      revenue_ma10_cr=14.0, revenue_daily_avg_cr=14.0,
+      revenue_projected_cr=plain["revenue_projected_cr"] + 1.0,
+      trading_days_total=plain["trading_days_total"] + 1)
+
 # ── The close time comes from lib.mcx_config (23:55 in US winter once seasonal) ─
 day = date(2026, 11, 16)
 close = q.session_end(day)

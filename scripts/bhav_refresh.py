@@ -62,6 +62,17 @@ def is_trading_day(d):
     return d.weekday() < 5 and d.strftime("%Y-%m-%d") not in MCX_HOLIDAYS
 
 
+try:                                            # weekend Muhurat etc.: backfill these too
+    from lib.mcx_config import MCX_SPECIAL_SESSIONS
+except ImportError:
+    MCX_SPECIAL_SESSIONS = {}
+
+
+def has_session(d):
+    """A trading day or a special session (MCX's historical report covers both)."""
+    return is_trading_day(d) or d.strftime("%Y-%m-%d") in MCX_SPECIAL_SESSIONS
+
+
 def check_relay_eod(date_iso):
     """Check if relay has already captured EOD data for this date.
     Returns the row dict if found (source='mcx_relay_eod'), else None."""
@@ -407,7 +418,7 @@ def refresh(lookback_days=5, force_dates=None):
             iso = d.strftime("%Y-%m-%d")
             if i == 0 and not today_closed:
                 continue
-            if is_trading_day(d) and (iso not in existing or iso not in commodity_present):
+            if has_session(d) and (iso not in existing or iso not in commodity_present):
                 targets.append(iso)
 
     if not targets:
