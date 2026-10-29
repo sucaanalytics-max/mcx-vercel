@@ -1,7 +1,8 @@
 """
 Dhan API client wrapper and per-commodity live-OI fetcher for MCX.
 
-Wraps `dhanhq` with project-local .env loading and a cached scrip master so we
+Wraps `dhanhq` with an auto-renewing token (shared with the Demat project via
+~/.dhan/credentials.json, .env as fallback) and a cached scrip master so we
 can resolve MCX commodity instruments and fetch live OI in a single call.
 
 Usage:
@@ -43,17 +44,120 @@ _load_project_env()
 DHAN_CLIENT_ID = os.environ.get("DHAN_CLIENT_ID", "")
 DHAN_ACCESS_TOKEN = os.environ.get("DHAN_ACCESS_TOKEN", "")
 
+# ── token: shared with the Demat project ─────────────────────────────────
+# Dhan tokens last 24 h. The Demat project (~/Documents/Demat/dhan_auth.py)
+# keeps the live token in ~/.dhan/credentials.json and re-mints it from
+# PIN + TOTP. We read and renew the same file, so one renewal serves both.
+# Minting a new token does not revoke the old one (both checked 29 Oct 2026),
+# so the two projects renewing independently cannot lock each other out.
+# Without the file we fall back to DHAN_ACCESS_TOKEN from .env.
+DHAN_CREDS_FILE = Path.home() / ".dhan" / "credentials.json"
+_AUTH_URL = "https://auth.dhan.co/app/generateAccessToken"
+_PROFILE_URL = "https://api.dhan.co/v2/profile"
+_TOKEN_LIFETIME_S = 23 * 3600   # Demat's conservative note; Dhan gives ~24 h
+_REFRESH_MARGIN_S = 3600        # renew when < 1 h is left
+
+
+def _totp(secret: str, at: float) -> str:
+    """RFC 6238 TOTP (SHA-1, 6 digits, 30 s) — the same codes pyotp makes."""
+    import base64, hashlib, hmac, struct
+    key = base64.b32decode(secret.upper().replace(" ", "") + "=" * (-len(secret) % 8))
+    mac = hmac.new(key, struct.pack(">Q", int(at) // 30), hashlib.sha1).digest()
+    o = mac[-1] & 0x0F
+    return f"{(struct.unpack('>I', mac[o:o + 4])[0] & 0x7FFFFFFF) % 1_000_000:06d}"
+
+
+def _token_rejected(client_id: str, token: str) -> bool:
+    """True only on an explicit 401 from Dhan. Network errors say nothing about
+    the token and must not trigger a re-mint."""
+    import urllib.request, urllib.error
+    req = urllib.request.Request(_PROFILE_URL, headers={
+        "access-token": token, "client-id": client_id, "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=10):
+            return False
+    except urllib.error.HTTPError as e:
+        return e.code == 401
+    except Exception:
+        return False
+
+
+def _mint_token(creds: dict) -> dict:
+    """POST PIN + TOTP to Dhan's auth endpoint; return creds with the new token.
+    Retries once across the 30 s boundary on 'Invalid TOTP' (window race)."""
+    import json, urllib.parse, urllib.request
+    cid, pin, secret = creds.get("client_id"), creds.get("pin"), creds.get("totp_secret")
+    if not (cid and pin and secret):
+        raise RuntimeError(f"{DHAN_CREDS_FILE} lacks client_id / pin / totp_secret")
+
+    def attempt() -> dict:
+        left = 30 - int(time.time()) % 30
+        if left <= 3:
+            time.sleep(left + 1)
+        qs = urllib.parse.urlencode({"dhanClientId": cid, "pin": pin,
+                                     "totp": _totp(secret, time.time())})
+        with urllib.request.urlopen(urllib.request.Request(
+                f"{_AUTH_URL}?{qs}", method="POST"), timeout=15) as r:
+            return json.loads(r.read().decode())
+
+    body = attempt()
+    token = body.get("accessToken") or body.get("access_token")
+    if not token and "TOTP" in str(body.get("message", "")):
+        time.sleep(31 - int(time.time()) % 30)
+        body = attempt()
+        token = body.get("accessToken") or body.get("access_token")
+    if not token:
+        # Dhan's error body carries no secrets; keep it short for the log.
+        raise RuntimeError(f"Dhan token mint failed: {str(body)[:200]}")
+    return {**creds, "access_token": token,
+            "token_expires_at": int(time.time()) + _TOKEN_LIFETIME_S}
+
+
+def _save_creds(creds: dict) -> None:
+    """Atomic write, 0600 — the file holds the PIN and TOTP secret."""
+    import json
+    tmp = DHAN_CREDS_FILE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(creds, indent=2))
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, DHAN_CREDS_FILE)
+
+
+def _credentials() -> tuple[str, str]:
+    """(client_id, access_token), renewing the shared token when it is near
+    expiry or Dhan refuses it. Raises if no usable token can be found."""
+    import json, sys
+    if DHAN_CREDS_FILE.exists():
+        creds = json.loads(DHAN_CREDS_FILE.read_text())
+        cid, tok = str(creds.get("client_id", "")), creds.get("access_token", "")
+        stale = (not tok or
+                 time.time() > creds.get("token_expires_at", 0) - _REFRESH_MARGIN_S)
+        if stale or _token_rejected(cid, tok):
+            try:
+                creds = _mint_token(creds)
+                _save_creds(creds)
+                tok = creds["access_token"]
+            except Exception as e:
+                # Dhan allows one mint per 2 min, so a failure here often means
+                # Demat renewed a moment ago: re-read the file before giving up.
+                print(f"[dhan_client] token renewal failed: {e}", file=sys.stderr)
+                fresh = json.loads(DHAN_CREDS_FILE.read_text()).get("access_token", "")
+                if fresh and fresh != tok and not _token_rejected(cid, fresh):
+                    tok = fresh
+        if cid and tok:
+            return cid, tok
+    if DHAN_CLIENT_ID and DHAN_ACCESS_TOKEN:
+        return DHAN_CLIENT_ID, DHAN_ACCESS_TOKEN
+    raise RuntimeError(
+        f"No Dhan token: neither {DHAN_CREDS_FILE} (shared with the Demat "
+        "project) nor DHAN_CLIENT_ID / DHAN_ACCESS_TOKEN in .env."
+    )
+
 
 @lru_cache(maxsize=1)
 def get_client():
-    """Singleton dhanhq client. Raises if env vars are missing."""
-    if not (DHAN_CLIENT_ID and DHAN_ACCESS_TOKEN):
-        raise RuntimeError(
-            "DHAN_CLIENT_ID / DHAN_ACCESS_TOKEN not set. "
-            "Add them to the project-local .env file (gitignored)."
-        )
+    """Singleton dhanhq client on a token that Dhan currently accepts."""
     from dhanhq import dhanhq
-    return dhanhq(DHAN_CLIENT_ID, DHAN_ACCESS_TOKEN)
+    return dhanhq(*_credentials())
 
 
 @lru_cache(maxsize=1)
