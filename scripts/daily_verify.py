@@ -402,6 +402,20 @@ def main():
     else:
         print("  margin_refresh FAILED (non-fatal; freshness scanner will flag if stale)")
 
+    # 5c. OI participants. The Vercel cron for this could never work: MCX's
+    # Akamai answers plain urllib with HTTP 403 for every date (curl_cffi
+    # impersonating Chrome gets 200 in 0.2s), and retries on a hanging response
+    # can exceed the 60s maxDuration. MCX also publishes the file T+1, so the
+    # 21:30 IST run was early anyway. Removed from vercel.json; refresh the
+    # trailing 5 calendar days here (covers a weekend + T+1). Existing dates are
+    # skipped and writes are merge-duplicates upserts, so re-runs are idempotent.
+    # Soft-fail like the blocks above.
+    print("\nOI participants refresh (curl_cffi backfill, trailing 5 days)...")
+    if _run_script("backfill_oi_participants.py", ["--recent", "5"], timeout=180):
+        print("  backfill_oi_participants OK")
+    else:
+        print("  backfill_oi_participants FAILED (non-fatal; freshness scanner will flag if stale)")
+
     # 6. Derived signal tables (models / momentum / commodity_signals).
     # The Vercel crons that own these fire at 14:10-14:20 UTC, but mcx_valuation
     # for the same session is not written until ~20:27 UTC — so those runs can

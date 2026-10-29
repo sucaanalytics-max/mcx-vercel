@@ -5,7 +5,8 @@ Downloads MCX's "Disclosure of Open Interest and Turnover" XLSX,
 parses Part A ("Number of participants in each category"),
 and upserts to mcx_oi_participants in Supabase.
 
-Schedule: 20:00 IST weekdays (after market close).
+Schedule: none on Vercel (MCX's Akamai 403s urllib from datacenter IPs and publishes T+1);
+scripts/daily_verify.py refreshes it locally via scripts/backfill_oi_participants.py.
 Source: https://www.mcxindia.com/docs/default-source/market-operations/
         trading-survelliance/reports/disclosure-of-open-interest-and-
         turnover-for-various-categories-of-market-participants/
