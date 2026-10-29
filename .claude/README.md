@@ -78,3 +78,43 @@ staleness.
 - **Systemic-issue detection**: `fix_streak ≥ 3` (fixed daily but breaks again)
   triggers an alert — a cron that silently died stays visible even though each
   day's run "succeeds".
+
+---
+
+# Project Steward
+
+An orchestrator-workers graph that sweeps the *whole* project (not just data)
+and drives open items and bugs to zero, then hands you one "needs you" list.
+
+```
+/project-steward  (orchestrator: routes, triages, owns the backlog)
+  ├─ steward-sweeper [haiku]  scripts/project_sweep.py → findings JSON
+  │     tests · freshness scan · 16 live endpoints · git/worktrees/stashes/PRs
+  │     · launchd jobs + foreign /Users paths · tasks/todo.md [ ] items
+  ├─ triage → owner agent | human | decision   (state: state/steward-backlog.json)
+  ├─ safe local ops (merged branches/worktrees, memory notes) — orchestrator itself
+  ├─ stale data → the freshness fixers above
+  ├─ bug-fixer [sonnet, own worktree] test-first fix on steward/<id>
+  │     → fix-reviewer [opus, read-only, independent] ─reject→ back to fixer (≤2)
+  │     → approve → push + PR  (gated by the test hook)  → YOU merge
+  └─ re-sweep + verify (≤3 passes) → tasks/steward-report.md + notification
+```
+
+| Path | Role | Git |
+|---|---|---|
+| `commands/project-steward.md` | Orchestrator (phases, routing, guardrails, stop condition) | committed |
+| `agents/steward-sweeper.md` · `bug-fixer.md` · `fix-reviewer.md` | The three new nodes | committed |
+| `state/steward-backlog.json` | Backlog: stable ids, owner, status, done_criteria, evidence | ignored |
+| `../tasks/steward-report.md` | Human report: PRs to merge, needs-you commands, decisions | committed |
+| `../scripts/project_sweep.py` | Deterministic, read-only sweep | committed |
+| `../scripts/run_tests.sh` | Runs every tracked `scripts/test_*` (uv-pinned deps) | committed |
+| `settings.json` + `../scripts/hooks/test_gate.py` | PreToolUse hook: blocks `gh pr create` / `git push` while tests are red | committed |
+
+Use: `/project-steward --dry-run` (sweep + triage + report), `/project-steward`
+(one full run), `/loop /project-steward` (self-paced until only human items
+remain). Never merges, never writes production data, never deletes anything
+unmerged. Pin an item's owner by setting `owner_pinned: true` in the backlog.
+
+The test gate applies to every session in this repo, yours included: a push
+or PR while `scripts/run_tests.sh` is red is blocked (deleting remote branches
+is not).

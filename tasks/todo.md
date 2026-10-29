@@ -16,7 +16,7 @@ Design: Option A (iCOMDEX index-level panel on Commodities tab) + Option B
       --dry-run, blocked_on message on 404/42501).
 - [x] 3. Dry-run tested: 60 rows / 5 days / 12 indices current week; 2016 window
       parses (143 rows, 13 indices; pre-2020 O/H/L=0 stored as NULL).
-- [ ] 4. One-time backfill 2015-12-31 → today. AFTER the SQL is run:
+- [x] 4. One-time backfill 2015-12-31 → today. (steward 29 Oct: mcx_icomdex_daily spans 2015-12-31 → 2026-10-28.) AFTER the SQL is run:
       /opt/homebrew/bin/python3 scripts/icomdex_refresh.py --backfill 2015-12-31 today
 - [x] 5. daily_verify.py runs icomdex_refresh (trailing week) at the end of main();
       refactored run_bhav_refresh into shared _run_script helper.
@@ -127,7 +127,9 @@ Scope: "verify and update all tabs and all data" (all 10 tabs, 16 endpoints,
       first is 2026-03-17); all 88 winter rows match MCX's full-day total to
       0.01%. Relay *snapshots* on the six full winter days with data (23 Feb –
       6 Mar 2026) stopped at 23:30 and were 3.3–7.4% (median 4.0%) short.
-- [ ] Before 2 Nov: check MCX's 2026-27 circular matches (add an override if not).
+- [x] Before 2 Nov: check MCX's 2026-27 circular matches (add an override if not).
+      (steward 29 Oct: MCX notice, via 5paisa's reproduction: 23:55 from 2 Nov 2026 to
+      12 Mar 2027 inclusive; session_end() matches on all four boundary days. No override.)
 - [x] Guard vs reconciliation DECIDED 28 Oct (user: option 1). The guard
       trigger now admits a relay-row replacement only with source
       'mcx_historical' + data_source 'mcx_historical_reconciled', which only
