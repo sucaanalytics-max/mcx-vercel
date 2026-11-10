@@ -265,6 +265,58 @@ MCX_HOLIDAYS_2026 = MCX_HOLIDAYS
 MCX_MORNING_CLOSE_2026 = MCX_MORNING_CLOSE
 MCX_EVENING_CLOSE_2026 = MCX_EVENING_CLOSE
 
+# ─── SESSION SHAPE (part-day sessions) ───────────────────────────────────────
+# On a morning-closed holiday MCX trades only the evening session, 17:00 to the
+# day's seasonal close; on an evening-closed one only the morning, 09:00–17:00.
+# session_shape() gives the hours actually traded on a date. The close of a
+# full or evening-only day is always session_end(d), so the 23:30 / 23:55 rule
+# and SESSION_END_OVERRIDES keep applying.
+#
+# Stored elapsed_min stays "minutes since 09:00, capped at the day's close" on
+# every day, because the frontend clock, the curves and the range statistics all
+# read it that way. session_clock() also returns traded_min, the minutes the
+# market has actually been open, which is what the projection and the share of
+# the session gone are based on.
+EVENING_SESSION_START = 1020   # 17:00 IST
+SESSION_FULL = "full"
+SESSION_EVENING_ONLY = "evening_only"   # morning closed
+SESSION_MORNING_ONLY = "morning_only"   # evening closed
+SESSION_CLOSED = "closed"
+
+
+def session_shape(d=None) -> dict:
+    """Trading hours on date d: {"start", "end", "total", "type"}, in minutes
+    since midnight IST. "closed" (total 0) for weekends, full-day holidays and
+    special sessions such as Muhurat, which are never projected live."""
+    d = _as_date(d)
+    ds = d.strftime("%Y-%m-%d")
+    if d.weekday() >= 5 or ds in MCX_HOLIDAYS:
+        return {"start": SESSION_START, "end": SESSION_START, "total": 0, "type": SESSION_CLOSED}
+    if ds in MCX_EVENING_CLOSE:
+        start, end, kind = SESSION_START, EVENING_SESSION_START, SESSION_MORNING_ONLY
+    elif ds in MCX_MORNING_CLOSE:
+        start, end, kind = EVENING_SESSION_START, session_end(d), SESSION_EVENING_ONLY
+    else:
+        start, end, kind = SESSION_START, session_end(d), SESSION_FULL
+    return {"start": start, "end": end, "total": end - start, "type": kind}
+
+
+def session_clock(t, d=None):
+    """(elapsed_min, traded_min, shape) at IST time t on trading date d
+    (default: t's date). elapsed_min counts from 09:00, capped at the day's
+    close; traded_min counts from the day's real open, capped at its length."""
+    shape = session_shape(t if d is None else d)
+    now = t.hour * 60 + t.minute
+    elapsed = max(0, min(now, shape["end"]) - SESSION_START)
+    traded = max(0, min(now, shape["end"]) - shape["start"])
+    return elapsed, traded, shape
+
+
+def traded_minutes(elapsed_min, d) -> int:
+    """Minutes traded on date d by a stored elapsed_min (minutes since 09:00)."""
+    shape = session_shape(d)
+    return max(0, min(SESSION_START + elapsed_min, shape["end"]) - shape["start"])
+
 # ─── DAY-TYPE CLASSIFICATION (F-21: algorithmic + manual overrides) ──────────
 # Volume multipliers — calibrated by scripts/calibrate_day_types.py against 400
 # trading days (2024-10-01 → 2026-04-24), month-normalized to LOW baseline:
@@ -561,7 +613,8 @@ def _compute_adaptive_weights(vol_fn=None, close_min=None):
 
         by_date = defaultdict(list)
         for s in snapshots:
-            if s.get("elapsed_min") is not None and session_end(s["trading_date"]) == close_min:
+            if (s.get("elapsed_min") is not None and session_end(s["trading_date"]) == close_min
+                    and session_shape(s["trading_date"])["type"] == SESSION_FULL):
                 by_date[s["trading_date"]].append(s)
 
         if vol_fn is None:
@@ -710,7 +763,27 @@ def project_full_day(realized_fut, realized_opt, elapsed_min, day_type="LOW",
 
     trading_date (optional, default today IST) picks the session length and
     curve: 870 min to 23:30 in summer, 895 min to 23:55 in winter.
+
+    elapsed_min counts from 09:00 on every day. On a part-day session (see
+    session_shape) the intraday buckets describe a day that isn't happening, so
+    the projection is time-only: realized / share of the day's real hours gone,
+    with the same fading day-type prior.
     """
+    shape = session_shape(trading_date)
+    if shape["type"] in (SESSION_EVENING_ONLY, SESSION_MORNING_ONLY):
+        traded = traded_minutes(elapsed_min, trading_date)
+        if traded <= 0:
+            return realized_fut, realized_opt, "LOW"
+        if traded >= shape["total"]:
+            return realized_fut, realized_opt, "CERTAIN"
+        time_pct = traded / shape["total"]
+        raw_day_mult = DAY_MULTIPLIER.get(day_type, 1.0)
+        mult = (1.0 / time_pct) * (1.0 + (raw_day_mult - 1.0) * (1.0 - time_pct))
+        conf_label = ("HIGH" if time_pct > 0.70
+                      else "MEDIUM" if time_pct > 0.35
+                      else "LOW")
+        return realized_fut * mult, realized_opt * mult, conf_label
+
     total = session_total(trading_date)
     if elapsed_min <= 0:
         return realized_fut, realized_opt, "LOW"
@@ -863,11 +936,12 @@ def has_session(d) -> bool:
 
 
 def is_market_open(dt=None) -> bool:
-    """Check if MCX is currently in trading hours."""
+    """Check if MCX is currently in trading hours (part-day sessions aware)."""
     if dt is None:
         dt = now_ist()
     mins = dt.hour * 60 + dt.minute
-    return dt.weekday() < 5 and SESSION_START <= mins <= session_end(dt)
+    shape = session_shape(dt)
+    return shape["type"] != SESSION_CLOSED and shape["start"] <= mins <= shape["end"]
 
 
 def make_cors_headers(origin: str = "") -> dict:

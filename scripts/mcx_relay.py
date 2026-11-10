@@ -6,7 +6,9 @@ computes intraday revenue projection, and upserts snapshot to Supabase.
 The Vercel /api/refresh GET endpoint reads from Supabase to serve the frontend.
 
 Runs every 15 minutes during MCX trading hours (09:00 to 23:30 IST, or 23:55
-while the US is on standard time; see lib.mcx_config.session_end).
+while the US is on standard time; see lib.mcx_config.session_end). On part-day
+sessions it runs only the hours that trade: 17:00 to the close when the morning
+is closed, 09:00–17:00 when the evening is (lib.mcx_config.session_shape).
 Designed to be called by a cron/scheduled task starting at 8:00 AM IST.
 
 Usage:
@@ -51,6 +53,7 @@ from lib.mcx_config import (
     SUPABASE_URL, SUPABASE_ANON_KEY,
     FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY, TRADING_DAYS,
     SESSION_START, session_end, fmt_ist_minutes,
+    session_shape, session_clock, SESSION_FULL, SESSION_CLOSED,
     DAY_MULTIPLIER, DAY_DESCRIPTION,
     MCX_HOLIDAYS_2026,
     now_ist, get_day_type, get_intraday_weight,
@@ -200,16 +203,19 @@ def run_snapshot():
     """Fetch MCX data, compute projection, push to Supabase. Returns True on success."""
     capture = now_ist()
     current_min = capture.hour * 60 + capture.minute
-    close = session_end(capture)       # 1410 (23:30) or 1435 (23:55)
-    total = close - SESSION_START
+    # elapsed counts from 09:00 (what snapshots store); traded counts from the
+    # day's real open, so it differs on a part-day session.
+    elapsed, traded, shape = session_clock(capture)
+    open_min, close, total = shape["start"], shape["end"], shape["total"]
 
     # Check if within trading window (with 30-min pre-buffer)
-    if current_min < SESSION_START - 30 or current_min > close + 15:
-        print(f"  ⏸ {capture.strftime('%H:%M IST')} — outside trading hours, skipping")
+    if (shape["type"] == SESSION_CLOSED
+            or current_min < open_min - 30 or current_min > close + 15):
+        print(f"  ⏸ {capture.strftime('%H:%M IST')} — outside trading hours "
+              f"({_hours(shape)}), skipping")
         return False
 
-    elapsed = max(0, min(current_min - SESSION_START, total))
-    time_pct = elapsed / total
+    time_pct = traded / total
 
     # Fetch market data via curl_cffi session
     print(f"  Fetching market data...")
@@ -238,8 +244,8 @@ def run_snapshot():
 
     # Stale data guard: if early in session but notionals are huge, API returned
     # yesterday's cached data. Skip this snapshot.
-    if elapsed <= 15 and fut_notl > 30000:
-        print(f"  ⚠ Stale data detected: {fut_notl:.0f} Cr notional at {elapsed}m elapsed — skipping")
+    if traded <= 15 and fut_notl > 30000:
+        print(f"  ⚠ Stale data detected: {fut_notl:.0f} Cr notional at {traded}m traded — skipping")
         return False
 
     day_type = get_day_type(capture)
@@ -289,7 +295,7 @@ def run_snapshot():
     snapshot = {
         "trading_date": capture.strftime("%Y-%m-%d"),
         "elapsed_min": elapsed,
-        "session_closed": elapsed >= total,
+        "session_closed": traded >= total,
         "fut_notl_cr": round(fut_notl, 2),
         "opt_notl_cr": round(opt_notl, 2),
         "opt_prem_cr": round(opt_prem, 2),
@@ -323,7 +329,8 @@ def run_snapshot():
 
     # Regime drift check — run once per session when ≥3 buckets complete (15:00-16:00)
     today_iso = capture.strftime("%Y-%m-%d")
-    if 360 <= elapsed < 420 and getattr(run_snapshot, '_regime_done', None) != today_iso:
+    if (shape["type"] == SESSION_FULL and 360 <= elapsed < 420
+            and getattr(run_snapshot, '_regime_done', None) != today_iso):
         run_snapshot._regime_done = today_iso
         try:
             from lib.mcx_config import supabase_read_all
@@ -667,12 +674,20 @@ def _start_stall_watchdog():
     threading.Thread(target=_watch, daemon=True, name="stall-watchdog").start()
 
 
+def _hours(shape):
+    """'09:00–23:55 IST' / '17:00–23:55 IST, morning closed'."""
+    if shape["type"] == SESSION_CLOSED:
+        return "closed"
+    note = {"evening_only": ", morning closed", "morning_only": ", evening closed"}.get(shape["type"], "")
+    return f"{fmt_ist_minutes(shape['start'])}–{fmt_ist_minutes(shape['end'])} IST{note}"
+
+
 def next_sleep_seconds(t, base_s):
     """Sleep before the next snapshot: base_s, cut short so the loop wakes
     EOD_DELAY_MIN after today's close. Without the cut, a 15-min cadence can
     land the final snapshot anywhere up to 15 min late; at a 23:55 close that
     crosses midnight, and the loop then exits without an EOD capture."""
-    wake = (session_end(t) + EOD_DELAY_MIN) * 60
+    wake = (session_shape(t)["end"] + EOD_DELAY_MIN) * 60
     now_s = t.hour * 3600 + t.minute * 60 + t.second
     until_wake = wake - now_s
     if 0 < until_wake < base_s:
@@ -684,7 +699,7 @@ def run_loop():
     """Run snapshots every 15 minutes until trading session ends.
     After session close, captures authoritative EOD record for mcx_daily_revenue."""
     print(f"MCX Relay — loop mode (every {LOOP_INTERVAL//60} min)")
-    print(f"Trading hours: 09:00–{fmt_ist_minutes(session_end(now_ist()))} IST")
+    print(f"Trading hours: {_hours(session_shape(now_ist()))}")
     _start_stall_watchdog()
 
     fail_streak = 0
@@ -694,7 +709,8 @@ def run_loop():
         _mark_progress()  # reset the stall-watchdog each iteration
         t = now_ist()
         current_min = t.hour * 60 + t.minute
-        close = session_end(t)
+        shape = session_shape(t)
+        open_min, close = shape["start"], shape["end"]
         session_date = t.strftime("%Y-%m-%d")
 
         if not is_trading_day(t.date()):
@@ -705,9 +721,10 @@ def run_loop():
             print(f"{t.strftime('%H:%M IST')} — Session ended. Exiting.")
             break
 
-        if current_min < SESSION_START - 30:
-            wait = (SESSION_START - 30 - current_min) * 60
-            print(f"{t.strftime('%H:%M IST')} — Waiting {wait//60} min until pre-market...")
+        if current_min < open_min - 30:
+            wait = (open_min - 30 - current_min) * 60
+            print(f"{t.strftime('%H:%M IST')} — Waiting {wait//60} min until pre-market "
+                  f"({_hours(shape)})...")
             _watchful_sleep(min(wait, LOOP_INTERVAL))
             continue
 
