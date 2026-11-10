@@ -9,7 +9,10 @@ Computes two signal layers from raw exchange data:
 Data sources: mcx_daily_revenue (total_rev_cr) + mcx_share_price (close)
 Output: mcx_momentum_signals table
 
-Vercel Cron: runs after cron_valuation (which refreshes share prices first).
+Vercel Cron: 02:30 UTC Tue-Sat (08:00 IST). A day's signal needs that day's MCX revenue,
+which exists only after the evening session (23:30 IST, 23:55 in US winter) and is
+reconciled by daily_verify at 07:00 IST; the price comes from the 19:30 IST valuation cron.
+Running in the evening (as before, 19:40 IST) always left the page a trading day behind.
 """
 from http.server import BaseHTTPRequestHandler
 import json, urllib.request, urllib.error

@@ -105,17 +105,87 @@
   // MCX revenue, known only after the evening session (23:30, or 23:55 in US winter), so it is first tradeable at the
   // next day's close: the change runs from row i + lag to row i + lag + h. Overlapping windows;
   // days without an outcome yet are left out. priceKey: 'close_price' (momentum) or 'price' (models).
-  function forward(rows, key, order, h = 10, priceKey = 'close_price', lag = 1) {
+  // keep(date), when given, limits the signal days counted; prices still come from all rows, so a
+  // window that starts before a cutoff can end after it.
+  function forward(rows, key, order, h = 10, priceKey = 'close_price', lag = 1, keep = null) {
     const g = {}, all = [];
+    let first = null, last = null;
     for (let i = 0; i + lag + h < rows.length; i++) {
+      if (keep && !keep(rows[i].date)) continue;
       const a = rows[i + lag][priceKey], b = rows[i + lag + h][priceKey], k = rows[i][key];
       if (!(a > 0) || !(b > 0) || !k || k === 'NO_DATA') continue;
       const r = (b / a - 1) * 100;
       (g[k] = g[k] || []).push(r); all.push(r);
+      if (first === null) first = rows[i].date;
+      last = rows[i].date;
     }
     const stat = xs => xs.length ? { n: xs.length, avg: xs.reduce((p, q) => p + q, 0) / xs.length, up: xs.filter(x => x > 0).length / xs.length * 100 } : null;
-    return { rows: order.filter(k => g[k]).map(k => ({ key: k, ...stat(g[k]) })), all: stat(all),
-             first: rows.length ? rows[0].date : null, last: rows.length > h + lag ? rows[rows.length - 1 - h - lag].date : null };
+    if (!keep) { first = rows.length ? rows[0].date : null; last = rows.length > h + lag ? rows[rows.length - 1 - h - lag].date : null; }
+    return { rows: order.filter(k => g[k]).map(k => ({ key: k, ...stat(g[k]) })), all: stat(all), first, last };
+  }
+
+  // Last day of data in the study that set the momentum rules ("MCX Momentum Strategy: 10D/45D F&O
+  // Revenue Ratio, ADR Divergence Overlay, Entry & Exit Framework", data Sep 2024 – 11 Mar 2026).
+  // Signal days after it are out of sample.
+  const MOM_RULES_FIXED = '2026-03-11', MOM_RULES_FIXED_TEXT = '11 March 2026';
+  const afterRules = d => d > MOM_RULES_FIXED, inStudy = d => d <= MOM_RULES_FIXED;
+
+  // The study's trade rule, entering and exiting at the next row's close (a day's signal is known
+  // only after MCX's evening session): buy after a Buy or Strong-buy day; sell after the first Sell
+  // or Cold day, or once the position has been held maxHold rows. One position at a time. keep(date)
+  // limits the entry days; exits follow the rule wherever they fall. A trade still open at the end
+  // is left out. Before costs.
+  function tradeBacktest(rows, lag = 1, keep = null, maxHold = 15) {
+    const trades = [];
+    let k0 = -1, k1 = -1;
+    rows.forEach((r, i) => { if (!keep || keep(r.date)) { if (k0 < 0) k0 = i; k1 = i; } });
+    let i = 0;
+    while (i < rows.length) {
+      const r = rows[i];
+      if ((keep && !keep(r.date)) || (r.composite_signal !== 'BUY' && r.composite_signal !== 'STRONG_BUY')) { i++; continue; }
+      const e = i + lag;
+      if (e >= rows.length) break;
+      let j = i + 1, why = null;
+      for (; j < rows.length; j++) {
+        if (rows[j].composite_signal === 'SELL' || rows[j].regime === 'COLD') { why = 'sell'; break; }
+        if (j + lag - e >= maxHold) { why = 'time'; break; }
+      }
+      const x = j + lag;
+      if (!why || x >= rows.length) break;
+      const a = rows[e].close_price, b = rows[x].close_price;
+      if (a > 0 && b > 0) trades.push({ entry: rows[e].date, exit: rows[x].date, signal: r.composite_signal, why, days: x - e, ret: (b / a - 1) * 100 });
+      i = j + 1;
+    }
+    if (k0 < 0 || k0 + lag >= rows.length) return null;
+    const s0 = k0 + lag, s1 = Math.min(k1 + lag, rows.length - 1);
+    const rets = trades.map(t => t.ret), n = rets.length;
+    const sorted = rets.slice().sort((p, q) => p - q);
+    const bh = rows[s0].close_price > 0 && rows[s1].close_price > 0 ? (rows[s1].close_price / rows[s0].close_price - 1) * 100 : null;
+    return {
+      trades, n,
+      win: n ? rets.filter(v => v > 0).length / n * 100 : null,
+      avg: n ? rets.reduce((p, q) => p + q, 0) / n : null,
+      med: n ? (n % 2 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2) : null,
+      compounded: n ? (rets.reduce((p, v) => p * (1 + v / 100), 1) - 1) * 100 : null,
+      inMarket: s1 > s0 ? Math.min(100, trades.reduce((p, t) => p + t.days, 0) / (s1 - s0) * 100) : null,
+      bh, from: rows[s0].date, to: rows[s1].date,
+    };
+  }
+
+  // The out-of-sample line under the momentum headline: Strong-buy days after the rules were set
+  // against all days. Calls a breakdown only when Strong buy has done no better than all days.
+  function momCaveat(rows, h = 10) {
+    if (!rows.length) return null;
+    const fromStart = rows[0].date <= MOM_RULES_FIXED;
+    const ev = forward(rows, 'composite_signal', ['STRONG_BUY'], h, 'close_price', 1, fromStart ? afterRules : null);
+    const sb = ev.rows[0];
+    if (!sb || !ev.all) return null;
+    const since = fromStart ? `Since the rules were set on ${MOM_RULES_FIXED_TEXT}` : `Over the loaded history (from ${fmt.dateLong(ev.first)})`;
+    const broken = sb.avg <= ev.all.avg;
+    const body = `${since}, Strong-buy days have been followed by ${signed(sb.avg)}% over ${h} trading days (${num(sb.up, 0)}% of them up), against ${signed(ev.all.avg)}% for all days.`;
+    return { broken, sb, all: ev.all,
+             text: broken ? `${body} The signal has not held up out of sample: read it as a description of revenue activity, not a trade.`
+                          : `${body} ${num(sb.n)} Strong-buy days so far; the windows overlap, so this is thin evidence.` };
   }
 
   // Each part's contribution to the ensemble score
@@ -200,6 +270,7 @@
   }
 
   MCX.signalsModel = { HOT, COLD, W, streak, cushion, changes, momLede, overlayText, forward, contributions, ensLede, ecmText, pill,
+                       MOM_RULES_FIXED, afterRules, inStudy, tradeBacktest, momCaveat,
                        COMPOSITE, REGIME, OVERLAY, ECM, optLede, legsText, trackRows, BOOK };
   if (window.MCX_TEST) return;
 
@@ -250,7 +321,8 @@
   }
 
   // What followed each signal (full history, loaded when the section comes into view)
-  function evidenceHtml(ev, map, h) {
+  const SAME_HISTORY = 'The rules were chosen on this same history, which flatters them. Compare each row with all days: MCX’s shares rose over most of this period.';
+  function evidenceHtml(ev, map, h, note = SAME_HISTORY) {
     if (!ev || !ev.all) return '<p class="note">Not enough history yet.</p>';
     const row = (lab, s, cls) => `<tr${cls ? ` class="${cls}"` : ''}><td>${lab}</td><td>${num(s.n)}</td><td>${pctCell(s.avg)}</td><td>${num(s.up, 0)}%</td></tr>`;
     return `<div class="table-scroll"><table class="v2-table"><thead><tr><th scope="col">Signal that day</th><th scope="col">Days</th>`
@@ -258,7 +330,16 @@
       + ev.rows.map(r => row(pill(map, r.key), r)).join('')
       + `${row('All days', ev.all, 'total')}</tbody></table></div>`
       + `<p class="note">Signal days ${fmt.span(ev.first, ev.last)}. Each change runs from the next day’s close, the first chance to act, since a day’s signal needs MCX’s revenue from its evening session. It covers ${h} trading days, so the windows overlap and the counts overstate how much independent evidence there is. `
-      + 'The rules were chosen on this same history, which flatters them. Compare each row with all days: MCX’s shares rose over most of this period.</p>';
+      + note + '</p>';
+  }
+  // One line for the study's trade rule against holding the shares over the same span
+  function tradeHtml(bt) {
+    if (!bt) return '';
+    const rule = '<strong>The study’s trade rule</strong> (buy at the close after a Buy or Strong-buy day; sell at the close after the first Sell or Cold day, or after 15 trading days)';
+    const hold = bt.bh === null ? '' : ` Holding the shares from ${fmt.day(bt.from)} to ${fmt.day(bt.to)}: ${pctCell(bt.bh)}.`;
+    if (!bt.n) return `<p class="note">${rule}: no completed trades yet.${hold}</p>`;
+    return `<p class="note">${rule}: ${num(bt.n)} completed trade${bt.n === 1 ? '' : 's'}, ${num(bt.win, 0)}% won, average ${pctCell(bt.avg)} (median ${pctCell(bt.med)}), `
+      + `${pctCell(bt.compounded)} compounded, in the market ${num(bt.inMarket, 0)}% of days.${hold} Before costs.</p>`;
   }
   function lazyEvidence(boxId, btnId, load) {
     const box = $(boxId);
@@ -298,6 +379,11 @@
     $('moKicker').textContent = `Momentum · end of day, ${fmt.dayMonth(s.date)}`;
     $('moHead').textContent = l.head;
     $('moDeck').textContent = l.deck;
+    const cv = momCaveat(rows);
+    const cvBox = $('moCaveat');
+    cvBox.hidden = !cv;
+    cvBox.className = 'note mo-caveat' + (cv && cv.broken ? ' mo-caveat--warn' : '');
+    cvBox.textContent = cv ? cv.text : '';
     const c = cushion(s);
     const cz = !c ? stat('Room before the regime changes', val('—'))
       : c.to === 'cool' ? stat('Cushion before it cools', val(`₹${num(c.gap, 2)}<small>Cr/day</small>`), `10-day average must fall below ${crs(c.level)} (${num(c.pct, 0)}%), at today’s 45-day average`)
@@ -310,7 +396,7 @@
     renderMoChart();
     renderMoLog();
     $('moRules').innerHTML = rulesHtml();
-    $('moFoot').textContent = `Computed after each close from MCX’s daily F&O revenue and the NSE share price; data through ${fmt.day(s.date)}.`;
+    $('moFoot').textContent = `Computed each morning, once the previous evening’s MCX revenue is in, from MCX’s daily revenue and the NSE share price; data through ${fmt.day(s.date)}.`;
     MO.width = $('momentum').clientWidth;
   }
 
@@ -422,8 +508,15 @@
                     onChange: () => loadMomentum() });
   lazyEvidence('moEvidence', 'moEvBtn', () => fetchRanged('/api/models?view=momentum&range=Max').then(d => {
     if (!d.success) throw new Error(d.error || 'No data');
-    const ev = forward(d.history || [], 'composite_signal', ['STRONG_BUY', 'BUY', 'HOLD', 'WATCH', 'SELL']);
-    $('moEvidence').innerHTML = evidenceHtml(ev, COMPOSITE, 10);
+    const h = d.history || [], order = ['STRONG_BUY', 'BUY', 'HOLD', 'WATCH', 'SELL'];
+    const study = forward(h, 'composite_signal', order, 10, 'close_price', 1, inStudy);
+    const live = forward(h, 'composite_signal', order, 10, 'close_price', 1, afterRules);
+    $('moEvidence').innerHTML = `<h3 class="mo-ev-h">Since the rules were set (signal days after ${MOM_RULES_FIXED_TEXT})</h3>`
+      + evidenceHtml(live, COMPOSITE, 10, 'These days come after the rules were fixed, so this is the out-of-sample record. Compare each row with all days.')
+      + tradeHtml(tradeBacktest(h, 1, afterRules))
+      + `<h3 class="mo-ev-h">Before the rules were set (signal days to ${MOM_RULES_FIXED_TEXT}; the study itself used September 2024 on)</h3>`
+      + evidenceHtml(study, COMPOSITE, 10)
+      + tradeHtml(tradeBacktest(h, 1, inStudy));
   }).catch(e => MCX.ui.error($('moEvidence'), 'Could not load the full history: ' + (e.message || e))));
 
   // ════════════════════════════════════════════════════════════════════════
