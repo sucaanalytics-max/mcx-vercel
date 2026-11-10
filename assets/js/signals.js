@@ -336,7 +336,7 @@
   function tradeHtml(bt) {
     if (!bt) return '';
     const rule = '<strong>The study’s trade rule</strong> (buy at the close after a Buy or Strong-buy day; sell at the close after the first Sell or Cold day, or after 15 trading days)';
-    const hold = bt.bh === null ? '' : ` Holding the shares from ${fmt.day(bt.from)} to ${fmt.day(bt.to)}: ${pctCell(bt.bh)}.`;
+    const hold = bt.bh === null ? '' : ` Holding the shares over the same span (${fmt.span(bt.from, bt.to)}): ${pctCell(bt.bh)}.`;
     if (!bt.n) return `<p class="note">${rule}: no completed trades yet.${hold}</p>`;
     return `<p class="note">${rule}: ${num(bt.n)} completed trade${bt.n === 1 ? '' : 's'}, ${num(bt.win, 0)}% won, average ${pctCell(bt.avg)} (median ${pctCell(bt.med)}), `
       + `${pctCell(bt.compounded)} compounded, in the market ${num(bt.inMarket, 0)}% of days.${hold} Before costs.</p>`;
