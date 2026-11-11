@@ -17,4 +17,13 @@ cd -P "$(dirname "$src")/.." || exit 1
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 
-exec /usr/bin/caffeinate -is /opt/homebrew/bin/python3 scripts/mcx_relay.py --loop
+# Pinned to an interpreter that has the packages (see scripts/mcx_python.sh).
+if ! PY="$(bash scripts/mcx_python.sh)"; then
+  # Back off before exiting non-zero so KeepAlive doesn't relaunch every 10s.
+  echo "$(date '+%F %T %Z') start_relay.sh: no usable Python — retrying in 5 min" >&2
+  sleep 300
+  exit 1
+fi
+echo "$(date '+%F %T %Z') start_relay.sh: using $PY"
+
+exec /usr/bin/caffeinate -is "$PY" scripts/mcx_relay.py --loop
