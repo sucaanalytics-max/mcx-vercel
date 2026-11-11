@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mcx.commodity-eod</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel/scripts/run_commodity_eod.sh</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel</string>
+    <!-- Daily 05:30 IST: the previous session's report had contracts by 04:31
+         and option premium by 06:31 (10 Nov 2026). The script retries every
+         20 min until 06:55, ahead of the 07:00 daily_verify backstop. Daily
+         (not Tue-Sat) so a Sunday special session such as Muhurat is covered
+         on Monday morning too; days with nothing missing exit in seconds. -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key><integer>5</integer>
+        <key>Minute</key><integer>30</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel/logs/commodity_eod.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel/logs/commodity_eod.log</string>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
