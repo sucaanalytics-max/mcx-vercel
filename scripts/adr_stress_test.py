@@ -14,9 +14,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np, pandas as pd, yfinance as yf
 from scipy import stats
-from lib.mcx_config import SUPABASE_URL, SUPABASE_ANON_KEY
+from lib.mcx_config import SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers
 
-H = {"apikey": SUPABASE_ANON_KEY, "Authorization": "Bearer " + SUPABASE_ANON_KEY}
+H = {**supabase_headers(SUPABASE_ANON_KEY)}
 VARIANTS = [(w, L) for w in (20, 45, 60) for L in (10, 20, 40)]
 PRIMARY = (45, 20)
 TEST_YEARS = (2023, 2024, 2025, 2026)

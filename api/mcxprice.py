@@ -9,11 +9,11 @@ from datetime import datetime, timedelta, timezone
 
 try:
     from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY, make_cors_headers
+        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY, make_cors_headers
     )
 except ImportError:
     from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY, make_cors_headers
+        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY, make_cors_headers
     )
 
 INDIANAPI_KEY = os.environ.get("INDIANAPI_KEY", "")
@@ -102,8 +102,7 @@ def _read_cache():
     try:
         url = f"{SUPABASE_URL}/rest/v1/mcx_cmp_cache?select=*&order=fetched_at.desc&limit=1"
         req = urllib.request.Request(url, headers={
-            "apikey": SUPABASE_ANON_KEY,
-            "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+            **supabase_headers(SUPABASE_ANON_KEY),
         })
         with urllib.request.urlopen(req, timeout=5) as resp:
             rows = json.loads(resp.read().decode("utf-8"))
@@ -129,8 +128,7 @@ def _write_cache(price, source, change_pct=None):
         }
         body = json.dumps(row).encode("utf-8")
         req = urllib.request.Request(url, data=body, method="POST", headers={
-            "apikey": SUPABASE_WRITE_KEY,
-            "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
+            **supabase_headers(SUPABASE_WRITE_KEY),
             "Content-Type": "application/json",
             "Prefer": "resolution=merge-duplicates,return=representation",
         })

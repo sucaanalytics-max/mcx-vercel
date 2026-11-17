@@ -39,7 +39,7 @@ def db_revenue(date_iso):
     url = (f"{br.SUPABASE_URL}/rest/v1/mcx_daily_revenue"
            f"?trading_date=eq.{date_iso}&select=fut_notl_cr,opt_prem_cr")
     req = urllib.request.Request(url, headers={
-        "apikey": br.SUPABASE_ANON_KEY, "Authorization": f"Bearer {br.SUPABASE_ANON_KEY}"})
+        **br.supabase_headers(br.SUPABASE_ANON_KEY)})
     with urllib.request.urlopen(req, timeout=15) as r:
         rows = json.loads(r.read().decode())
     return rows[0] if rows else None
@@ -281,7 +281,7 @@ def _date_has_turnover(date_iso):
     url = (f"{br.SUPABASE_URL}/rest/v1/mcx_commodity_daily"
            f"?trading_date=eq.{date_iso}&turnover_cr=gt.0&select=trading_date&limit=1")
     req = urllib.request.Request(url, headers={
-        "apikey": br.SUPABASE_ANON_KEY, "Authorization": f"Bearer {br.SUPABASE_ANON_KEY}"})
+        **br.supabase_headers(br.SUPABASE_ANON_KEY)})
     with urllib.request.urlopen(req, timeout=15) as r:
         return len(json.loads(r.read().decode())) > 0
 

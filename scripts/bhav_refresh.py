@@ -34,11 +34,11 @@ except ImportError:                             # older lib: fixed 23:30 close
 
 # ── Config ──────────────────────────────────────────────────────────────────
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supabase.co")
-SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2cXdwZWJ2ZXFldHd3emttdHV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDkwMzMsImV4cCI6MjA4Njk4NTAzM30.U_Ug61Fp1NSCesXBkYU7GJGTbuATFtXsz6GTi5948Rw")
-# Service-role key for writes (bypasses RLS); falls back to anon when unset.
-SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
-SUPABASE_WRITE_KEY = SUPABASE_SERVICE_KEY or SUPABASE_ANON_KEY
+# Keys come from lib.mcx_config, the single source (publishable / secret keys,
+# legacy JWT fallback) — see supabase_headers there.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from lib.mcx_config import (  # noqa: E402
+    SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY, SUPABASE_WRITE_KEY, supabase_headers)
 FUTURES_RATE = 210.0
 OPTIONS_RATE = 4180.0
 NONTX_DAILY = 0.00
@@ -81,8 +81,7 @@ def check_relay_eod(date_iso):
     url = (f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue"
            f"?trading_date=eq.{date_iso}&source=eq.mcx_relay_eod&limit=1")
     req = urllib.request.Request(url, headers={
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        **supabase_headers(SUPABASE_ANON_KEY),
     })
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -265,7 +264,7 @@ def _read_existing_oi(dates):
                f"&select=trading_date,commodity,instrument_type,open_interest,oi_value_cr"
                f"&order=commodity.asc,instrument_type.asc&limit=1000")
         req = urllib.request.Request(url, headers={
-            "apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {SUPABASE_ANON_KEY}"})
+            **supabase_headers(SUPABASE_ANON_KEY)})
         with urllib.request.urlopen(req, timeout=15) as resp:
             for r in json.loads(resp.read().decode()):
                 out[(r["trading_date"], r["commodity"], r["instrument_type"])] = {
@@ -308,8 +307,7 @@ def _upsert_commodity_batch(rows, read_existing_oi=None):
     url = f"{SUPABASE_URL}/rest/v1/mcx_commodity_daily"
     body = json.dumps(rows).encode()
     req = urllib.request.Request(url, data=body, method="POST", headers={
-        "apikey": SUPABASE_WRITE_KEY,
-        "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
+        **supabase_headers(SUPABASE_WRITE_KEY),
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates",
     })
@@ -399,8 +397,7 @@ def get_existing_dates():
     """Fetch all dates already in Supabase."""
     url = f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue?select=trading_date,source&order=trading_date.desc&limit=200"
     req = urllib.request.Request(url, headers={
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        **supabase_headers(SUPABASE_ANON_KEY),
     })
     with urllib.request.urlopen(req, timeout=10) as resp:
         rows = json.loads(resp.read().decode())
@@ -423,8 +420,7 @@ def get_commodity_dates(since_iso):
                             f"&order=trading_date.asc")
         url = f"{SUPABASE_URL}/rest/v1/mcx_commodity_daily{q}&limit=1000&offset={offset}"
         req = urllib.request.Request(url, headers={
-            "apikey": SUPABASE_ANON_KEY,
-            "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+            **supabase_headers(SUPABASE_ANON_KEY),
         })
         with urllib.request.urlopen(req, timeout=15) as resp:
             page = json.loads(resp.read().decode())
@@ -546,8 +542,7 @@ def upsert_rows(rows):
     url = f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue?on_conflict=trading_date"
     body = json.dumps(rows).encode()
     req = urllib.request.Request(url, data=body, method="POST", headers={
-        "apikey": SUPABASE_WRITE_KEY,
-        "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
+        **supabase_headers(SUPABASE_WRITE_KEY),
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates,return=representation",
     })

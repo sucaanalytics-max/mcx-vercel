@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import pandas as pd
 from lib import dhan_client as dc
-from lib.mcx_config import SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_ROLE, supabase_upsert, now_ist
+from lib.mcx_config import SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_ROLE, supabase_upsert, now_ist
 from lib.options_costs import leg_fees
 
 UNDERLYING_ID, SEG = 31181, "NSE_EQ"   # MCX Ltd equity on Dhan
@@ -50,7 +50,7 @@ def shift_trading_days(d: dt.date, n: int) -> dt.date:
 
 # ---------------------------------------------------------------- data
 def revenue() -> pd.Series:
-    H = {"apikey": SUPABASE_ANON_KEY, "Authorization": "Bearer " + SUPABASE_ANON_KEY}
+    H = {**supabase_headers(SUPABASE_ANON_KEY)}
     rows, off = [], 0
     while True:
         url = (f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue?select=trading_date,total_rev_cr"

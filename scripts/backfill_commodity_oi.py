@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from lib.dhan_client import fetch_commodity_oi_history, list_front_futures
-from lib.mcx_config import SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY, paginated_order
+from lib.mcx_config import SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY, paginated_order
 
 TABLE = "mcx_commodity_daily"
 HISTORY_START = "2022-01-01"   # first mcx_commodity_daily row is 2022-01-03
@@ -38,7 +38,7 @@ def _get(params: str) -> list[dict]:
     while True:
         req = urllib.request.Request(
             f"{SUPABASE_URL}/rest/v1/{TABLE}{q}&limit=1000&offset={offset}",
-            headers={"apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {SUPABASE_ANON_KEY}"})
+            headers={**supabase_headers(SUPABASE_ANON_KEY)})
         with urllib.request.urlopen(req, timeout=30) as r:
             page = json.loads(r.read().decode())
         rows += page
@@ -62,7 +62,7 @@ def upsert(payload: list[dict]) -> None:
     for i in range(0, len(payload), 500):
         req = urllib.request.Request(
             url, data=json.dumps(payload[i:i + 500]).encode(), method="POST",
-            headers={"apikey": SUPABASE_WRITE_KEY, "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
+            headers={**supabase_headers(SUPABASE_WRITE_KEY),
                      "Content-Type": "application/json",
                      "Prefer": "resolution=merge-duplicates,return=minimal"})
         try:

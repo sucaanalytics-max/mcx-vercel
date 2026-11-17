@@ -50,7 +50,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # ── Import shared config from single source of truth ────────────────────────
 from lib.mcx_config import (
-    SUPABASE_URL, SUPABASE_ANON_KEY,
+    SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers,
     FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY, TRADING_DAYS,
     SESSION_START, session_end, fmt_ist_minutes,
     session_shape, session_clock, SESSION_FULL, SESSION_CLOSED,
@@ -890,8 +890,7 @@ def catchup_missing(days=7):
         url = (f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue"
                f"?trading_date=eq.{ds}&limit=1")
         req = urllib.request.Request(url, headers={
-            "apikey": SUPABASE_ANON_KEY,
-            "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+            **supabase_headers(SUPABASE_ANON_KEY),
         })
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
@@ -933,9 +932,10 @@ def catchup_missing(days=7):
 if __name__ == "__main__":
     # Flush stdout after every print (critical for Windows log files)
     sys.stdout.reconfigure(line_buffering=True)
-    print(f"Supabase writes as: {SUPABASE_WRITE_ROLE}"
+    from lib.mcx_config import SUPABASE_WRITE_KEY, supabase_key_kind
+    print(f"Supabase writes as: {SUPABASE_WRITE_ROLE} ({supabase_key_kind(SUPABASE_WRITE_KEY)} key)"
           + ("" if SUPABASE_WRITE_ROLE == "service_role" else
-             " — set SUPABASE_SERVICE_KEY in .env.local; mcx_daily_revenue rejects anon writes once locked"))
+             " — set SUPABASE_SECRET_KEY in .env.local; mcx_daily_revenue rejects anon writes once locked"))
 
     if "--loop" in sys.argv:
         catchup_missing(7)  # Self-heal before starting loop

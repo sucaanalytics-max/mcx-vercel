@@ -9,13 +9,13 @@
 --
 -- PREREQUISITES — all three, or the writers below start failing with 42501:
 --   1. Vercel → mcx-vercel → Settings → Environment Variables:
---        SUPABASE_SERVICE_KEY = <Supabase → Project Settings → API → service_role>
+--        SUPABASE_SECRET_KEY = <Supabase → Settings → API Keys → secret key, sb_secret_…>
 --      for Production (and Preview), then redeploy. Covers the crons
 --      (valuation, models, momentum, commodity_signals, margins,
 --      oi_participants) and the public endpoints that write
 --      (/api/mcxlive → mcx_snapshots, /api/refresh → mcx_snapshots,
 --       /api/mcxprice → mcx_cmp_cache).
---   2. Relay Mac: SUPABASE_SERVICE_KEY in .env.local (same as for
+--   2. Relay Mac: SUPABASE_SECRET_KEY in .env.local (same as for
 --      lock_mcx_daily_revenue.sql). Covers the relay, daily_verify,
 --      bhav_refresh, icomdex/commodity/price/valuation refresh, the MCXCCL
 --      scraper and the freshness agents' run_cron.py.
