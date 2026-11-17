@@ -12,6 +12,7 @@ from collections import defaultdict
 
 from lib.mcx_config import (
     SESSION_START, intraday_buckets, bucket_labels, session_end, session_total,
+    reached_close,
     fmt_ist_minutes, supabase_read_all, now_ist, get_day_type, calc_revenue,
 )
 
@@ -139,6 +140,10 @@ def generate_intraday_curves(days=30, include_today=True):
     for dt_str in hist_dates:
         snaps = by_date[dt_str]
         if len(snaps) < 4:
+            continue
+        # A day cut short (relay stopped before the close) reads its missing
+        # tail as zero volume; see mcx_config.reached_close.
+        if not reached_close(max(s["elapsed_min"] for s in snaps), dt_str):
             continue
         w, total_vol = _derive_bucket_weights(snaps, dt_str)
         if w is None:

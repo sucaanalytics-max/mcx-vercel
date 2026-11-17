@@ -576,10 +576,23 @@ def _interpolate_vol_at(snaps, target_elapsed, vol_fn=None):
     return vol_fn(snaps[-1])
 
 
-# A day must complete (last snapshot >= ADAPTIVE_MIN_ELAPSED) to contribute
-# bucket shares to the EWMA. Partial-day shares can't be normalized without
-# knowing the full-day total, so they bias the curve upward in early buckets.
-ADAPTIVE_MIN_ELAPSED = 800
+# A day trains the intraday curves only if its last snapshot reached that
+# day's own close (within ADAPTIVE_CLOSE_TOLERANCE_MIN). A partial day's shares
+# can't be normalized without the full-day total: the volume after its last
+# snapshot is missing, so the late bucket reads low and the early ones high.
+# The old fixed floor (800 elapsed min) let in winter days whose relay stopped
+# at 23:30, 870 of 895 min: 2-16 Nov 2026, when the relay Mac still ran code
+# from before the 23:55 close. Those days lack 23:30-23:55 (~2.6% of the day),
+# which put the winter late bucket at ~10.6% instead of ~13% and ran live
+# winter projections ~2.6% low. The tolerance must stay under 25 min, the gap
+# between the two closes, or a 23:30 cut-off would pass for a 23:55 day.
+ADAPTIVE_CLOSE_TOLERANCE_MIN = 10
+
+
+def reached_close(last_elapsed, trading_date) -> bool:
+    """True if a day whose last snapshot is at last_elapsed minutes covers its
+    whole session (23:30 or 23:55 close), so it can train the curves."""
+    return last_elapsed >= session_total(trading_date) - ADAPTIVE_CLOSE_TOLERANCE_MIN
 
 
 def _compute_adaptive_weights(vol_fn=None, close_min=None):
@@ -632,7 +645,7 @@ def _compute_adaptive_weights(vol_fn=None, close_min=None):
             if len(snaps) < 4:
                 continue
             # Only full sessions contribute to bucket-share EWMA
-            if snaps[-1]["elapsed_min"] < ADAPTIVE_MIN_ELAPSED:
+            if not reached_close(snaps[-1]["elapsed_min"], dt_str):
                 continue
             # Trim stale opening snapshot (MCX API can carry prior-day cumulative)
             while len(snaps) > 4:
