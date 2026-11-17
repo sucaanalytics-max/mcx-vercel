@@ -12,7 +12,7 @@ Returns:
   - Dynamic P/E band statistics
   - Revenue-to-EPS conversion chain (full transparency)
 """
-from lib.api_handler import JSONHandler
+from lib.api_handler import JSONHandler, CACHE_DAILY
 
 from lib.mcx_config import (
     TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
@@ -269,6 +269,7 @@ def generate_valuation(range_key=DEFAULT_RANGE):
 # ─── Vercel handler ─────────────────────────────────────────────────────────
 
 class handler(JSONHandler):
+    default_cache = CACHE_DAILY
 
     def do_GET(self):
         try:

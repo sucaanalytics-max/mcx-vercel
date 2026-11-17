@@ -1,7 +1,8 @@
 /* MCX Revenue Monitor: the Lab pages — Diagnostics, Positioning, Margins.
    Data: /api/exchange_dashboard?view=home (the live projection's measured error, as on Today),
-   /api/analytics (the ensemble score against later share prices) and its hourly_accuracy section,
-   /api/commodity_dashboard?view=oi_participants and ?view=margins.
+   /api/analytics?fields=page (the ensemble score against later share prices) and its hourly_accuracy
+   section, /api/commodity_dashboard?view=oi_participants&fields=page and ?view=margins. fields=page
+   is the part of each payload these pages read (scripts/test_performance.py checks it).
    Charts are SVG coloured by CSS variables, so they follow the theme without redrawing. */
 (function () {
   'use strict';
@@ -163,7 +164,7 @@
 
   function loadDiagnostics() {
     const a = fetchRanged('/api/exchange_dashboard?view=home').then(d => { if (d.success) DG.home = d; });
-    const b = fetchRanged('/api/analytics').then(d => { if (!d.success) throw new Error(d.error || 'No data'); DG.an = d; });
+    const b = fetchRanged('/api/analytics?fields=page').then(d => { if (!d.success) throw new Error(d.error || 'No data'); DG.an = d; });
     return Promise.allSettled([a, b]).then(rs => {
       DG.err = rs.map(r => r.status === 'rejected' ? (r.reason && r.reason.message) || String(r.reason) : null).filter(Boolean).join('; ');
       renderDiagnostics();
@@ -308,7 +309,7 @@
   // ════════════════════════════════════════════════════════════════════════
   const PS = { data: null, inst: 'Futures', width: 0 };
   function loadPositioning() {
-    return fetchRanged('/api/commodity_dashboard?view=oi_participants').then(d => {
+    return fetchRanged('/api/commodity_dashboard?view=oi_participants&fields=page').then(d => {
       if (!d.success) throw new Error(d.error || 'No data');
       PS.data = d; renderPositioning();
     }).catch(e => MCX.ui.error($('psChart'), 'Could not load participation: ' + (e.message || e), loadPositioning));

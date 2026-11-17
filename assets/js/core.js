@@ -386,6 +386,7 @@
     updateRangeLabels(cfg, initial);
     return initial;
   }
+  const fetchAt = {};              // URL -> when it was fetched
   // One request per URL until the cache is cleared (a refresh clears it).
   // A failed answer — network error, non-JSON page, or {success:false} — is not
   // kept, so the Retry buttons really retry instead of re-serving the error.
@@ -396,10 +397,22 @@
         return d;
       }, e => { if (fetchCache[url] === p) delete fetchCache[url]; throw e; });
       fetchCache[url] = p;
+      fetchAt[url] = Date.now();
     }
     return fetchCache[url];
   }
-  const clearRangedCache = () => Object.keys(fetchCache).forEach(k => { delete fetchCache[k]; });
+  // Views built on the relay's snapshots or on the row the close writes: the 2-minute
+  // refresh drops these. Everything else (commodity, margins, positioning, signals,
+  // valuation, analytics) is written once or twice a day, so it is kept for up to
+  // DAILY_TTL instead of being refetched on every refresh.
+  const LIVE_VIEW = /^\/api\/exchange_dashboard\b/;
+  const DAILY_TTL = 30 * 60 * 1000;
+  // clearRangedCache() drops everything; clearRangedCache({ liveOnly: true }) drops
+  // the live views and any other view older than DAILY_TTL.
+  const clearRangedCache = opts => Object.keys(fetchCache).forEach(k => {
+    if (opts && opts.liveOnly && !LIVE_VIEW.test(k) && Date.now() - (fetchAt[k] || 0) < DAILY_TTL) return;
+    delete fetchCache[k]; delete fetchAt[k];
+  });
   Object.assign(window, { RANGE_TRADING_DAYS, rangeState, makeRangeToggle, fetchRanged, clearRangedCache });
   MCX.range = { toggle: makeRangeToggle, fetch: fetchRanged, clear: clearRangedCache, state: rangeState, days: RANGE_TRADING_DAYS };
 

@@ -353,3 +353,24 @@ def generate_oi_participants_dashboard():
         "commodities": sorted(set(f"{c}_{i}" for c, i in pairs)),
         "unique_commodities": unique_commodities,
     }
+
+
+def page_fields(payload):
+    """The part of the payload Lab › Positioning reads (lab.js renderPositioning,
+    renderPsChart, renderPsTables): about 30 KB of the ~1 MB. Served at
+    ?view=oi_participants&fields=page; the full payload stays the default.
+    Values are the full payload's, untouched."""
+    if not payload.get("success"):
+        return payload
+    trend = payload.get("trend") or {}
+    return {
+        "success": True,
+        "as_of": payload.get("as_of"),
+        "participants": payload.get("participants"),
+        "growth": payload.get("growth"),
+        "growth_overall": payload.get("growth_overall"),
+        "trend": {
+            "dates": trend.get("dates"),
+            **{k: {"total": trend[k].get("total")} for k in ("ALL_Futures", "ALL_Options") if k in trend},
+        },
+    }

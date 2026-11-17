@@ -5,7 +5,7 @@ Computes daily average revenue breakdown (Futures, Options, Total, O/F Ratio)
 across FY, quarterly, monthly, weekly, and day-of-week dimensions.
 Mirrors the user's Excel "Exchanges Dashboard" with YoY/QoQ/MoM/WoW metrics.
 """
-from lib.api_handler import JSONHandler
+from lib.api_handler import JSONHandler, CACHE_INTRADAY
 from datetime import date
 from collections import defaultdict
 
@@ -415,7 +415,7 @@ class handler(JSONHandler):
             qs = parse_qs(urlparse(self.path).query)
             view = qs.get("view", [None])[0]
 
-            cache = "public, max-age=120, s-maxage=120"
+            cache = CACHE_INTRADAY
             if view == "intraday_curve":
                 from lib.intraday_curves import generate_intraday_curves
                 result = generate_intraday_curves(days=int_param(qs, "days", 30, 5, 90))

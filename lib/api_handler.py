@@ -14,6 +14,22 @@ from http.server import BaseHTTPRequestHandler
 from lib.mcx_config import make_cors_headers, cache_header
 
 
+# Cache-Control for a good 200, by how often the data behind it changes.
+# s-maxage is the CDN's (Vercel strips it before the browser), max-age the
+# browser's; stale-while-revalidate serves the last copy while one request
+# refreshes it, so after the first visit nobody waits on a cold function.
+# Errors are never cached (send_json).
+#   SNAPSHOT  the relay's latest snapshot, every 15 min in trading hours; 30 s
+#             at the edge keeps the refresh button honest, none in the browser
+#   INTRADAY  rows that change at the close (daily revenue, past days' snapshots)
+#   DAILY     written once or twice a day: the 07:00 verify, the 19:30-19:50
+#             crons, the 05:30 commodity report, 08:00 momentum, 15:10 options
+#             paper. At most 1 h 30 min behind after a write (s-maxage + SWR).
+CACHE_SNAPSHOT = "public, max-age=0, s-maxage=30"
+CACHE_INTRADAY = "public, max-age=120, s-maxage=120, stale-while-revalidate=600"
+CACHE_DAILY = "public, max-age=300, s-maxage=1800, stale-while-revalidate=3600"
+
+
 class JSONHandler(BaseHTTPRequestHandler):
     allow_methods = "GET, OPTIONS"
     # Cache-Control for a 200 response when a call gives none; None sends no

@@ -238,12 +238,13 @@ def test_pagination():
     # The one fetch_all (lib.supabase), used by every cron module since Phase 3
     import lib.supabase as sb
     got = []
-    real = sb.supabase_read
+    real, real_counted = sb.supabase_read, sb._read_counted
     try:
         sb.supabase_read = lambda tbl, params, timeout=10: got.append(params) or []
+        sb._read_counted = lambda tbl, params, timeout=10: (got.append(params) or [], 0)
         sb.fetch_all("mcx_commodity_daily", "trading_date")
     finally:
-        sb.supabase_read = real
+        sb.supabase_read, sb._read_counted = real, real_counted
     check("lib.supabase.fetch_all orders by the unique key", got and "commodity.asc,instrument_type.asc" in got[0], str(got))
     import lib.cron_commodity_signals as ccs, lib.cron_models as cm, lib.cron_momentum as cmo, lib.cron_valuation as cv
     check("cron modules use the shared fetch_all",

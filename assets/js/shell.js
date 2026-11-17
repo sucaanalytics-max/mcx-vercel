@@ -168,7 +168,7 @@
       const data = await MCX.getJSON('/api/refresh');
       MCX.store.set('refresh', data);
       if (data.success) {
-        clearRangedCache();
+        clearRangedCache(manual ? undefined : { liveOnly: true });   // the button refetches everything
         MCX.store.set('liveRevenue', { value: data.proj_rev_cr, live: !data.session_closed });
         showSnapshotTime(data);
         if (manual) MCX.ui.toast('Data refreshed');
@@ -191,13 +191,19 @@
   refreshPoll = MCX.poll.every('refresh', () => refresh(false), AUTO_REFRESH_MS,
     () => inTradingHours() && !document.hidden);
 
-  // ── Share price: at load, then every minute in NSE hours on the pages that show it ──
+  // ── Share price: on the pages that show it (Fair value, Scenarios), when one opens and then
+  // every minute in NSE hours. Other pages never read it, so it no longer loads with every page.
+  const PRICE_PAGES = ['val-scen', 'val-fv'];
+  let priceAt = 0, pricePoll = null;
   function fetchPrice() {
+    priceAt = Date.now();
+    if (pricePoll) pricePoll.last = priceAt;      // the pages' mount() kick then skips: one request, not two
     return MCX.getJSON('/api/mcxprice')
       .then(d => { if (!d || d.error) throw new Error((d && d.error) || 'No price'); MCX.store.set('price', d); })
       .catch(e => { console.warn('Share price:', e.message); });
   }
-  MCX.poll.every('cmp', fetchPrice, 60 * 1000, () => MCX.market.nseOpen() && !document.hidden && ['val-scen', 'val-fv'].includes(MCX.router.current()));
+  pricePoll = MCX.poll.every('cmp', fetchPrice, 60 * 1000, () => MCX.market.nseOpen() && !document.hidden && PRICE_PAGES.includes(MCX.router.current()));
+  MCX.router.onChange(r => { if (PRICE_PAGES.includes(r.id) && Date.now() - priceAt > 60 * 1000) fetchPrice(); });
 
   // ── Methodology drawer: opened from any [data-method] button, or ?m=<topic> in the URL ──
   const md = $('methodDrawer');
@@ -222,7 +228,6 @@
   const mParam = new URLSearchParams(location.search).get('m');
 
   MCX.router.start({ fallback: 'today', legacy: LEGACY });
-  setTimeout(() => refresh(false), 300);     // the first snapshot
-  fetchPrice();
+  setTimeout(() => refresh(false), 300);     // the first snapshot (the price loads with its pages: router.onChange above)
   if (mParam) setTimeout(() => openMethod(mParam), 400);
 })();

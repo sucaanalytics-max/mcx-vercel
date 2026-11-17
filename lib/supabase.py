@@ -178,12 +178,46 @@ def paginated_order(table, params="", newest_first=False):
     return "?" + "&".join(parts) if parts else ""
 
 
+# Pages fetched at once by supabase_read_all. Supabase's pooler takes far more;
+# 8 cuts a 20-page read (margins, the commodity dashboard) from 20 sequential
+# round trips to 4 without bursting a free-tier project.
+PAGE_WORKERS = 8
+
+
+def _read_counted(table, params="", timeout=10):
+    """supabase_read plus the number of matching rows: (rows, total), total
+    None when PostgREST gives none. One GET with Prefer: count=exact, whose
+    Content-Range header reads "0-999/21900" ("*/0" when empty)."""
+    req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/{table}{params}", headers={
+        **supabase_headers(SUPABASE_ANON_KEY), "Prefer": "count=exact"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            rows = json.loads(resp.read().decode("utf-8"))
+            hdrs = getattr(resp, "headers", None)      # no headers (a stub): no count, waves
+            rng = (hdrs.get("Content-Range") if hdrs is not None else None) or ""
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8") if e.fp else ""
+        raise Exception(f"Supabase {e.code}: {error_body[:200]}")
+    tail = rng.rpartition("/")[2]
+    return rows, (int(tail) if tail.isdigit() else None)
+
+
 def supabase_read_all(table, params="", page_size=1000, max_rows=10000, timeout=10,
-                      newest_first=False, read=None):
+                      newest_first=False, read=None, workers=None):
     """Paginated read — fetches all rows beyond the 1000-row default limit.
 
     Offset pagination over a total order (paginated_order adds the table's
     unique key). Stops when a page is short or max_rows is reached.
+
+    Pages after the first are fetched concurrently, `workers` at a time
+    (default PAGE_WORKERS), and joined in offset order, so the rows and their
+    order are exactly what the old one-page-at-a-time loop returned. The first
+    page also asks for the row count (Prefer: count=exact), which says how
+    many pages to fetch; a custom `read` gives no count, and then pages go in
+    waves of `workers` until one is short. Either way, pages after the first
+    short one are dropped (the loop never asked for them), a full last page
+    still fetches on (rows inserted meanwhile), and any page's error is
+    raised. workers=1 is the sequential loop.
 
     newest_first=True: when the table holds more than max_rows matching rows,
     keep the newest max_rows instead of the oldest. The rows are fetched in the
@@ -192,28 +226,57 @@ def supabase_read_all(table, params="", page_size=1000, max_rows=10000, timeout=
 
     PostgREST caps every response at 1000 rows server-side whatever limit= says,
     so page_size above 1000 would end the loop early on a "short" page."""
+    first = _read_counted if read is None else None
     read = read or supabase_read
     page_size = min(page_size, 1000)
+    workers = max(1, workers or PAGE_WORKERS)
     params = paginated_order(table, params, newest_first)
-    all_rows = []
-    offset = 0
     separator = "&" if "?" in params else "?"
-    while True:
-        page = read(
-            table,
-            f"{params}{separator}limit={page_size}&offset={offset}",
-            timeout=timeout,
-        )
-        all_rows.extend(page)
-        if len(page) < page_size:
-            break
-        if max_rows is not None and len(all_rows) >= max_rows:
-            import sys as _sys
-            print(f"⚠ supabase_read_all({table}): hit max_rows={max_rows}; "
-                  f"{'oldest' if newest_first else 'NEWEST'} rows beyond it were dropped",
-                  file=_sys.stderr)
-            break
-        offset += page_size
+    # Pages that hold max_rows (the old loop stopped once it had that many).
+    max_pages = None if max_rows is None else max(1, -(-max_rows // page_size))
+
+    def query(i):
+        return f"{params}{separator}limit={page_size}&offset={i * page_size}"
+
+    def page(i):
+        return read(table, query(i), timeout=timeout)
+
+    total = None
+    if first:
+        rows0, total = first(table, query(0), timeout=timeout)
+    else:
+        rows0 = page(0)
+    pages = [rows0]
+    if len(rows0) == page_size and max_pages != 1:
+        from concurrent.futures import ThreadPoolExecutor
+        # Pages the count says exist (at least one more, as page 0 was full).
+        known = max(2, -(-total // page_size)) if total is not None else None
+        with ThreadPoolExecutor(max_workers=min(workers, 16)) as pool:
+            nxt, done = 1, False
+            while not done:
+                if known is not None and nxt < known:
+                    stop = known                    # every counted page at once
+                elif known is not None:
+                    stop = nxt + 1                  # past the count: probe one page, as the loop did
+                else:
+                    stop = nxt + workers            # no count: a wave at a time
+                if max_pages is not None:
+                    stop = min(stop, max_pages)
+                # map() yields in offset order and re-raises a page's error.
+                for rows in pool.map(page, range(nxt, stop)):
+                    pages.append(rows)
+                    if len(rows) < page_size:
+                        done = True
+                        break
+                nxt = stop
+                if max_pages is not None and nxt >= max_pages:
+                    done = True
+    all_rows = [r for p in pages for r in p]
+    if max_rows is not None and len(all_rows) >= max_rows and len(pages[-1]) == page_size:
+        import sys as _sys
+        print(f"⚠ supabase_read_all({table}): hit max_rows={max_rows}; "
+              f"{'oldest' if newest_first else 'NEWEST'} rows beyond it were dropped",
+              file=_sys.stderr)
     if max_rows is not None:
         all_rows = all_rows[:max_rows]
     return all_rows[::-1] if newest_first else all_rows
