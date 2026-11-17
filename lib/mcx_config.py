@@ -443,6 +443,32 @@ def trim_stale_open(snaps, vol_fn=None):
     return snaps
 
 
+# The snapshots every adaptive curve is fitted on: one read per lookback window
+# for ADAPTIVE_TTL, shared by the combined, futures and options curves of both
+# seasons (six identical ~2,400-row reads per cold request before Phase 4;
+# rows before today never change intraday). Keyed by the reader too, so a test
+# that swaps supabase_read_all never sees another's rows.
+_adaptive_rows_cache = {}
+
+
+def _adaptive_snapshots(start_date, today_str):
+    key = (start_date, today_str, supabase_read_all)
+    hit = _adaptive_rows_cache.get(key)
+    if hit and (_time.time() - hit["ts"]) < ADAPTIVE_TTL:
+        return hit["rows"]
+    rows = supabase_read_all(
+        "mcx_snapshots",
+        f"?select=trading_date,elapsed_min,fut_notl_cr,opt_prem_cr"
+        f"&trading_date=gte.{start_date}&trading_date=lt.{today_str}"
+        f"&order=trading_date.asc,elapsed_min.asc",
+        max_rows=5000,
+        newest_first=True,   # a cap drops the oldest days, never the latest
+    )
+    _adaptive_rows_cache.clear()          # one window at a time
+    _adaptive_rows_cache[key] = {"rows": rows, "ts": _time.time()}
+    return rows
+
+
 def _compute_adaptive_weights(vol_fn=None, close_min=None):
     """Generic adaptive bucket-weight EWMA over recent (full-session) days.
 
@@ -462,14 +488,7 @@ def _compute_adaptive_weights(vol_fn=None, close_min=None):
         start_date = (ist - timedelta(days=ADAPTIVE_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
         today_str = ist.strftime("%Y-%m-%d")
 
-        snapshots = supabase_read_all(
-            "mcx_snapshots",
-            f"?select=trading_date,elapsed_min,fut_notl_cr,opt_prem_cr"
-            f"&trading_date=gte.{start_date}&trading_date=lt.{today_str}"
-            f"&order=trading_date.asc,elapsed_min.asc",
-            max_rows=5000,
-            newest_first=True,   # a cap drops the oldest days, never the latest
-        )
+        snapshots = _adaptive_snapshots(start_date, today_str)
         if not snapshots:
             return None
 

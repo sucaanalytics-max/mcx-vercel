@@ -156,6 +156,27 @@ check('valid dates unchanged', [MCX.fmt.dayMonth('2026-09-28'), MCX.fmt.day('202
   let threw = false; try { await fetchRanged('/api/r2'); } catch (e) { threw = true; }
   check('a thrown fetch is not cached either', [threw, (await fetchRanged('/api/r2')).v], [true, 2]);
 
+  // The 2-minute refresh drops only the live views; the daily ones live up to 30 minutes.
+  clearRangedCache();
+  calls = 0;
+  const urls = ['/api/exchange_dashboard?view=home', '/api/exchange_dashboard', '/api/commodity_dashboard?view=margins', '/api/analytics?fields=page'];
+  urls.forEach((u, i) => queue.push(res({ success: true, v: i })));
+  for (const u of urls) await fetchRanged(u);
+  clearRangedCache({ liveOnly: true });
+  urls.forEach((u, i) => queue.push(res({ success: true, v: 10 + i })));
+  const after = []; for (const u of urls) after.push((await fetchRanged(u)).v);
+  check('auto refresh refetches exchange_dashboard views, keeps the daily ones', [after, calls], [[10, 11, 2, 3], 6]);
+  queue.length = 0;
+  const realNow = Date.now;
+  Date.now = () => realNow() + 31 * 60 * 1000;
+  clearRangedCache({ liveOnly: true });
+  queue.push(res({ success: true, v: 20 }));
+  check('a daily view older than 30 minutes is refetched', (await fetchRanged('/api/commodity_dashboard?view=margins')).v, 20);
+  Date.now = realNow;
+  clearRangedCache();
+  queue.push(res({ success: true, v: 30 }));
+  check('a manual refresh (no options) drops everything', (await fetchRanged('/api/analytics?fields=page')).v, 30);
+
   console.log(failed ? `\n${failed} FAILED` : '\nAll core.js tests passed.');
   process.exit(failed ? 1 : 0);
 })();

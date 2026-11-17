@@ -10,7 +10,7 @@ Returns:
 
 Data: reads mcx_model_signals + mcx_share_price.
 """
-from lib.api_handler import JSONHandler
+from lib.api_handler import JSONHandler, CACHE_DAILY
 import math
 
 from lib.mcx_config import (
@@ -324,9 +324,26 @@ def generate_analytics():
     }
 
 
+def page_fields(payload):
+    """The part of the payload Lab › Diagnostics reads (lab.js diagLede,
+    renderIc, renderWeights, renderCorr, renderState): every key except the
+    HMM state history (only its `current` is shown) and the rolling metrics
+    the page doesn't chart (avg_win, avg_loss, profit_factor). ~45% of the
+    full payload. Served at ?fields=page; the full payload stays the default.
+    Values are the full payload's, untouched."""
+    if not payload.get("success"):
+        return payload
+    out = dict(payload)
+    out["hmm_regime"] = {"current": (payload.get("hmm_regime") or {}).get("current")}
+    out["rolling_metrics"] = [{"date": r.get("date"), "sharpe_ratio": r.get("sharpe_ratio"),
+                               "win_rate": r.get("win_rate")} for r in payload.get("rolling_metrics") or []]
+    return out
+
+
 # ─── Vercel handler ──────────────────────────────────────────────────────
 
 class handler(JSONHandler):
+    default_cache = CACHE_DAILY
 
     def do_GET(self):
         try:
@@ -339,6 +356,8 @@ class handler(JSONHandler):
                 result = generate_hourly_accuracy(lookback_days=int_param(qs, "days", 90, 5, 180))
             else:
                 result = generate_analytics()
+                if qs.get("fields", [None])[0] == "page":
+                    result = page_fields(result)
 
             self.send_json(result)
         except Exception as e:

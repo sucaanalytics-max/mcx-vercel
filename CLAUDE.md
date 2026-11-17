@@ -111,12 +111,21 @@ commodity price step; no endpoint reads it any more), `mcx_options_paper`,
   `options_paper.py` keeps its own NSE calendar (the stock trades on NSE).
 - **Supabase** only through `lib/supabase.py`. PostgREST returns at most 1,000
   rows per request whatever `limit=` says: page with `supabase_read_all` (it
-  adds each table's unique key via `PAGINATION_KEYS`); a capped ascending read
-  of a growing table needs `newest_first=True`.
+  adds each table's unique key via `PAGINATION_KEYS`, reads the row count on
+  the first page and fetches the rest `PAGE_WORKERS` at a time, in offset
+  order); a capped ascending read of a growing table needs `newest_first=True`.
 - **No MCX fetches from Vercel.** No new `api/*.py` without retiring one (Hobby
   plan: 12 functions; 10 used).
-- **api handlers** subclass `lib.api_handler.JSONHandler`; pass `cache=` for a
-  CDN-cacheable 200. Errors are never cached.
+- **api handlers** subclass `lib.api_handler.JSONHandler`; pass `cache=` (or
+  set `default_cache`) for a CDN-cacheable 200, one of `CACHE_SNAPSHOT` /
+  `CACHE_INTRADAY` / `CACHE_DAILY` by how often the data changes (`s-maxage`
+  is the CDN's, `max-age` the browser's). Errors are never cached. A page that reads a
+  fraction of a big payload asks for `?fields=page` (OI participants,
+  analytics); the full payload stays the default.
+- **Frontend fetches**: `fetchRanged` caches per URL; the 2-minute refresh
+  drops only `exchange_dashboard` views (and anything over 30 min old).
+  `view=home` loads on Today (off Today only before the open, for the header);
+  `/api/mcxprice` only on Fair value and Scenarios.
 - The **production checkout is the Dropbox folder** that launchd runs. Never
   switch branches there; work in a worktree. One PR per change; the user merges.
 - **Do not write production data** (backfills, deletes, SQL) without asking.

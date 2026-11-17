@@ -10,7 +10,7 @@ GET only. The old POST path, which asked Vercel to fetch MCX itself and upsert
 the snapshot, was removed: MCX's Akamai blocks cloud IPs, so it only added
 12-30 s to every manual refresh before the frontend fell back to GET.
 """
-from lib.api_handler import JSONHandler
+from lib.api_handler import JSONHandler, CACHE_SNAPSHOT
 from lib.mcx_config import (
     TRADING_DAYS, session_shape, traded_minutes,
     DAY_MULTIPLIER, DAY_DESCRIPTION,
@@ -192,7 +192,7 @@ class handler(JSONHandler):
                     result["opening_artifact"] = True
                     result["confidence"] = "untrusted"
 
-                self.send_json(result)
+                self.send_json(result, cache=CACHE_SNAPSHOT)
             else:
                 self.send_json({"success": False, "error": "No data for today yet. Run the local relay script."})
         except Exception as e:

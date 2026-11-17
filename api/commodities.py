@@ -11,7 +11,7 @@ without a known view gets a 400.
 from datetime import timedelta
 from urllib.parse import urlparse, parse_qs
 
-from lib.api_handler import JSONHandler
+from lib.api_handler import JSONHandler, CACHE_DAILY
 from lib.mcx_config import (
     now_ist, COMMODITY_MAP, supabase_read_all, safe_float as _f,
     BOUNDED_RANGE_DAYS as RANGE_DAYS, DEFAULT_RANGE,
@@ -264,7 +264,7 @@ def generate_icomdex(range_key=DEFAULT_RANGE):
 
 
 class handler(JSONHandler):
-    default_cache = "public, max-age=1800"
+    default_cache = CACHE_DAILY      # was max-age=1800 for browser and CDN alike, no stale-while-revalidate
 
     def do_GET(self):
         try:

@@ -808,6 +808,9 @@
     const label = d.state === 'live' ? 'Live' : d.state === 'closed' ? 'Session closed'
       : !d.h ? 'Loading' : !d.h.today_is_session ? 'No trading today' : d.ist.min < 540 ? 'Opens 09:00 IST' : 'Waiting for data';
     MCX.store.set('session', { state: d.state, label });
+    // Off the Today page the completed days load only when the header needs them:
+    // before the session opens, to say whether there is one today.
+    if (d.state === 'pre' && !d.h && !S.homeErr) loadHome();
     if (d.state === 'pre' && d.h) {
       const meta = $('refreshMeta');
       if (meta) meta.textContent = `data through ${fmt.dayMonth(d.h.sessions_through)}`;
@@ -884,7 +887,8 @@
   MCX.store.on('refresh', r => {
     const was = S.refresh && S.refresh.session_closed;
     S.refresh = r;
-    if (r && r.session_closed && !was) loadHome(true);      // the day just closed: pick up its final row when it lands
+    // The day just closed: pick up its final row when it lands (if the completed days are shown or loaded)
+    if (r && r.session_closed && !was && (S.home || MCX.router.current() === 'today')) loadHome(true);
     render();
   });
   makeRangeToggle({
@@ -995,5 +999,7 @@
     mount() { loadHome(); loadQuarter(); render(); },
     trustSvg,                          // reused by Lab › Diagnostics
   };
-  loadHome();      // start at page load, whatever page opens first: Today is one click away and the header status needs it
+  // No load here: Today's mount() loads the completed days, and publishStatus() loads them off
+  // Today only before the open, when the header status needs them (Phase 4: this used to run on
+  // every page load, a ~2-6 s cold request most pages never used).
 })();

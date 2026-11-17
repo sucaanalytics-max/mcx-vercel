@@ -8,7 +8,7 @@ Returns:
 
 Data: pre-computed in mcx_model_signals table (refreshed by cron_models.py).
 """
-from lib.api_handler import JSONHandler
+from lib.api_handler import JSONHandler, CACHE_DAILY
 import math
 
 from lib.mcx_config import (
@@ -424,6 +424,7 @@ def generate_options_response():
 
 
 class handler(JSONHandler):
+    default_cache = CACHE_DAILY
 
     def do_GET(self):
         from urllib.parse import urlparse, parse_qs

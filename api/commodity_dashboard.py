@@ -7,7 +7,7 @@ Top 5 commodities + "OTHERS" bucket.
 
 Also serves margin data via ?view=margins (to stay within Vercel 12-function limit).
 """
-from lib.api_handler import JSONHandler
+from lib.api_handler import JSONHandler, CACHE_DAILY
 from datetime import date, timedelta
 from collections import defaultdict
 from urllib.parse import urlparse, parse_qs
@@ -18,7 +18,7 @@ from lib.mcx_config import (
     BOUNDED_RANGE_DAYS as RANGE_DAYS, DEFAULT_RANGE,
 )
 from lib.margin_dashboard import generate_margin_dashboard
-from lib.oi_participants_dashboard import generate_oi_participants_dashboard
+from lib.oi_participants_dashboard import generate_oi_participants_dashboard, page_fields as oi_page_fields
 
 # Fee rates (SEBI Oct 2024)
 TOP_N = 5                 # Number of top commodities to show individually
@@ -315,13 +315,15 @@ class handler(JSONHandler):
         try:
             if view == "margins":
                 result = generate_margin_dashboard()
-                cache = "public, max-age=300, s-maxage=300"
+                cache = CACHE_DAILY
             elif view == "oi_participants":
                 result = generate_oi_participants_dashboard()
-                cache = "public, max-age=600, s-maxage=600"
+                if qs.get("fields", [None])[0] == "page":
+                    result = oi_page_fields(result)
+                cache = CACHE_DAILY
             else:
                 result = generate_commodity_dashboard(range_key=qs.get("range", [DEFAULT_RANGE])[0])
-                cache = "public, max-age=120, s-maxage=120"
+                cache = CACHE_DAILY      # mcx_commodity_daily: 05:30-07:00
 
             # Origin is now reflected (make_cors_headers was called without it,
             # so previews and localhost never matched).
