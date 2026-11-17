@@ -196,12 +196,15 @@ def test_completeness_gate():
 
 def _with_fakes(raw, write_ok=True, present=()):
     """Patch MCX + Supabase in bhav_refresh; returns (writes list, restore fn)."""
-    writes, saved = [], (br._fetch_mcx_raw, br._upsert_commodity_batch, br.get_commodity_dates)
+    writes, saved = [], (br._fetch_mcx_raw, br._upsert_commodity_batch, br.get_commodity_dates,
+                         br.fill_futures_oi)
     br._fetch_mcx_raw = lambda d: raw if isinstance(raw, tuple) else (raw, None)
     br._upsert_commodity_batch = lambda rows: (writes.append(rows), write_ok)[1]
     br.get_commodity_dates = lambda since: set(present)
+    br.fill_futures_oi = lambda rows, d: rows          # no MCX Bhavcopy fetch in tests
     def restore():
-        br._fetch_mcx_raw, br._upsert_commodity_batch, br.get_commodity_dates = saved
+        (br._fetch_mcx_raw, br._upsert_commodity_batch, br.get_commodity_dates,
+         br.fill_futures_oi) = saved
     return writes, restore
 
 

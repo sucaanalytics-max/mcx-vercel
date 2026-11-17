@@ -267,7 +267,7 @@ def _run_script(script_name, args, timeout=60):
 
 
 def commodity_oi_command(uv=None, py=None):
-    """argv for the nightly Dhan OI backfill. It needs dhanhq<2.1 and pandas,
+    """argv for the nightly OI refresh from MCX's Bhavcopy. It needs curl_cffi,
     which the helper interpreter may lack, so it runs through scripts/mcx_uv.sh
     (pyproject.toml + uv.lock, `local` extra) when uv exists, else under the
     helper interpreter. uv: path to uv, "" to force the fallback, None to look."""
@@ -555,15 +555,14 @@ def main():
     else:
         print("  backfill_oi_participants FAILED (non-fatal; freshness scanner will flag if stale)")
 
-    # 5d. Commodity futures open interest. MCX's historical report has no OI,
-    # so bhav_refresh (step 3 / the 05:30 commodity-eod job) writes
-    # open_interest = 0 and the Dhan backfill fills it in. That backfill used
-    # to run on its own at 07:30 (com.mcx.commodity-oi, removed), AFTER the signal
-    # recompute below, so commodity_signals saw OI = 0 for the latest day
-    # (0/42 rows on 16 Nov 2026). Run it here, before step 6. Needs Dhan
-    # credentials (~/.dhan/credentials.json or DHAN_* in .env) and dhanhq;
-    # soft-fail like the blocks above.
-    print("\nCommodity OI backfill (Dhan, trailing 30 days)...")
+    # 5d. Commodity futures open interest. MCX's historical report has no OI;
+    # bhav_refresh now takes it from MCX's Bhavcopy when it writes a breakdown
+    # (fill_futures_oi), and this re-reads the trailing 30 days of Bhavcopy so a
+    # late-published day is filled before the signal recompute in step 6
+    # (16 Nov 2026 sat at OI = 0/42 rows). MCX source, no login: the Dhan
+    # source it replaced needed a token that another machine's mint revokes.
+    # Soft-fail like the blocks above.
+    print("\nCommodity OI refresh (MCX Bhavcopy, trailing 30 days)...")
     ok, tail = run_commodity_oi_backfill()
     if ok:
         print("  backfill_commodity_oi OK")
