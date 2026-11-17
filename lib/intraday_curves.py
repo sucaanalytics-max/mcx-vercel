@@ -12,7 +12,7 @@ from collections import defaultdict
 
 from lib.mcx_config import (
     SESSION_START, intraday_buckets, bucket_labels, session_end, session_total,
-    reached_close,
+    reached_close, session_shape, SESSION_FULL,
     fmt_ist_minutes, supabase_read_all, now_ist, get_day_type, calc_revenue,
 )
 
@@ -130,6 +130,11 @@ def generate_intraday_curves(days=30, include_today=True):
     close_today = session_end(today_str)
     other_season = [d for d in by_date if session_end(d) != close_today]
     for d in other_season:
+        del by_date[d]
+    # Part-day sessions (morning- or evening-closed) have no volume in the
+    # closed half, so their bucket shares describe a different day; same rule
+    # as the adaptive curve in mcx_config._compute_adaptive_weights.
+    for d in [d for d in by_date if session_shape(d)["type"] != SESSION_FULL]:
         del by_date[d]
     hist_dates = sorted(by_date.keys(), reverse=True)[:days]
 

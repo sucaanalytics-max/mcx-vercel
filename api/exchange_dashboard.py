@@ -11,7 +11,7 @@ from datetime import date, timedelta
 from collections import defaultdict
 
 from lib.mcx_config import (
-    supabase_read_all, now_ist, make_cors_headers,
+    supabase_read_all, now_ist, make_cors_headers, MCX_SPECIAL_SESSIONS,
 )
 
 
@@ -137,6 +137,14 @@ def generate_exchange_dashboard(today=None):
             "date": d, "dow": d.weekday(),  # 0=Mon, 4=Fri
             "fut": round(fut, 4), "opt": round(opt, 4), "total": round(total, 4),
         })
+
+    # A special session (the ~1-hour Muhurat, e.g. Rs 0.35 Cr on Sun 8 Nov 2026)
+    # keeps its bar in the daily trend but is not a trading day for any average:
+    # counted as one, it pulled the 10-day average ~8% low and disagreed with the
+    # Today page (lib/home_view.py excludes it the same way). Every statistic
+    # below is a per-day average, so excluding it changes no total.
+    all_days = data
+    data = [r for r in all_days if r["date"].isoformat() not in MCX_SPECIAL_SESSIONS]
 
     if not data:
         return {"success": False, "error": "No data available"}
@@ -388,10 +396,12 @@ def generate_exchange_dashboard(today=None):
 
     # ── 7. Daily Trend (full history; client slices via range chips) ─────
     daily_trend = []
-    for r in data:
+    for r in all_days:
+        iso = r["date"].isoformat()
         daily_trend.append({
-            "date": r["date"].isoformat(),
+            "date": iso,
             "fut": r["fut"], "opt": r["opt"], "total": r["total"],
+            **({"special": MCX_SPECIAL_SESSIONS[iso]} if iso in MCX_SPECIAL_SESSIONS else {}),
         })
 
     # ── 8. Latest day + 45d MA for hero KPI ────────────────────────────

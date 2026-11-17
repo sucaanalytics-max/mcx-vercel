@@ -301,6 +301,22 @@ def session_shape(d=None) -> dict:
     return {"start": start, "end": end, "total": end - start, "type": kind}
 
 
+# Revenue of a part-day session relative to a normal day, for counting the
+# quarter's remaining days. Measured on 2026's part days against the median of
+# the ten nearest full days: morning-closed (evening-only) median 0.82, mean
+# 0.85, n=10, range 0.62-1.34; evening-closed (morning-only) 0.14, n=1
+# (1 Jan 2026). Re-measure as more part days accumulate.
+PART_DAY_REVENUE_WEIGHT = {"evening_only": 0.82, "morning_only": 0.15}
+
+
+def session_weight(d) -> float:
+    """Expected revenue on date d as a share of a full session (0 when closed)."""
+    shape = session_shape(d)
+    if shape["type"] == SESSION_CLOSED:
+        return 0.0
+    return PART_DAY_REVENUE_WEIGHT.get(shape["type"], 1.0)
+
+
 def session_clock(t, d=None):
     """(elapsed_min, traded_min, shape) at IST time t on trading date d
     (default: t's date). elapsed_min counts from 09:00, capped at the day's

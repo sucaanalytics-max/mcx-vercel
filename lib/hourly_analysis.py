@@ -14,6 +14,7 @@ from lib.mcx_config import (
     supabase_read_all, now_ist,
     project_full_day, calc_revenue, get_day_type,
     safe_float as _f, pearson as _pearson,
+    session_shape, SESSION_FULL,
 )
 
 # Target hours: elapsed minutes from session start (09:00 IST)
@@ -119,7 +120,11 @@ def generate_hourly_accuracy(lookback_days=90):
     # ── Build lookups ──
     by_date_snaps = defaultdict(list)
     for s in snapshots:
-        if s.get("elapsed_min") is not None:
+        # Accuracy is measured at fixed clock hours of a full session; a part-day
+        # session (morning or evening closed) has no comparable 11:00-17:00
+        # projection, and scored as one it produced the extreme outliers.
+        if (s.get("elapsed_min") is not None
+                and session_shape(s["trading_date"])["type"] == SESSION_FULL):
             by_date_snaps[s["trading_date"]].append(s)
 
     rev_map = {}
