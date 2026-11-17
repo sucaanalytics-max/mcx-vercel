@@ -20,11 +20,11 @@
 <script defer src="/_vercel/insights/script.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400&family=Source+Serif+4:opsz,wght@8..60,600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/tokens.css?v=784fbe03">
-<link rel="stylesheet" href="/assets/css/base.css?v=784fbe03">
-<link rel="stylesheet" href="/assets/css/components.css?v=784fbe03">
-<link rel="stylesheet" href="/assets/css/shell.css?v=784fbe03">
-<link rel="stylesheet" href="/assets/css/v2.css?v=784fbe03">
+<link rel="stylesheet" href="/assets/css/tokens.css?v=4431c869">
+<link rel="stylesheet" href="/assets/css/base.css?v=4431c869">
+<link rel="stylesheet" href="/assets/css/components.css?v=4431c869">
+<link rel="stylesheet" href="/assets/css/shell.css?v=4431c869">
+<link rel="stylesheet" href="/assets/css/v2.css?v=4431c869">
 </head>
 <body>
 
@@ -65,7 +65,6 @@
   </nav>
   <div class="rail-foot">
     <button type="button" class="icon-btn" data-action="theme" aria-label="Theme"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg></button>
-    <button type="button" class="icon-btn" data-action="settings" aria-label="Data source settings" title="Data source settings"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg></button>
   </div>
 </aside>
 
@@ -721,7 +720,6 @@
     <div class="sheet-label">App</div>
     <button type="button" class="sheet-row" data-action="theme">Theme <small>System</small></button>
     <button type="button" class="sheet-row" data-method="data">How the numbers are made<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
-    <button type="button" class="sheet-row" data-action="settings">Data source settings<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
   </div>
 </dialog>
 
@@ -823,26 +821,13 @@ fair value   = run-rate EPS × median P/E of the last 252 days</pre>
   </div>
 </dialog>
 
-<!-- ═══ DATA SOURCE SETTINGS ═════════════════════════════════════════════ -->
-<dialog class="dialog" id="settingsDialog" aria-labelledby="settingsTitle">
-  <h2 class="dialog-title" id="settingsTitle">Data source settings</h2>
-  <p class="dialog-text">The relay pushes MCX data every 15 minutes, so this is rarely needed. A manual refresh asks the server to fetch from MCX directly; MCX usually blocks cloud servers, and a browser session cookie can get past that. It stays in this browser.</p>
-  <label class="dialog-label" for="cookieText">MCX session cookie</label>
-  <textarea id="cookieText" rows="4" spellcheck="false" placeholder="ASP.NET_SessionId=…; _ga=…"></textarea>
-  <p class="dialog-status" id="cookieStatus"></p>
-  <div class="dialog-actions">
-    <button type="button" class="btn btn--primary" id="settingsSave">Save</button>
-    <button type="button" class="btn" id="settingsCancel">Cancel</button>
-  </div>
-</dialog>
-
 <!-- ═══ JAVASCRIPT ═══════════════════════════════════════════════════════════ -->
-<script src="/assets/js/core.js?v=784fbe03"></script>
-<script src="/assets/js/today.js?v=784fbe03"></script>
-<script src="/assets/js/revenue.js?v=784fbe03"></script>
-<script src="/assets/js/value.js?v=784fbe03"></script>
-<script src="/assets/js/lab.js?v=784fbe03"></script>
-<script src="/assets/js/signals.js?v=784fbe03"></script>
-<script src="/assets/js/shell.js?v=784fbe03"></script>
+<script src="/assets/js/core.js?v=4431c869"></script>
+<script src="/assets/js/today.js?v=4431c869"></script>
+<script src="/assets/js/revenue.js?v=4431c869"></script>
+<script src="/assets/js/value.js?v=4431c869"></script>
+<script src="/assets/js/lab.js?v=4431c869"></script>
+<script src="/assets/js/signals.js?v=4431c869"></script>
+<script src="/assets/js/shell.js?v=4431c869"></script>
 </body>
 </html>

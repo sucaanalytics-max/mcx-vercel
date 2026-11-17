@@ -15,27 +15,14 @@ Usage:
   python3 scripts/commodity_price_refresh.py             # last ~90 calendar days
   python3 scripts/commodity_price_refresh.py --days 400  # backfill N days
 """
-import sys, os, json, urllib.request, urllib.error, argparse
-from datetime import datetime, timedelta, timezone
+import sys, os, urllib.error, argparse
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supabase.co")
-# Keys come from lib.mcx_config, the single source (publishable / secret keys,
-# legacy JWT fallback) — see supabase_headers there.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib.calendar import now_ist  # noqa: E402  (naive IST wall clock)
-from lib.mcx_config import (  # noqa: E402
-    SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY, SUPABASE_WRITE_KEY, supabase_headers)
+from lib.supabase import post_rows, patch_rows  # noqa: E402
 TABLE = "mcx_commodity_prices"
 
 TICKERS = {"CL=F": "WTI", "NG=F": "NATGAS", "INR=X": "USDINR"}
-
-
-def _headers(write=False):
-    key = SUPABASE_WRITE_KEY if write else SUPABASE_ANON_KEY
-    return {
-        **supabase_headers(key),
-        "Content-Type": "application/json",
-    }
 
 
 def upsert_rows(rows):
@@ -43,14 +30,10 @@ def upsert_rows(rows):
     if the table has no matching unique constraint (PostgREST 42P10)."""
     if not rows:
         return 0
-    body = json.dumps(rows).encode()
-    url = f"{SUPABASE_URL}/rest/v1/{TABLE}?on_conflict=price_date,commodity"
-    h = _headers(write=True)
-    h["Prefer"] = "resolution=merge-duplicates,return=minimal"
-    req = urllib.request.Request(url, data=body, headers=h, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=30):
-            return len(rows)
+        post_rows(TABLE, rows, on_conflict="price_date,commodity", timeout=30,
+                  prefer="resolution=merge-duplicates,return=minimal")
+        return len(rows)
     except urllib.error.HTTPError as e:
         err = e.read().decode() if e.fp else ""
         if "42P10" in err or "no unique or exclusion constraint" in err:
@@ -62,21 +45,13 @@ def upsert_rows(rows):
 def _upsert_fallback(rows):
     n = 0
     for row in rows:
-        body = json.dumps(row).encode()
-        h = _headers(write=True)
-        h["Prefer"] = "return=minimal"
         try:
-            req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/{TABLE}",
-                                         data=body, headers=h, method="POST")
-            with urllib.request.urlopen(req, timeout=15):
-                n += 1
+            post_rows(TABLE, row, prefer="return=minimal")
+            n += 1
         except urllib.error.HTTPError as e:
             if e.code in (409, 400):
-                flt = f"?price_date=eq.{row['price_date']}&commodity=eq.{row['commodity']}"
-                req2 = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/{TABLE}{flt}",
-                                              data=body, headers=h, method="PATCH")
-                with urllib.request.urlopen(req2, timeout=15):
-                    n += 1
+                patch_rows(TABLE, f"?price_date=eq.{row['price_date']}&commodity=eq.{row['commodity']}", row)
+                n += 1
             else:
                 raise
     return n

@@ -46,7 +46,7 @@ ENDPOINTS = [
     "/api/quarterly", "/api/valuation", "/api/analytics",
     "/api/mcxprice", "/api/refresh", "/api/exchange_dashboard",
     "/api/models", "/api/models?view=momentum", "/api/models?view=options",
-    "/api/commodities", "/api/commodities?view=signals", "/api/commodities?view=icomdex",
+    "/api/commodities?view=signals", "/api/commodities?view=icomdex",
     "/api/commodity_dashboard", "/api/commodity_dashboard?view=margins",
     "/api/commodity_dashboard?view=oi_participants",
 ]

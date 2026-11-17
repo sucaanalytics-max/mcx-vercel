@@ -12,6 +12,7 @@ from urllib.parse import urlparse, parse_qs
 
 from lib.mcx_config import (
     now_ist, make_cors_headers,
+    safe_float as _f,
 )
 
 from lib.supabase import fetch_all, upsert_batches  # one REST client (Phase 3)
@@ -28,13 +29,6 @@ W_TURN = 4 / 7   # ≈ 0.5714
 # Ensemble blend: ECM 30 % + MF 70 %  (expands to Rev 30 % + TO 40 % + ECM 30 %)
 W_ECM  = 0.30
 W_MF   = 0.70
-
-
-def _f(v):
-    try:
-        return float(v) if v is not None else None
-    except (TypeError, ValueError):
-        return None
 
 
 def _zscore(values, idx, window):

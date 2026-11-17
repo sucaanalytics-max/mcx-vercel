@@ -20,6 +20,7 @@ from urllib.parse import urlparse, parse_qs
 
 from lib.mcx_config import (
     now_ist, make_cors_headers,
+    safe_float as _f,
 )
 
 from lib.supabase import fetch_all, upsert_batches  # one REST client (Phase 3)
@@ -51,13 +52,6 @@ OVERSOLD_ADR   = 1.30    # ADR ratio > 1.30
 
 
 # ─── Supabase helpers (self-contained, matching cron_models.py) ───────────
-
-def _f(v):
-    try:
-        return float(v) if v is not None else None
-    except (TypeError, ValueError):
-        return None
-
 
 # ─── Core computation ─────────────────────────────────────────────────────
 

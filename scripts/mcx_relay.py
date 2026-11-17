@@ -507,8 +507,11 @@ def send_heartbeat(status="running", last_rev=None, elapsed=None, error=None):
         beat["last_rev_cr"] = round(last_rev, 4)
     if elapsed is not None:
         beat["elapsed_min"] = elapsed
-    if error:
-        beat["last_error"] = str(error)[:200]
+    # Always send last_error: the upsert merges on relay_id and only updates the
+    # columns it is given, so a heartbeat without the key left the last failure
+    # (e.g. a long-fixed 409) on /api/refresh?health=1 for good. No error now
+    # means the field is cleared.
+    beat["last_error"] = str(error)[:200] if error else None
     try:
         _hard_call(supabase_upsert, "relay_heartbeat", beat, hard_timeout=15)
     except Exception as e:

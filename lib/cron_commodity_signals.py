@@ -32,13 +32,6 @@ MIN_AVG_TURNOVER_CR = 50  # minimum avg daily turnover to process
 OI_IN_COMPOSITE = False
 
 
-def _f(v):
-    try:
-        return float(v) if v is not None else None
-    except (TypeError, ValueError):
-        return None
-
-
 def _zscore(values, idx, window):
     """Rolling z-score for values[idx] over `window` trailing observations."""
     if values[idx] is None:

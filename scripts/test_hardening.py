@@ -11,6 +11,8 @@ Regression tests for the Phase 1 hardening fixes (audit 2026-11-17).
   6. close_session still runs margins / OI / commodity when the EOD write raises,
      and sends no eod_done heartbeat for a session whose revenue was not written.
   7. sb_upsert counts 409 batches as skipped instead of silently "upserted".
+  8. A relay heartbeat without an error clears last_error (a fixed 409 stayed
+     on /api/refresh?health=1 for good).
 
 Pure: Supabase, network and subprocess calls are stubbed.
 """
@@ -166,6 +168,25 @@ def test_sb_upsert_counts_409():
     check("first 50-row batch counted as skipped", stats.get("skipped") == 50, str(stats))
 
 
+def test_heartbeat_clears_last_error():
+    print("\n[8] a heartbeat without an error clears last_error")
+    import importlib
+    import scripts.mcx_relay as relay
+    relay = importlib.reload(relay)
+    sent = []
+    real = relay._hard_call
+    relay._hard_call = lambda fn, table, row, **k: sent.append(dict(row))
+    try:
+        relay.send_heartbeat("error", error="Supabase upsert 409: duplicate key")
+        relay.send_heartbeat("running", last_rev=12.3, elapsed=300)
+        relay.send_heartbeat("eod_done")
+    finally:
+        relay._hard_call = real
+    check("error heartbeat carries the error", sent[0].get("last_error") == "Supabase upsert 409: duplicate key", str(sent[0]))
+    check("next running heartbeat clears it", "last_error" in sent[1] and sent[1]["last_error"] is None, str(sent[1]))
+    check("eod_done clears it too", sent[2].get("last_error", "missing") is None, str(sent[2]))
+
+
 if __name__ == "__main__":
     print("=" * 72)
     print("hardening regression tests")
@@ -177,6 +198,7 @@ if __name__ == "__main__":
     test_run_cron_exit_code()
     test_close_session_survives_eod_failure()
     test_sb_upsert_counts_409()
+    test_heartbeat_clears_last_error()
     print("\n" + "=" * 72)
     if FAILED:
         print(f"{len(FAILED)} FAILED: {', '.join(FAILED)}")
