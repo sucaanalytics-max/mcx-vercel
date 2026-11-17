@@ -248,6 +248,7 @@ MCX_MORNING_CLOSE = {
 }
 # Evening-only closure
 MCX_EVENING_CLOSE = {
+    "2025-01-01",  # New Year Day (MCX revenue Rs 0.426 Cr, morning only)
     "2026-01-01",  # New Year Day
     # ── 2027: ADD when published ──
 }
@@ -258,6 +259,11 @@ MCX_EVENING_CLOSE = {
 # projected as a full session. MCX's historical report covers these sessions
 # (2025-10-21 Muhurat reproduces the stored Rs 1.2612 Cr exactly).
 MCX_SPECIAL_SESSIONS = {
+    # Past Muhurat sessions fell on weekdays with the morning session closed;
+    # listed so they stay out of averages like the 2026 one (MCX's historical
+    # report: 2024 Rs 0.4964 Cr, 2025 Rs 1.2612 Cr).
+    "2024-11-01": "Muhurat trading (Diwali, Friday; morning closed)",
+    "2025-10-21": "Muhurat trading (Diwali, Tuesday; morning closed)",
     "2026-11-08": "Muhurat trading (Diwali, Sunday) — timings not yet notified",
 }
 # Years whose MCX holiday circular has been entered IN FULL above (full-day,

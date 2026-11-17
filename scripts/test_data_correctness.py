@@ -77,6 +77,12 @@ def test_calendar():
     import scripts.bhav_refresh as br
     check("bhav_refresh uses the shared holiday set", br.MCX_HOLIDAYS is m.MCX_HOLIDAYS)
 
+    # Past sessions filled from MCX's historical report on 17 Nov 2026
+    check("2024 and 2025 Muhurat are special sessions (out of averages)",
+          {"2024-11-01", "2025-10-21"} <= set(m.MCX_SPECIAL_SESSIONS))
+    check("1 Jan 2025 was evening-closed", "2025-01-01" in m.MCX_EVENING_CLOSE
+          and m.session_weight("2025-01-01") == 0.15)
+
 
 # ── 2. Commodity OI ─────────────────────────────────────────────────────────
 

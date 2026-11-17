@@ -212,5 +212,11 @@ Dhan Pro data probe 29 Oct (`Docs/Dhan_Pro_Data_Opportunities.md`): token renewe
 - [ ] HUMAN: find and stop the 20:27 UTC mcx_valuation writer (an old checkout:
       constants fingerprint 252 / 527). Likely the other Mac's launchd.
 - [x] Hourly accuracy: entry lag 1, stale-opening trim, in-sample flag + caption.
-- [ ] DECIDE: 46 excel_calibrated rows (opt_prem_cr off); null total_rev_cr on
-      2024-11-01 (Muhurat) and 2025-01-01.
+- [x] DECIDED 17 Nov (user: "you decide"): replaced from MCX's historical report.
+      46 excel_calibrated rows: totals already within 0.01%, so only the
+      fut/opt split fields changed (opt_prem_cr was off by −53%…+25%); tagged
+      mcx_historical / mcx_historical_reconciled; day_type, active_*, opt_notl
+      kept. Null rows filled: 2024-11-01 Rs 0.4964 Cr (Muhurat), 2025-01-01
+      Rs 0.426 Cr (evening closed). 2024-11-01 and 2025-10-21 added to
+      MCX_SPECIAL_SESSIONS, 2025-01-01 to MCX_EVENING_CLOSE. Backup of the 49
+      original rows: side-session-notes/…/backup_mcx_daily_revenue_2026-11-17.json.
