@@ -270,7 +270,8 @@
       // range_min = minutes traded: on a part-day session the range is read there, not at the clock
       const rmin = r.range_min != null ? r.range_min : d.min;
       const early = rmin < FIRST_RANGE_MIN;
-      d.pending = !early && !(h && h.accuracy);                   // the measured error hasn't loaded yet
+      d.pending = !early && !(h && h.accuracy) && !S.homeErr;     // the measured error hasn't loaded yet
+      d.rangeErr = !early && !(h && h.accuracy) && !!S.homeErr;   // ...and its request failed or timed out
       d.q10 = early ? null : gridAt(grid, rmin, 'q10_pct');
       d.q90 = early ? null : gridAt(grid, rmin, 'q90_pct');
       d.range = likelyRange(d.P, d.q10, d.q90);
@@ -306,7 +307,7 @@
     const notes = [];
     if (d.state === 'live') {
       kicker = `${date} · live session, ${Math.round(d.r.elapsed_pct)}% of trading hours gone`;
-      head = headlineLive(d.P, d.range, d.avgs, d.r.elapsed_pct, d.pending);
+      head = headlineLive(d.P, d.range, d.avgs, d.r.elapsed_pct, d.pending || d.rangeErr);
       if (d.h && d.h.today_us_holiday) notes.push('US markets are closed today; evenings are usually quieter on such days, so the projection may run high.');
       if (d.r.opening_artifact) notes.push('The first snapshot of the day looks stale, so treat this projection with care until the next update.');
     } else if (d.last) {
@@ -338,7 +339,9 @@
   function daysBetween(a, b) { return Math.round((Date.parse(b) - Date.parse(a)) / 86400000); }
   const lastWhen = d => daysBetween(d.last.date, d.ist.iso) <= 6 ? fmt.weekdayLong(d.last.date) : fmt.dayMonth(d.last.date);
 
-  const rangeText = (rg, pending) => pending ? 'Loading the measured range…' : !rg ? 'Too early for a measured range: the first check is at 09:30'
+  const rangeText = (rg, pending, err) => pending ? 'Loading the measured range…'
+    : err ? 'Measured range unavailable (the past days did not load; Retry is below)'
+    : !rg ? 'Too early for a measured range: the first check is at 09:30'
     : rg.hi !== null ? `Likely range ${nb(`${cr(rg.lo, 1)} to ${cr(rg.hi, 1)} Cr`)} (held on 8&nbsp;in&nbsp;10 past&nbsp;days)`
     : `Likely ${cr(rg.lo, 1)} Cr or more (held on 8&nbsp;in&nbsp;10 past&nbsp;days)`;
   const arrow = c => c.dir === 'up' ? '▲' : c.dir === 'down' ? '▼' : '';
@@ -359,7 +362,7 @@
     if (d.state === 'live') {
       const c = vsAvg(d.P, ma, d.range);
       return `<div class="stat stat--lead"><div class="stat-label">Projected revenue today</div><div class="stat-value">${cr(d.P)}<small>Cr</small></div>`
-        + `<div class="stat-sub">${rangeText(d.range, d.pending)}</div></div>`
+        + `<div class="stat-sub">${rangeText(d.range, d.pending, d.rangeErr)}</div></div>`
         + `<div class="td-booked">${splitBar(d.r.booked_fut_rev_cr, d.r.booked_opt_rev_cr, d.P, `₹${num(d.B, 2)} crore booked of ₹${num(d.P, 2)} crore projected`)}`
         + `<div class="td-booked-cap"><strong>${cr(d.B)} Cr booked</strong> by ${d.clock}</div>`
         + `<div class="td-booked-note">${esc(bookedNote(d.P, d.B, d.min))}</div></div>`
