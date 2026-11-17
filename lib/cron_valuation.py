@@ -18,14 +18,14 @@ try:
         TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
         PE_MEAN_DEFAULT, PE_SD_DEFAULT,
         SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
-        now_ist, make_cors_headers,
+        now_ist, make_cors_headers, paginated_order,
     )
 except ImportError:
     from lib.mcx_config import (
         TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
         PE_MEAN_DEFAULT, PE_SD_DEFAULT,
         SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
-        now_ist, make_cors_headers,
+        now_ist, make_cors_headers, paginated_order,
     )
 try:
     from lib.mcx_config import MCX_SPECIAL_SESSIONS   # weekend Muhurat etc.
@@ -75,10 +75,13 @@ def sb_upsert(table, rows):
 
 
 def fetch_all_paginated(table, select, order_col="trading_date"):
+    # paginated_order appends the table's unique key (offset pages need a
+    # total order).
+    base = paginated_order(table, f"?select={select}&order={order_col}.asc")
     all_rows = []
     offset = 0
     while True:
-        params = f"?select={select}&order={order_col}.asc&limit=1000&offset={offset}"
+        params = f"{base}&limit=1000&offset={offset}"
         rows = sb_get(table, params)
         all_rows.extend(rows)
         if len(rows) < 1000:

@@ -20,6 +20,9 @@ before the signal domains that read them. Pass each fixer the
 `expected_trading_day` from the scan. Collect each fixer's JSON result.
 - `commodity_prices` blocked on the SQL grant → record it, do not retry.
 - `margins` result `source_stale` → not a failure; record and move on.
+- `calendar` STALE/DUE has no fixer (the 2027+ MCX holiday circular must be
+  entered by a human) → record it, never dispatch anything; it keeps `overall`
+  DEGRADED so the macOS notification fires every morning until it is added.
 
 **PHASE 3 — re-verify + escalate.** Re-run `python3 scripts/freshness_scan.py --json`.
 For any domain still not-OK after its fixer ran, retry that fixer ONCE. On a

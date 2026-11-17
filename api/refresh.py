@@ -16,7 +16,7 @@ try:
         get_day_type, get_intraday_weight, project_full_day,
         calc_revenue, calc_uncertainty, now_ist, is_market_open, is_trading_day,
         make_cors_headers, SUPABASE_URL, SUPABASE_ANON_KEY,
-        supabase_read, supabase_upsert,
+        supabase_read, supabase_upsert, calendar_status,
     )
 except (ImportError, Exception):
     from lib.mcx_config import (  # type: ignore
@@ -26,7 +26,7 @@ except (ImportError, Exception):
         get_day_type, get_intraday_weight, project_full_day,
         calc_revenue, calc_uncertainty, now_ist, is_market_open, is_trading_day,
         make_cors_headers, SUPABASE_URL, SUPABASE_ANON_KEY,
-        supabase_read, supabase_upsert,
+        supabase_read, supabase_upsert, calendar_status,
     )
 
 # ─── Inline fallback if import missed supabase helpers ──────────────────────
@@ -317,12 +317,18 @@ class handler(BaseHTTPRequestHandler):
 
             is_market_hours = is_market_open(t)
             alive = snap_age_min is not None and snap_age_min < 30 if is_market_hours else True
+            # A missing holiday calendar makes every session/projection wrong
+            # (holidays count as trading days): unhealthy until it is loaded.
+            cal = calendar_status(t.date())
+            if cal["status"] == "STALE":
+                alive = False
 
             result = {
                 "success": True,
                 "healthy": alive,
                 "checked_at": t.strftime("%Y-%m-%dT%H:%M:%S+05:30"),
                 "market_open": is_market_hours,
+                "calendar": cal,
                 "last_snapshot": {
                     "captured_at": snap.get("captured_at") if snap else None,
                     "trading_date": snap.get("trading_date") if snap else None,

@@ -59,6 +59,7 @@ from lib.mcx_config import (
     now_ist, get_day_type, get_intraday_weight,
     project_full_day, calc_revenue, calc_uncertainty,
     check_regime_drift, supabase_upsert, SUPABASE_WRITE_ROLE,
+    calendar_status,
 )
 
 from lib.cron_margins import (
@@ -778,12 +779,25 @@ def next_sleep_seconds(t, base_s):
     return base_s
 
 
+def _report_calendar_status():
+    """Put a missing MCX holiday calendar where it is seen: the heartbeat's
+    last_error (shown by /api/refresh?health=1), not just stderr. The relay
+    keeps running: stopping it would also lose real trading days."""
+    st = calendar_status()
+    if st["status"] != "OK":
+        print(f"  ⚠ Calendar {st['status']}: {st['message']}")
+        send_heartbeat("error" if st["status"] == "STALE" else "running",
+                       error=f"calendar {st['status']}: {st['message']}")
+    return st
+
+
 def run_loop():
     """Run snapshots every 15 minutes until trading session ends.
     After session close, captures authoritative EOD record for mcx_daily_revenue."""
     print(f"MCX Relay — loop mode (every {LOOP_INTERVAL//60} min)")
     print(f"Trading hours: {_hours(session_shape(now_ist()))}")
     _start_stall_watchdog()
+    _report_calendar_status()
 
     fail_streak = 0
     MAX_CONSEC_FAIL = 4  # back-to-back failures before we exit for launchd to relaunch

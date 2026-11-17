@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from lib.dhan_client import fetch_commodity_oi_history, list_front_futures
-from lib.mcx_config import SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY
+from lib.mcx_config import SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY, paginated_order
 
 TABLE = "mcx_commodity_daily"
 HISTORY_START = "2022-01-01"   # first mcx_commodity_daily row is 2022-01-03
@@ -33,10 +33,11 @@ NIGHTLY_DAYS = 30              # re-fetch window: lets yesterday's last day be g
 
 
 def _get(params: str) -> list[dict]:
+    q = paginated_order(TABLE, "?" + params)      # total order: offset pages
     rows, offset = [], 0
     while True:
         req = urllib.request.Request(
-            f"{SUPABASE_URL}/rest/v1/{TABLE}?{params}&limit=1000&offset={offset}",
+            f"{SUPABASE_URL}/rest/v1/{TABLE}{q}&limit=1000&offset={offset}",
             headers={"apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {SUPABASE_ANON_KEY}"})
         with urllib.request.urlopen(req, timeout=30) as r:
             page = json.loads(r.read().decode())

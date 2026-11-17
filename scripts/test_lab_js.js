@@ -43,6 +43,12 @@ check('correlation of a line with itself', Math.round(M.corr([1, 2, 3, 4, 5, 6, 
 check('correlation skips missing pairs', Math.round(M.corr([1, 2, null, 4, 5, 6, 7, 8, 9, 10, 11], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]) * 1000) / 1000, 1);
 check('too few pairs', M.corr([1, 2, 3], [1, 2, 3]), null);
 
+// Intraday check: in-sample note (adaptive curve fitted on the days being scored)
+check('in-sample note', M.hourlyInSampleNote({ curve_fitted_in_sample: true, in_sample_days: 40, evaluated_days: 70, curve_training_days: 60 }),
+  '40 of the 70 days are inside the 60-day window the intraday curve is fitted on, so on those days the projections are in-sample and flatter the result.');
+check('no note when out-of-sample', M.hourlyInSampleNote({ curve_fitted_in_sample: false }), '');
+check('no note without methodology (older payload)', M.hourlyInSampleNote(undefined), '');
+
 // Positioning
 const g = { Futures: { current: 139893, wow_pct: 3.8, mom_pct: 11.6, yoy_pct: 34.1 }, Options: { current: 112850, wow_pct: -18.0, mom_pct: -6.5, yoy_pct: 18.4 },
             Overall: { current: 252743, wow_pct: -7.2, mom_pct: 2.7, yoy_pct: 26.6 } };

@@ -118,6 +118,7 @@ def generate_exchange_dashboard(today=None):
         "?select=trading_date,fut_rev_cr,opt_rev_cr,total_rev_cr"
         "&order=trading_date.asc",
         max_rows=5000,
+        newest_first=True,   # a cap drops the oldest days, never the latest
     )
 
     # Parse and normalize

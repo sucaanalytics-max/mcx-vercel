@@ -61,7 +61,8 @@ def generate_analytics():
         "?select=trading_date,ecm_spread_zscore,mf_revenue_z,mf_turnover_z,"
         "mf_composite_z,ensemble_score,ensemble_signal,position_score,conviction"
         "&order=trading_date.asc",
-        max_rows=2000,
+        max_rows=5000,          # whole history (1.2k rows in Nov 2026)
+        newest_first=True,      # if ever exceeded, drop the oldest, not today
     )
     if not signals:
         return {"success": False, "error": "No model signals available."}
@@ -70,7 +71,8 @@ def generate_analytics():
     prices = supabase_read_all(
         "mcx_share_price",
         "?select=trading_date,close&order=trading_date.asc",
-        max_rows=2000,
+        max_rows=5000,
+        newest_first=True,
     )
 
     # Sentinel-date guard: garbage rows (e.g. trading_date ~1900-01-01) sit at the

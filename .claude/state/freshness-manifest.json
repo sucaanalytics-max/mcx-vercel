@@ -43,7 +43,10 @@
     {"domain": "quarterly", "tabs": ["Quarterly P&L"],
      "source": "code:api/quarterly.py:QUARTERLY_ACTUALS", "cadence": "quarterly",
      "report_lag_days": 45, "fixer": "quarterly-updater",
-     "note": "Not DB-backed. The scanner flags it when the most recently reportable fiscal quarter is absent from QUARTERLY_ACTUALS."}
+     "note": "Not DB-backed. The scanner flags it when the most recently reportable fiscal quarter is absent from QUARTERLY_ACTUALS."},
+    {"domain": "calendar", "tabs": ["all (trading-day calendar)"],
+     "source": "code:lib/mcx_config.py:MCX_CALENDAR_YEARS", "cadence": "yearly", "fixer": null,
+     "note": "Not DB-backed. STALE when the running year's MCX holiday circular is not loaded (holidays count as trading days); DUE from 21 days before 1 Jan when next year's is missing. No fixer: a human adds the dates from MCX's circular (MCX_HOLIDAYS / MCX_MORNING_CLOSE / MCX_EVENING_CLOSE + MCX_CALENDAR_YEARS)."}
   ],
   "escalation": {"max_fix_attempts": 2, "on_repeated_failure": "investigator"},
   "alert": {"macos_notification_on": ["DEGRADED", "FAILED"], "fix_streak_alert": 3, "email_on": null,

@@ -87,6 +87,22 @@ def _check_quarterly(report_lag_days):
         return {"status": "ERROR", "error": str(e)[:100]}
 
 
+def _check_calendar():
+    """MCX holiday calendar coverage (lib.mcx_config.calendar_status). STALE
+    when the running year is not loaded (holidays count as trading days, so
+    every expected-day computation above is wrong too); DUE in the weeks before
+    1 Jan when next year's circular hasn't been entered. Both count as stale:
+    there is no fixer, a human adds the dates from MCX's circular."""
+    try:
+        from lib.mcx_config import calendar_status
+        st = calendar_status()
+        return {"status": st["status"], "latest_present": max(st["covered_years"], default=None),
+                "year": st["year"], "days_to_rollover": st["days_to_rollover"],
+                "message": st["message"]}
+    except Exception as e:
+        return {"status": "ERROR", "error": str(e)[:100]}
+
+
 def scan():
     with open(MANIFEST) as f:
         manifest = json.load(f)
@@ -97,6 +113,12 @@ def scan():
     stale = []
     for dom in manifest["domains"]:
         name = dom["domain"]
+        if dom.get("cadence") == "yearly":
+            c = _check_calendar()
+            out["domains"].append({"domain": name, "kind": "code", **c, "fixer": dom.get("fixer")})
+            if c.get("status") != "OK":
+                stale.append(name)
+            continue
         if dom.get("source", "").startswith("code") or dom.get("cadence") == "quarterly":
             q = _check_quarterly(dom.get("report_lag_days", 45))
             entry = {"domain": name, "kind": "code", **q, "fixer": dom.get("fixer")}
@@ -138,7 +160,7 @@ def main():
     print(f"Expected latest trading day: {result['expected_trading_day']}")
     print(f"Overall: {result['overall']}   Stale: {result['stale_domains'] or 'none'}\n")
     for d in result["domains"]:
-        mark = {"OK": "✓", "STALE": "✗", "EMPTY": "∅", "ERROR": "!", None: "?"}.get(d.get("status"), "?")
+        mark = {"OK": "✓", "STALE": "✗", "DUE": "⏰", "EMPTY": "∅", "ERROR": "!", None: "?"}.get(d.get("status"), "?")
         latest = d.get("latest") or d.get("latest_present") or "-"
         print(f"  {mark} {d['domain']:18s} latest={str(latest):12s} status={d.get('status')}")
     print("\n" + json.dumps(result))

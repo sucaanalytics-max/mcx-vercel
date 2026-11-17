@@ -256,7 +256,7 @@ def generate_home(now=None, rows=None, snaps=None):
         rows = supabase_read_all(
             "mcx_daily_revenue",
             "?select=trading_date,fut_rev_cr,opt_rev_cr,total_rev_cr,source&order=trading_date.asc",
-            max_rows=5000)
+            max_rows=5000, newest_first=True)
     if snaps is None:
         since = (today - timedelta(days=150)).isoformat()
         snaps = supabase_read_all(
@@ -264,7 +264,7 @@ def generate_home(now=None, rows=None, snaps=None):
             f"?select=trading_date,elapsed_min,proj_total_rev&proj_total_rev=not.is.null"
             f"&trading_date=gte.{since}&trading_date=lt.{today.isoformat()}"
             f"&order=trading_date.asc,elapsed_min.asc",
-            max_rows=15000)
+            max_rows=15000, newest_first=True)
     days = completed_days(rows, now)
     if not days:
         return {"success": False, "error": "No completed trading days"}

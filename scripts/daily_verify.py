@@ -266,6 +266,40 @@ def _run_script(script_name, args, timeout=60):
     return False
 
 
+def _uv():
+    """Path to uv, or None. backfill_commodity_oi needs dhanhq<2.1 and pandas,
+    which the homebrew interpreter doesn't have; uv supplies them per run."""
+    import shutil
+    for p in (shutil.which("uv"), "/opt/homebrew/bin/uv", os.path.expanduser("~/.local/bin/uv")):
+        if p and os.path.exists(p):
+            return p
+    return None
+
+
+def commodity_oi_command(uv=None, py=None):
+    """argv for the nightly Dhan OI backfill (same invocation as the
+    com.mcx.commodity-oi plist), falling back to the helper interpreter."""
+    script = os.path.join("scripts", "backfill_commodity_oi.py")
+    uv = uv if uv is not None else _uv()
+    if uv:
+        return [uv, "run", "--no-project", "--with", "dhanhq<2.1", "--with", "pandas",
+                "python", "-I", script, "--nightly"]
+    return [py or _homebrew_python(), script, "--nightly"]
+
+
+def run_commodity_oi_backfill(run=None, timeout=600):
+    """Run backfill_commodity_oi --nightly. Returns (ok, output tail)."""
+    import subprocess
+    run = run or subprocess.run
+    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        r = run(commodity_oi_command(), capture_output=True, text=True,
+                timeout=timeout, cwd=project_dir)
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+    return r.returncode == 0, (r.stderr.strip() or r.stdout.strip())[-300:]
+
+
 def commodity_coverage(date_iso):
     """(rows, contracts) of the REAL per-commodity breakdown stored for a date.
     turnover_cr > 0 skips the Dhan OI-only stub rows (see bhav_refresh
@@ -312,6 +346,24 @@ def check_commodity_breakdown(date_iso, result):
            else "bhav_refresh did not finish" if rc is None
            else f"bhav_refresh exit {rc}")
     result["issues"].append(f"No commodity breakdown in mcx_commodity_daily ({why}: {last[0][:160]})")
+
+
+# ── Calendar coverage ────────────────────────────────────────────────────────
+
+def calendar_check(status_fn=None):
+    """Step 0: the MCX holiday calendar must cover the running year. When it
+    doesn't, every holiday is treated as a trading day, so the dates this run
+    verifies (and every projection) are wrong: report it and make the run exit
+    non-zero (STALE). DUE (next year missing within the lead window) only warns.
+    Returns False only for STALE."""
+    from lib.mcx_config import calendar_status
+    st = (status_fn or calendar_status)()
+    if st["status"] == "STALE":
+        print(f"\n[!!] CALENDAR STALE: {st['message']}")
+        return False
+    if st["status"] == "DUE":
+        print(f"\n[..] CALENDAR DUE: {st['message']}")
+    return True
 
 
 # ── Main Verification ────────────────────────────────────────────────────────
@@ -441,7 +493,7 @@ def main():
     print(f"Checking last {days} trading day(s)")
     print("=" * 70)
 
-    all_ok = True
+    all_ok = calendar_check()
     for date_iso in dates_to_verify(t, days):
         result = verify_date(date_iso)
 
@@ -509,6 +561,22 @@ def main():
     else:
         print("  backfill_oi_participants FAILED (non-fatal; freshness scanner will flag if stale)")
 
+    # 5d. Commodity futures open interest. MCX's historical report has no OI,
+    # so bhav_refresh (step 3 / the 05:30 commodity-eod job) writes
+    # open_interest = 0 and the Dhan backfill fills it in. That backfill used
+    # to run on its own at 07:30 (com.mcx.commodity-oi), AFTER the signal
+    # recompute below, so commodity_signals saw OI = 0 for the latest day
+    # (0/42 rows on 16 Nov 2026). Run it here, before step 6. Needs Dhan
+    # credentials (~/.dhan/credentials.json or DHAN_* in .env) and dhanhq;
+    # soft-fail like the blocks above.
+    print("\nCommodity OI backfill (Dhan, trailing 30 days)...")
+    ok, tail = run_commodity_oi_backfill()
+    if ok:
+        print("  backfill_commodity_oi OK")
+    else:
+        print(f"  backfill_commodity_oi FAILED (non-fatal; commodity_signals will skip the "
+              f"missing OI): {tail[-200:]}")
+
     # 6. Derived signal tables (models / momentum / commodity_signals).
     # The Vercel crons that own these fire at 14:10-14:20 UTC, but mcx_valuation
     # for the same session is not written until ~20:27 UTC — so those runs can
@@ -516,10 +584,17 @@ def main():
     # ~02:00 IST until ~19:45 IST daily. By 07:00 IST every input is present
     # (valuation 01:57 IST, revenue 23:30 IST, commodity_daily backfilled above),
     # so recomputing here closes that window. Order matters: models/momentum
-    # depend on valuation, commodity_signals on the bhav backfill above.
+    # depend on valuation, commodity_signals on the bhav backfill and the OI
+    # backfill above.
     # Idempotent upserts, soft-fail like the blocks above.
-    print("\nDerived signal refresh (models / momentum / commodity_signals)...")
-    for _job in ("models", "momentum", "commodity_signals"):
+    # valuation first: models reads mcx_valuation.fair_value_base. An outside
+    # writer (20:27 UTC, ~01:57 IST) has been rewriting recent mcx_valuation
+    # rows with the pre-29-Sep constants (252 days, Rs 527 Cr non-F&O) since
+    # mid-Oct 2026; recomputing the last 30 days here puts them back on the
+    # current constants before models reads them. Until that writer is found
+    # and stopped, rows written after 01:57 and before 07:00 are on its basis.
+    print("\nDerived signal refresh (valuation / models / momentum / commodity_signals)...")
+    for _job in ("valuation", "models", "momentum", "commodity_signals"):
         if _run_script("run_cron.py", [_job, "recent"], timeout=180):
             print(f"  {_job} OK")
         else:

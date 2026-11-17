@@ -260,6 +260,50 @@ MCX_EVENING_CLOSE = {
 MCX_SPECIAL_SESSIONS = {
     "2026-11-08": "Muhurat trading (Diwali, Sunday) — timings not yet notified",
 }
+# Years whose MCX holiday circular has been entered IN FULL above (full-day,
+# morning-closed and evening-closed dates). A year that is missing here is
+# "uncovered": its holidays would be treated as normal trading days. Add the
+# year here in the same commit that adds its dates. The 2027 circular was not
+# published as of 17 Nov 2026 (MCX issued the 2026 one on 15 Dec 2025).
+MCX_CALENDAR_YEARS = {2026}
+# Days before 1 January from which a missing next-year calendar is reported as
+# DUE (MCX normally publishes in mid-December).
+CALENDAR_LEAD_DAYS = 21
+
+
+def calendar_status(today=None) -> dict:
+    """Is the MCX holiday calendar loaded for the year we are trading in?
+
+    status: "OK"    — current year covered (and next year too, or not yet due)
+            "DUE"   — current year covered, but 1 Jan is within
+                      CALENDAR_LEAD_DAYS and next year's calendar is missing
+            "STALE" — the current year is not covered: every holiday is being
+                      treated as a trading day right now
+    Callers surface this loudly (freshness scan, daily_verify exit code, relay
+    heartbeat, /api/refresh?health=1) instead of only printing to stderr."""
+    if today is None:
+        from datetime import timezone   # now_ist() is defined further down
+        today = (datetime.now(timezone.utc).replace(tzinfo=None)
+                 + timedelta(hours=5, minutes=30)).date()
+    elif isinstance(today, datetime):
+        today = today.date()
+    yr = today.year
+    days_to_rollover = (type(today)(yr + 1, 1, 1) - today).days
+    if yr not in MCX_CALENDAR_YEARS:
+        status, msg = "STALE", (f"MCX holiday calendar for {yr} is not loaded: holidays are "
+                                f"being treated as trading days. Add {yr} to MCX_HOLIDAYS / "
+                                f"MCX_MORNING_CLOSE / MCX_EVENING_CLOSE and MCX_CALENDAR_YEARS "
+                                f"in lib/mcx_config.py.")
+    elif yr + 1 not in MCX_CALENDAR_YEARS and days_to_rollover <= CALENDAR_LEAD_DAYS:
+        status, msg = "DUE", (f"MCX holiday calendar for {yr + 1} is not loaded and the year "
+                              f"rolls over in {days_to_rollover} day(s). Add it from MCX's "
+                              f"circular before 1 Jan.")
+    else:
+        status, msg = "OK", None
+    return {"status": status, "year": yr, "covered_years": sorted(MCX_CALENDAR_YEARS),
+            "days_to_rollover": days_to_rollover, "message": msg}
+
+
 # Backward-compat aliases — several modules import the *_2026 names.
 MCX_HOLIDAYS_2026 = MCX_HOLIDAYS
 MCX_MORNING_CLOSE_2026 = MCX_MORNING_CLOSE
@@ -448,13 +492,14 @@ def _current_ist_year() -> int:
 
 def _warn_if_calendar_stale() -> None:
     """Warn (at import) if the running year has no holiday data, so a year
-    rollover doesn't silently turn holidays into normal trading days."""
-    yr = _current_ist_year()
-    if not any(h.startswith(f"{yr}-") for h in MCX_HOLIDAYS):
+    rollover doesn't silently turn holidays into normal trading days. This is
+    only the stderr echo; calendar_status() is what the freshness scan,
+    daily_verify, the relay heartbeat and the health endpoint act on."""
+    st = calendar_status()
+    if st["status"] != "OK":
         import sys as _sys
-        print(f"⚠ MCX calendar: no holiday data for {yr} in mcx_config.py — holidays "
-              f"will be treated as trading days until added. Add {yr} to MCX_HOLIDAYS / "
-              f"MCX_MORNING_CLOSE / MCX_EVENING_CLOSE and _MACRO_EVENTS_BY_YEAR[{yr}].",
+        print(f"⚠ MCX calendar {st['status']}: {st['message']} "
+              f"Also add _MACRO_EVENTS_BY_YEAR[{st['year'] + (st['status'] == 'DUE')}].",
               file=_sys.stderr)
 
 
@@ -611,6 +656,27 @@ def reached_close(last_elapsed, trading_date) -> bool:
     return last_elapsed >= session_total(trading_date) - ADAPTIVE_CLOSE_TOLERANCE_MIN
 
 
+ADAPTIVE_LOOKBACK_DAYS = 60   # calendar days of snapshots the adaptive curve is fitted on
+
+
+def trim_stale_open(snaps, vol_fn=None):
+    """Drop stale opening snapshots: the MCX API can carry the prior day's
+    cumulative into the first poll(s) of a session, so the first snapshot is
+    larger than the next. A snapshot in the first 30 minutes whose successor is
+    under half its volume is dropped (repeatedly), keeping at least 4.
+    `snaps` must be sorted by elapsed_min; vol_fn defaults to fut + opt."""
+    if vol_fn is None:
+        def vol_fn(s):
+            return (s.get("fut_notl_cr") or 0) + (s.get("opt_prem_cr") or 0)
+    while len(snaps) > 4:
+        v0, v1 = vol_fn(snaps[0]), vol_fn(snaps[1])
+        if v0 > 0 and v1 < v0 * 0.5 and snaps[0]["elapsed_min"] < 30:
+            snaps = snaps[1:]
+        else:
+            break
+    return snaps
+
+
 def _compute_adaptive_weights(vol_fn=None, close_min=None):
     """Generic adaptive bucket-weight EWMA over recent (full-session) days.
 
@@ -627,7 +693,7 @@ def _compute_adaptive_weights(vol_fn=None, close_min=None):
         close_min = session_end()
     try:
         ist = now_ist()
-        start_date = (ist - timedelta(days=60)).strftime("%Y-%m-%d")
+        start_date = (ist - timedelta(days=ADAPTIVE_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
         today_str = ist.strftime("%Y-%m-%d")
 
         snapshots = supabase_read_all(
@@ -636,6 +702,7 @@ def _compute_adaptive_weights(vol_fn=None, close_min=None):
             f"&trading_date=gte.{start_date}&trading_date=lt.{today_str}"
             f"&order=trading_date.asc,elapsed_min.asc",
             max_rows=5000,
+            newest_first=True,   # a cap drops the oldest days, never the latest
         )
         if not snapshots:
             return None
@@ -663,13 +730,7 @@ def _compute_adaptive_weights(vol_fn=None, close_min=None):
             # Only full sessions contribute to bucket-share EWMA
             if not reached_close(snaps[-1]["elapsed_min"], dt_str):
                 continue
-            # Trim stale opening snapshot (MCX API can carry prior-day cumulative)
-            while len(snaps) > 4:
-                v0, v1 = vol_fn(snaps[0]), vol_fn(snaps[1])
-                if v0 > 0 and v1 < v0 * 0.5 and snaps[0]["elapsed_min"] < 30:
-                    snaps = snaps[1:]
-                else:
-                    break
+            snaps = trim_stale_open(snaps, vol_fn)
             # Rolling-median outlier detection — replaces the arbitrary 30% threshold
             vols = [vol_fn(s) for s in snaps]
             if _rolling_median_outlier(vols):
@@ -1042,26 +1103,105 @@ def supabase_read(table, params="", timeout=10):
     return _supabase_request("GET", table, params=params, timeout=timeout)
 
 
-def supabase_read_all(table, params="", page_size=1000, max_rows=10000, timeout=10):
+# Unique key of every table read with offset pagination. PostgREST pages with
+# LIMIT/OFFSET, so the ORDER BY must be total: ordering mcx_commodity_daily by
+# trading_date alone (42 rows share each date) lets the database return a
+# shared-date row on two pages, or on none. paginated_order() appends these
+# columns to every order= it is given.
+PAGINATION_KEYS = {
+    "mcx_snapshots": ("id",),
+    "mcx_daily_revenue": ("trading_date",),
+    "mcx_commodity_daily": ("trading_date", "commodity", "instrument_type"),
+    "mcx_margin_daily": ("id",),
+    "mcx_icomdex_daily": ("trading_date", "index_code"),
+    "mcx_commodity_signals": ("id",),
+    "mcx_model_signals": ("trading_date",),
+    "mcx_momentum_signals": ("trading_date",),
+    "mcx_valuation": ("trading_date",),
+    "mcx_share_price": ("trading_date",),
+    "mcx_oi_participants": ("report_date", "commodity", "instrument"),
+    "mcx_options_paper": ("id",),
+    "mcx_commodity_prices": ("id",),
+}
+_FLIP = {"asc": "desc", "desc": "asc"}
+
+
+def _order_terms(order):
+    """'a.asc,b' -> [['a', 'asc'], ['b', None]] (nulls modifiers kept as extra parts)."""
+    out = []
+    for term in filter(None, order.split(",")):
+        parts = term.split(".")
+        col = parts[0]
+        dirn = parts[1] if len(parts) > 1 and parts[1] in _FLIP else None
+        rest = [x for x in parts[1:] if x not in _FLIP]
+        out.append([col, dirn, rest])
+    return out
+
+
+def paginated_order(table, params="", newest_first=False):
+    """params with a total ORDER BY for offset pagination of `table`.
+
+    Appends the table's PAGINATION_KEYS columns not already ordered on (or
+    adds order=<keys> when params has none). newest_first flips every term, so
+    a row cap keeps the NEWEST rows; the caller reverses the result to get the
+    original ascending order back (supabase_read_all does this)."""
+    keys = PAGINATION_KEYS.get(table, ())
+    q = params[1:] if params.startswith("?") else params
+    parts = [x for x in q.split("&") if x] if q else []
+    idx = next((i for i, x in enumerate(parts) if x.startswith("order=")), None)
+    terms = _order_terms(parts[idx][6:]) if idx is not None else []
+    have = {t[0] for t in terms}
+    terms += [[k, "asc", []] for k in keys if k not in have]
+    if newest_first:
+        for t in terms:
+            t[1] = _FLIP.get(t[1] or "asc")
+    if terms:
+        order = "order=" + ",".join(".".join([c] + ([d] if d else []) + r) for c, d, r in terms)
+        if idx is None:
+            parts.append(order)
+        else:
+            parts[idx] = order
+    return "?" + "&".join(parts) if parts else ""
+
+
+def supabase_read_all(table, params="", page_size=1000, max_rows=10000, timeout=10,
+                      newest_first=False, read=None):
     """Paginated read — fetches all rows beyond the 1000-row default limit.
 
-    Uses offset-based pagination (same pattern as existing cron jobs).
-    Stops when: fewer than page_size rows returned OR max_rows reached.
-    """
+    Offset pagination over a total order (paginated_order adds the table's
+    unique key). Stops when a page is short or max_rows is reached.
+
+    newest_first=True: when the table holds more than max_rows matching rows,
+    keep the newest max_rows instead of the oldest. The rows are fetched in the
+    reverse of the requested order and returned in the requested order, so
+    callers that ask for order=trading_date.asc still get ascending rows.
+
+    PostgREST caps every response at 1000 rows server-side whatever limit= says,
+    so page_size above 1000 would end the loop early on a "short" page."""
+    read = read or supabase_read
+    page_size = min(page_size, 1000)
+    params = paginated_order(table, params, newest_first)
     all_rows = []
     offset = 0
     separator = "&" if "?" in params else "?"
     while True:
-        page = supabase_read(
+        page = read(
             table,
             f"{params}{separator}limit={page_size}&offset={offset}",
             timeout=timeout,
         )
         all_rows.extend(page)
-        if len(page) < page_size or len(all_rows) >= max_rows:
+        if len(page) < page_size:
+            break
+        if len(all_rows) >= max_rows:
+            import sys as _sys
+            print(f"⚠ supabase_read_all({table}): hit max_rows={max_rows}; "
+                  f"{'oldest' if newest_first else 'NEWEST'} rows beyond it were dropped",
+                  file=_sys.stderr)
             break
         offset += page_size
-    return all_rows[:max_rows]
+    all_rows = all_rows[:max_rows]
+    return all_rows[::-1] if newest_first else all_rows
 
 
 def supabase_upsert(table, data, timeout=10, on_conflict=None):
