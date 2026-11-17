@@ -107,8 +107,8 @@ def test_oi_order():
     check("valuation recomputed before models", names.index("valuation") < names.index("models"), str(names))
 
     cmd = dv.commodity_oi_command(uv="/opt/homebrew/bin/uv")
-    check("uv supplies dhanhq and pandas",
-          cmd[:2] == ["/opt/homebrew/bin/uv", "run"] and "dhanhq<2.1" in cmd and "pandas" in cmd
+    check("uv: runs from the project lock (mcx_uv.sh)",
+          cmd[:3] == ["bash", os.path.join("scripts", "mcx_uv.sh"), "python"]
           and cmd[-2:] == [os.path.join("scripts", "backfill_commodity_oi.py"), "--nightly"], str(cmd))
     cmd = dv.commodity_oi_command(uv="", py="/x/python3")
     check("no uv: falls back to the helper python", cmd == ["/x/python3", os.path.join("scripts", "backfill_commodity_oi.py"), "--nightly"], str(cmd))

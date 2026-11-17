@@ -6,9 +6,8 @@ Each run logs the near-month bid/ask spread, opens positions on the Schedule B e
 (10 NSE trading days before expiry) and closes them on the exit day (2 days before).
 No orders are ever sent — fills are paper fills at the live Dhan bid/ask.
 
-Usage (needs dhanhq<2.1 and pandas):
-  uv run --no-project --with "dhanhq<2.1" --with pandas --with python-dotenv \
-      python -I scripts/options_paper.py run|status|dry-run
+Usage (deps from pyproject.toml + uv.lock):
+  scripts/mcx_uv.sh python -I scripts/options_paper.py run|status|dry-run
 """
 from __future__ import annotations
 import sys, json, math, time, statistics, urllib.request, datetime as dt

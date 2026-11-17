@@ -4,7 +4,7 @@
 Economic chain:
   45DMA F&O Rev → Annualized Total Rev → PAT (55% margin) → EPS → Fair Value via P/E bands
 
-Primary: reads pre-computed valuations from mcx_valuation table (refreshed by valuation_refresh.py).
+Primary: reads pre-computed valuations from mcx_valuation table (written by lib/cron_valuation.py: the Vercel cron, and scripts/run_cron.py valuation locally).
 Fallback: computes live from mcx_daily_revenue + mcx_share_price.
 
 Returns:
@@ -208,7 +208,7 @@ def generate_valuation(range_key=DEFAULT_RANGE):
     precomputed = _fetch_precomputed_valuations(limit=fetch_limit)
 
     if not precomputed:
-        return {"error": "No valuation data available. Run valuation_refresh.py --backfill first.", "success": False}
+        return {"error": "No valuation data available. Run scripts/run_cron.py valuation backfill first.", "success": False}
 
     latest = precomputed[-1]
 

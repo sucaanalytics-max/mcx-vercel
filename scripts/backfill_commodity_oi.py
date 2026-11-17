@@ -12,10 +12,10 @@ already exist with turnover_cr > 0, so it never creates OI-only stub rows.
 Glitch days (one-day spikes/dips that revert) are written as 0 = missing,
 which cron_commodity_signals skips.
 
-Usage (needs pandas; dhanhq for the scrip-master URL):
-  uv run --no-project --with pandas --with "dhanhq<2.1" python scripts/backfill_commodity_oi.py --dry-run
-  uv run --no-project --with pandas --with "dhanhq<2.1" python scripts/backfill_commodity_oi.py            # 2022 → today
-  uv run --no-project --with pandas --with "dhanhq<2.1" python scripts/backfill_commodity_oi.py --nightly  # last 30 days
+Usage (deps from pyproject.toml + uv.lock via scripts/mcx_uv.sh):
+  scripts/mcx_uv.sh python scripts/backfill_commodity_oi.py --dry-run
+  scripts/mcx_uv.sh python scripts/backfill_commodity_oi.py            # 2022 → today
+  scripts/mcx_uv.sh python scripts/backfill_commodity_oi.py --nightly  # last 30 days
 """
 from __future__ import annotations
 import argparse, json, sys, datetime as dt, urllib.request, urllib.error

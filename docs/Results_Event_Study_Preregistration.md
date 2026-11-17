@@ -1,6 +1,6 @@
 # MCX Ltd Results-Day Options Study (H3): Pre-registration
 
-Written 28 Oct 2026, 12:00 IST, **before** computing our Q2 FY27 projection, any historical projection error, or any implied-vs-realised move. Known at this point: Yahoo lists the next results date as **3 Nov 2026** (not confirmed by an MCX filing) and a consensus EPS of **₹18.70** (analyst count unknown). Code: `scripts/results_event_study.py`.
+Written 28 Oct 2026, 12:00 IST, **before** computing our Q2 FY27 projection, any historical projection error, or any implied-vs-realised move. Known at this point: Yahoo lists the next results date as **3 Nov 2026** (not confirmed by an MCX filing) and a consensus EPS of **₹18.70** (analyst count unknown). Code: `research/results_event_study.py`.
 
 ## Inputs
 

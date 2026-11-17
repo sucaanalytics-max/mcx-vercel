@@ -266,24 +266,18 @@ def _run_script(script_name, args, timeout=60):
     return False
 
 
-def _uv():
-    """Path to uv, or None. backfill_commodity_oi needs dhanhq<2.1 and pandas,
-    which the homebrew interpreter doesn't have; uv supplies them per run."""
-    import shutil
-    for p in (shutil.which("uv"), "/opt/homebrew/bin/uv", os.path.expanduser("~/.local/bin/uv")):
-        if p and os.path.exists(p):
-            return p
-    return None
-
-
 def commodity_oi_command(uv=None, py=None):
-    """argv for the nightly Dhan OI backfill (same invocation as the
-    com.mcx.commodity-oi plist), falling back to the helper interpreter."""
+    """argv for the nightly Dhan OI backfill. It needs dhanhq<2.1 and pandas,
+    which the helper interpreter may lack, so it runs through scripts/mcx_uv.sh
+    (pyproject.toml + uv.lock, `local` extra) when uv exists, else under the
+    helper interpreter. uv: path to uv, "" to force the fallback, None to look."""
+    import shutil
     script = os.path.join("scripts", "backfill_commodity_oi.py")
-    uv = uv if uv is not None else _uv()
+    if uv is None:
+        uv = next((p for p in (shutil.which("uv"), "/opt/homebrew/bin/uv",
+                               os.path.expanduser("~/.local/bin/uv")) if p and os.path.exists(p)), "")
     if uv:
-        return [uv, "run", "--no-project", "--with", "dhanhq<2.1", "--with", "pandas",
-                "python", "-I", script, "--nightly"]
+        return ["bash", os.path.join("scripts", "mcx_uv.sh"), "python", "-I", script, "--nightly"]
     return [py or _homebrew_python(), script, "--nightly"]
 
 
@@ -564,7 +558,7 @@ def main():
     # 5d. Commodity futures open interest. MCX's historical report has no OI,
     # so bhav_refresh (step 3 / the 05:30 commodity-eod job) writes
     # open_interest = 0 and the Dhan backfill fills it in. That backfill used
-    # to run on its own at 07:30 (com.mcx.commodity-oi), AFTER the signal
+    # to run on its own at 07:30 (com.mcx.commodity-oi, removed), AFTER the signal
     # recompute below, so commodity_signals saw OI = 0 for the latest day
     # (0/42 rows on 16 Nov 2026). Run it here, before step 6. Needs Dhan
     # credentials (~/.dhan/credentials.json or DHAN_* in .env) and dhanhq;

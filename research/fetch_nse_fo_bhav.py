@@ -6,7 +6,7 @@ pass 2 downloads the entry/exit days of the ADR stress-test schedules
 (Docs/ADR_Edge_StressTest_Preregistration.md §C). Raw zips are deleted after parsing.
 
 Usage:
-  python3 -I scripts/fetch_nse_fo_bhav.py OUT_DIR [SYMBOL]
+  python3 -I research/fetch_nse_fo_bhav.py OUT_DIR [SYMBOL]
 Writes OUT_DIR/<symbol>_bhav.csv (normalised rows) and OUT_DIR/schedule.json.
 """
 from __future__ import annotations

@@ -420,7 +420,7 @@ def traded_minutes(elapsed_min, d) -> int:
     return max(0, min(SESSION_START + elapsed_min, shape["end"]) - shape["start"])
 
 # ─── DAY-TYPE CLASSIFICATION (F-21: algorithmic + manual overrides) ──────────
-# Volume multipliers — calibrated by scripts/calibrate_day_types.py against 400
+# Volume multipliers — calibrated by research/calibrate_day_types.py against 400
 # trading days (2024-10-01 → 2026-04-24), month-normalized to LOW baseline:
 #   LOW    n=371  mean 1.000 (baseline)
 #   MEDIUM n=14   mean 1.016 ± 0.089 (95% CI [0.93, 1.10] — not significant)

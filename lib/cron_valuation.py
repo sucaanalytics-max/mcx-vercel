@@ -88,7 +88,7 @@ def fetch_all_paginated(table, select, order_col="trading_date"):
     return all_rows
 
 
-# ─── Valuation computation (same logic as valuation_refresh.py) ──────────
+# ─── Valuation computation (the only copy: scripts/valuation_refresh.py was removed in Phase 3) ──────────
 
 def compute_valuations(rev_rows, price_rows, pe_mean=None, pe_sd=None):
     price_map = {}

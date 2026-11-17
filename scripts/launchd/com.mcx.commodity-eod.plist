@@ -22,9 +22,9 @@
         <key>Minute</key><integer>30</integer>
     </dict>
     <key>StandardOutPath</key>
-    <string>/Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel/logs/commodity_eod.log</string>
+    <string>/Users/pranayagarwal/Library/Logs/mcx/commodity_eod.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel/logs/commodity_eod.log</string>
+    <string>/Users/pranayagarwal/Library/Logs/mcx/commodity_eod.log</string>
     <key>RunAtLoad</key>
     <false/>
     <key>ProcessType</key>

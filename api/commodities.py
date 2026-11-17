@@ -257,7 +257,7 @@ def generate_commodity_analytics(range_key=DEFAULT_RANGE):
     # Drop any legacy fragmented child rows (SILVERM, GOLDM, ...) that pre-date
     # the consolidation fix — their data is now reflected in the parent row.
     signals = [s for s in signals if s["commodity"] not in LEGACY_CHILD_SYMBOLS]
-    # Drop OI-only stub rows (from refresh_dhan_oi running ahead of bhav_refresh).
+    # Drop OI-only stub rows (from the removed refresh_dhan_oi.py, which ran ahead of bhav_refresh).
     # Without turnover/volume the lineup is meaningless and "latest_date" gets
     # polluted by partial in-progress sessions.
     signals = [s for s in signals if _f(s.get("total_turnover_cr")) and _f(s.get("total_turnover_cr")) > 0]
