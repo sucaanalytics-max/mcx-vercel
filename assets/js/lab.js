@@ -59,8 +59,10 @@
   // Positioning: participation against a year ago, futures and options
   function posLede(g, asOf) {
     const o = g.Overall, f = g.Futures, p = g.Options;
+    // The leader's growth first, then the other side's, named: "led by options (+99% against +41% for futures)"
+    const [lead, other] = f.yoy_pct >= p.yoy_pct ? [['futures', f], ['options', p]] : [['options', p], ['futures', f]];
     const head = `Participation in MCX contracts is ${Math.round(Math.abs(o.yoy_pct))}% ${o.yoy_pct >= 0 ? 'higher' : 'lower'} than a year ago, `
-      + `${f.yoy_pct >= p.yoy_pct ? 'led by futures' : 'led by options'} (${signed(f.yoy_pct, 0)}% against ${signed(p.yoy_pct, 0)}% for ${f.yoy_pct >= p.yoy_pct ? 'options' : 'futures'}).`;
+      + `led by ${lead[0]} (${signed(lead[1].yoy_pct, 0)}% against ${signed(other[1].yoy_pct, 0)}% for ${other[0]}).`;
     const parts = [`${num(o.current)} participants counted across contracts on ${fmt.dayMonth(asOf)}: ${signed(o.wow_pct)}% on the week and ${signed(o.mom_pct)}% on the month.`];
     const big = [['Futures', f], ['Options', p]].filter(([, x]) => Math.abs(x.wow_pct) >= 10);
     big.forEach(([k, x]) => parts.push(`${k} participation ${x.wow_pct > 0 ? 'rose' : 'fell'} ${Math.round(Math.abs(x.wow_pct))}% in the week.`));

@@ -54,6 +54,11 @@ const g = { Futures: { current: 139893, wow_pct: 3.8, mom_pct: 11.6, yoy_pct: 34
             Overall: { current: 252743, wow_pct: -7.2, mom_pct: 2.7, yoy_pct: 26.6 } };
 const pl = M.posLede(g, '2026-09-25');
 check('positioning headline', pl.head, 'Participation in MCX contracts is 27% higher than a year ago, led by futures (+34% against +18% for options).');
+// Options leading (17 Nov 2026): the leader's figure comes first, the other side's is labelled with its own name
+const go = { Futures: { current: 150000, wow_pct: 1.0, mom_pct: 2.0, yoy_pct: 41.2 }, Options: { current: 160000, wow_pct: 2.0, mom_pct: 3.0, yoy_pct: 99.4 },
+             Overall: { current: 310000, wow_pct: 1.5, mom_pct: 2.5, yoy_pct: 68.0 } };
+check('positioning headline, options leading', M.posLede(go, '2026-11-17').head,
+  'Participation in MCX contracts is 68% higher than a year ago, led by options (+99% against +41% for futures).');
 check('positioning deck (Indian digit grouping, as everywhere on the site)', pl.deck, '2,52,743 participants counted across contracts on 25 Sep: −7.2% on the week and +2.7% on the month. Options participation fell 18% in the week.');
 const silver = { fpo_long: 0, fpo_short: 0, vcp_long: 690, vcp_short: 159, prop_long: 98, prop_short: 66, dfi_long: 14, dfi_short: -1, foreign_long: 0, foreign_short: 0, others_long: 47227, others_short: 7499 };
 const mx = M.mix(silver);
