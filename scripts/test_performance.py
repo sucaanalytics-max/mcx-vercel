@@ -137,6 +137,24 @@ def test_pagination():
             raised = str(e)
         check(f"a failing page (offset {off}) raises its error", raised == "Supabase 500: boom", str(raised))
 
+    # The cap warning names the rows actually dropped: the far end of the fetched order.
+    # margin_dashboard orders snapshot_date.desc itself, so its cap drops the OLDEST
+    # dates; the old text said NEWEST whenever newest_first was off.
+    from lib.supabase import paginated_order, _cap_warning
+    for tbl, params, newest, want in [
+        ("mcx_margin_daily", "?select=a&order=snapshot_date.desc,expiry.asc.nullslast", False, "lowest snapshot_date (the oldest)"),
+        ("mcx_commodity_daily", "?select=a&order=trading_date.asc", True, "lowest trading_date (the oldest)"),
+        ("mcx_valuation", "?select=a&order=trading_date.asc", False, "highest trading_date (the newest)"),
+        ("mcx_snapshots", "?select=a", False, "highest id (the newest)"),
+        ("mcx_oi_participants", "?select=a&order=report_date.desc", False, "lowest report_date (the oldest)"),
+    ]:
+        msg = _cap_warning(tbl, paginated_order(tbl, params, newest), 20000)
+        check(f"cap warning, {tbl} {params.split('order=')[-1] if 'order=' in params else '(key order)'} "
+              f"newest_first={newest}: names the {want}", f"rows with the {want} were dropped" in msg, msg)
+    check("cap warning names the table and cap",
+          _cap_warning("mcx_margin_daily", "?order=snapshot_date.desc", 20000).startswith(
+              "⚠ supabase_read_all(mcx_margin_daily): hit max_rows=20000;"))
+
     # The count comes from PostgREST's Content-Range header
     import lib.supabase as sb
     import urllib.request

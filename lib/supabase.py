@@ -202,6 +202,25 @@ def _read_counted(table, params="", timeout=10):
     return rows, (int(tail) if tail.isdigit() else None)
 
 
+def _cap_warning(table, params, max_rows):
+    """The stderr line for a read that hit max_rows. `params` is the order as
+    fetched (paginated_order, after any newest_first flip), so the rows past the
+    cap are the far end of its first sort column: the lowest values when it runs
+    desc, the highest when asc. (It used to say NEWEST whenever newest_first was
+    off, wrong for margin_dashboard, which orders snapshot_date.desc itself and
+    so drops the oldest dates.)"""
+    q = params[1:] if params.startswith("?") else params
+    order = next((x[6:] for x in q.split("&") if x.startswith("order=")), "")
+    terms = _order_terms(order)
+    if not terms:
+        return f"⚠ supabase_read_all({table}): hit max_rows={max_rows}; rows beyond it were dropped"
+    col, dirn, _ = terms[0]
+    end = "lowest" if dirn == "desc" else "highest"
+    timeish = col == "id" or "date" in col or col.endswith("_at")
+    which = f"{end} {col}" + ((" (the oldest)" if end == "lowest" else " (the newest)") if timeish else "")
+    return f"⚠ supabase_read_all({table}): hit max_rows={max_rows}; rows with the {which} were dropped"
+
+
 def supabase_read_all(table, params="", page_size=1000, max_rows=10000, timeout=10,
                       newest_first=False, read=None, workers=None):
     """Paginated read — fetches all rows beyond the 1000-row default limit.
@@ -274,9 +293,7 @@ def supabase_read_all(table, params="", page_size=1000, max_rows=10000, timeout=
     all_rows = [r for p in pages for r in p]
     if max_rows is not None and len(all_rows) >= max_rows and len(pages[-1]) == page_size:
         import sys as _sys
-        print(f"⚠ supabase_read_all({table}): hit max_rows={max_rows}; "
-              f"{'oldest' if newest_first else 'NEWEST'} rows beyond it were dropped",
-              file=_sys.stderr)
+        print(_cap_warning(table, params, max_rows), file=_sys.stderr)
     if max_rows is not None:
         all_rows = all_rows[:max_rows]
     return all_rows[::-1] if newest_first else all_rows
