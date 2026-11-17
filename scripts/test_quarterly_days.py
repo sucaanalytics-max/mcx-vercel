@@ -78,8 +78,10 @@ BASE = upto("2026-09-28")
 check("29 Sep 09:10 live: today counted as remaining", run(datetime(2026, 9, 29, 9, 10), BASE),
       trading_days_elapsed=64, trading_days_remaining=2, trading_days_total=66, today_status="live",
       today_in_remaining=True, revenue_projected_cr=747.74, pat_projected_cr=456.7)
+# 747.23 (was 746.33): the run-rate is a full-day rate, so the 14 Sep part-day
+# session (morning closed) is no longer in the last-10 average.
 check("28 Sep 14:14 live (rows to 25 Sep)", run(datetime(2026, 9, 28, 14, 14), upto("2026-09-25")),
-      trading_days_elapsed=63, trading_days_remaining=3, revenue_projected_cr=746.33, pat_projected_cr=455.6)
+      trading_days_elapsed=63, trading_days_remaining=3, revenue_projected_cr=747.23, pat_projected_cr=456.3)
 check("before the open", run(datetime(2026, 9, 29, 8, 0), BASE),
       trading_days_elapsed=64, trading_days_remaining=2, today_status="pre_open")
 check("closed, end-of-day row not written yet", run(datetime(2026, 9, 29, 23, 35), BASE),
@@ -108,7 +110,11 @@ check("first day of Q3 uses the last 10 sessions of Q2", r,
 if any("placeholder" in e for e in r["errors"]):
     print("FAIL first day of Q3 fell back to the placeholder"); FAILED.append("q3 placeholder")
 r = run(datetime(2026, 10, 1, 10, 0), [])
-if not any("placeholder" in e for e in r["errors"]) or r["current_quarter"]["revenue_projected_cr"] != 12.0 * 64:
+# 64 sessions, three of them morning-closed (20 Oct, 10 Nov, 24 Nov) at 0.82 of a day
+from lib.mcx_config import session_weight
+from datetime import date as _date, timedelta as _td
+_q3_weight = sum(session_weight(_date(2026, 10, 1) + _td(days=i)) for i in range(92))
+if not any("placeholder" in e for e in r["errors"]) or r["current_quarter"]["revenue_projected_cr"] != round(12.0 * _q3_weight, 2):
     print("FAIL no history at all should flag the placeholder"); FAILED.append("no history")
 else:
     print("PASS no history at all flags the placeholder", r["errors"])

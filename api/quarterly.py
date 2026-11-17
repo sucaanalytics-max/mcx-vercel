@@ -25,6 +25,7 @@ from datetime import date, datetime, timedelta
 from lib.mcx_config import (
     SUPABASE_URL, SUPABASE_ANON_KEY, DILUTED_SHARES_CR, SESSION_START,
     MCX_HOLIDAYS_2026, MCX_SPECIAL_SESSIONS, supabase_read, supabase_read_all, now_ist,
+    session_shape, session_weight, SESSION_FULL, SESSION_CLOSED,
     make_cors_headers, cache_header,
 )
 try:
@@ -110,17 +111,25 @@ def _classify_days(q_start, q_end, now, rows):
     day the holiday calendar doesn't list as a session (e.g. a Sunday budget
     session) counts as completed. So elapsed + remaining always equals the total.
 
-    Returns (completed_rows, remaining, missing_dates, today_status).
+    Returns (completed_rows, remaining, missing_dates, today_status,
+    remaining_weight): remaining_weight counts each remaining part-day session
+    at its expected share of a full day's revenue (session_weight).
     """
     today = now.date()
     now_min = now.hour * 60 + now.minute
-    close = session_end(today)
+    # The day's real hours: on a part-day session it opens at 17:00 or closes
+    # at 17:00, so "final" and "live" follow those, not 09:00-23:55.
+    shape = session_shape(today)
+    if shape["type"] == SESSION_CLOSED:
+        open_min, close = SESSION_START, session_end(today)
+    else:
+        open_min, close = shape["start"], shape["end"]
     by_date = {r["trading_date"]: r for r in rows}
     today_row = by_date.get(today.strftime("%Y-%m-%d"))
     today_final = (bool(today_row) and today_row.get("source") in FINAL_ROW_SOURCES
                    and now_min >= close)
 
-    completed, missing, remaining = [], [], 0
+    completed, missing, remaining, remaining_weight = [], [], 0, 0.0
     d = q_start
     while d <= q_end:
         iso = d.strftime("%Y-%m-%d")
@@ -130,22 +139,24 @@ def _classify_days(q_start, q_end, now, rows):
             completed.append(row)
         elif _is_trading_day(d) and d >= today:
             remaining += 1
+            remaining_weight += session_weight(d)
         elif _is_trading_day(d):
             missing.append(iso)
             remaining += 1
+            remaining_weight += session_weight(d)
         d += timedelta(days=1)
 
     if today_final:
         today_status = "final"
     elif not _is_trading_day(today):
         today_status = "no_session"
-    elif now_min < SESSION_START:
+    elif now_min < open_min:
         today_status = "pre_open"
     elif now_min < close:
         today_status = "live"
     else:
         today_status = "closed_awaiting_eod"
-    return completed, remaining, missing, today_status
+    return completed, remaining, missing, today_status, remaining_weight
 
 
 def _get_quarter_bounds(d):
@@ -295,15 +306,18 @@ def generate_quarterly(today=None, now=None):
         errors.append(f"supabase fetch: {e}")
 
     # Revenue projection
-    daily_rows, remaining_trading, missing_dates, today_status = _classify_days(
+    daily_rows, remaining_trading, missing_dates, today_status, remaining_weight = _classify_days(
         q_start, q_end, now, fetched)
     elapsed_trading = len(daily_rows)
     total_trading = elapsed_trading + remaining_trading
 
     actual_rev = round(sum(r["total_rev_cr"] for r in daily_rows), 2)
-    # Special sessions (a ~1-hour Muhurat) count as revenue but would drag the
-    # run-rate for every remaining full session, so the averages skip them.
-    rate_rows = [r for r in daily_rows if r["trading_date"] not in MCX_SPECIAL_SESSIONS]
+    # Special sessions (a ~1-hour Muhurat) and part-day sessions count as
+    # revenue but would drag the run-rate for every remaining full session, so
+    # the averages are full-day rates; remaining part days are weighted instead
+    # (remaining_weight, PART_DAY_REVENUE_WEIGHT).
+    rate_rows = [r for r in daily_rows if r["trading_date"] not in MCX_SPECIAL_SESSIONS
+                 and session_shape(r["trading_date"])["type"] == SESSION_FULL]
     rate_rev = round(sum(r["total_rev_cr"] for r in rate_rows), 2)
     daily_avg = round(rate_rev / len(rate_rows), 2) if rate_rows else 0
 
@@ -318,7 +332,8 @@ def generate_quarterly(today=None, now=None):
                 f"&trading_date=lt.{q_start_iso}&total_rev_cr=gt.0"
                 f"&order=trading_date.desc&limit=10"
             )
-            last_10 = [r for r in prior if r.get("total_rev_cr") and r["total_rev_cr"] > 0]
+            last_10 = [r for r in prior if r.get("total_rev_cr") and r["total_rev_cr"] > 0
+                       and session_shape(r["trading_date"])["type"] == SESSION_FULL]
         except Exception as e:
             errors.append(f"supabase fetch (prior quarter): {e}")
     ma10 = round(sum(r["total_rev_cr"] for r in last_10) / len(last_10), 2) if last_10 else daily_avg
@@ -332,7 +347,7 @@ def generate_quarterly(today=None, now=None):
         errors.append("no revenue history: daily projection uses a 12 Cr placeholder")
         daily_proj = 12.0
 
-    remaining_rev = round(daily_proj * remaining_trading, 2)
+    remaining_rev = round(daily_proj * remaining_weight, 2)
     total_rev = round(actual_rev + remaining_rev, 2)
 
     # Uncertainty bands
