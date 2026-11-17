@@ -24,6 +24,19 @@ function check(name, got, want) {
 const r2 = v => Math.round(v * 100) / 100;
 const pct2 = (a, b) => Math.abs((a / b - 1) * 100);
 
+// Session profile with no qualifying day (17 Nov 2026: winter days cut at 23:30)
+const ra0 = { days_used: 0, incomplete_days_excluded: 10, other_season_days_excluded: 17, part_days_excluded: 1 };
+check('profile: no qualifying day says why',
+  M.profileEmptyNote({ session_end: '23:55', rolling_average: ra0 }),
+  'Not enough days yet: the profile needs full sessions that ran to the 23:55 close, and none in this window did '
+  + '(10 sessions stopped before the close; 17 days on the 23:30 hours left out; 1 part-day session left out).');
+check('profile: no reasons, no brackets',
+  M.profileEmptyNote({ session_end: '23:30', rolling_average: { days_used: 0 } }),
+  'Not enough days yet: the profile needs full sessions that ran to the 23:30 close, and none in this window did.');
+check('profile: payload without a rolling average is empty too',
+  M.profileEmptyNote({}), "Not enough days yet: the profile needs full sessions that ran to the day's close, and none in this window did.");
+check('profile: one qualifying day is enough to draw', M.profileEmptyNote({ session_end: '23:55', rolling_average: { days_used: 1 } }), null);
+
 // Session state
 const snap = (o) => Object.assign({ success: true, trading_date: '2026-09-29', session_closed: false }, o);
 check('no refresh yet is before the open', M.sessionState(undefined, '2026-09-29'), 'pre');

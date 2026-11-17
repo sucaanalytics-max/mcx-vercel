@@ -22,6 +22,7 @@ Run:  python3 scripts/test_session_hours.py            # offline, no network
       python3 scripts/test_session_hours.py --network  # + read-only MCX/Supabase checks
 """
 import sys, os, time, types
+import json
 from datetime import datetime, date, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -386,7 +387,111 @@ def test_curves_skip_short_days():
     ra = c["rolling_average"]
     check("dashboard curve: cut-short day left out", ra["days_used"] == 1,
           str({k: ra[k] for k in ra if k != "buckets"}))
+    check("dashboard curve: cut-short day counted as incomplete", ra["incomplete_days_excluded"] == 1, str(ra))
 
+    # 17 Nov 2026 on production: the window held summer days, winter days cut at
+    # 23:30 and one part day (10 Nov), and no day that qualifies. The payload
+    # must say why, not send all-zero percentiles (drawn as "0% in every bucket").
+    ic.supabase_read_all = lambda *a, **k: (
+        _uniform_day("2026-10-29") + _uniform_day("2026-10-30")
+        + sum((_uniform_day(d, 870) for d in short), [])
+        + _uniform_day("2026-11-10", 870))
+    ic.now_ist = lambda: datetime(2026, 11, 17, 12, 0)
+    try:
+        c = ic.generate_intraday_curves(days=30, include_today=False)
+    finally:
+        ic.supabase_read_all, ic.now_ist = real_read, real_now
+    ra = c["rolling_average"]
+    check("no qualifying day: days_used 0, reasons counted",
+          (ra["days_used"], ra["incomplete_days_excluded"], ra["other_season_days_excluded"],
+           ra["part_days_excluded"]) == (0, 3, 2, 1), str({k: ra[k] for k in ra if k != "buckets"}))
+    check("no qualifying day: percentiles null, not zeros", c["percentiles"] is None, str(c["percentiles"]))
+    check("no qualifying day: no curves, no EWMA",
+          c["historical_curves"] == [] and c["adaptive_ewma"] is None and c["session_end"] == "23:55")
+
+    # The EWMA must weight the newest day most. daily_curves is newest-first;
+    # the loop used to reverse it, so the oldest day got age 0.
+    days_full = [d for d in ((date(2026, 11, 17) + timedelta(days=i)).isoformat() for i in range(25))
+                 if cfg.session_shape(d)["type"] == cfg.SESSION_FULL][:10]
+    newest = days_full[-1]
+    def back_loaded(d):      # volume grows with the square of time: a heavy late bucket
+        return [dict(s, fut_notl_cr=s["elapsed_min"] ** 2 / 895) for s in _uniform_day(d)]
+    ic.supabase_read_all = lambda *a, **k: (sum((_uniform_day(d) for d in days_full[:-1]), [])
+                                            + back_loaded(newest))
+    ic.now_ist = lambda: datetime.combine(date.fromisoformat(newest) + timedelta(days=1), datetime.min.time())
+    try:
+        c = ic.generate_intraday_curves(days=30, include_today=False)
+    finally:
+        ic.supabase_read_all, ic.now_ist = real_read, real_now
+    late_mean = c["rolling_average"]["buckets"][-1]["weight"]
+    late_ewma = c["adaptive_ewma"]["buckets"][-1]["weight"] if c["adaptive_ewma"] else None
+    late_newest = c["historical_curves"][0]["buckets"][-1]
+    check("EWMA: 10 full winter days used", len(days_full) == 10 and c["rolling_average"]["days_used"] == 10,
+          str(days_full))
+    check("historical_curves is newest first", c["historical_curves"][0]["date"] == newest)
+    check("EWMA weights the newest day most (late bucket above the plain mean)",
+          late_ewma is not None and late_mean < late_ewma < late_newest,
+          f"mean {late_mean} ewma {late_ewma} newest {late_newest}")
+
+
+
+def test_freshness_relay_coverage():
+    """The freshness scan flags a session whose snapshots stop before its own
+    close: 2-16 Nov 2026 all ended at 23:30 and nothing noticed for two weeks."""
+    print("\n[10b] Freshness: relay coverage")
+    import scripts.freshness_scan as fs
+    last = {}   # trading_date -> last elapsed_min (missing = no snapshots)
+    def fake_read(table, params, **k):
+        assert table == "mcx_snapshots", table
+        d = params.split("trading_date=eq.")[1].split("&")[0]
+        return [{"elapsed_min": last[d]}] if d in last else []
+    real_read, real_now = fs.supabase_read, fs.now_ist
+    fs.supabase_read = fake_read
+    try:
+        # 17 Nov 2026 09:00: expected day 16 Nov, which stopped at 23:30.
+        fs.now_ist = lambda: datetime(2026, 11, 17, 9, 0)
+        last.update({"2026-11-16": 870, "2026-11-13": 870, "2026-11-12": 870,
+                     "2026-11-11": 870, "2026-11-10": 870})
+        c = fs._check_relay_coverage(5)
+        check("16 Nov cut at 23:30 -> STALE", c["status"] == "STALE" and c["last_snapshot"] == "23:30", str(c))
+        check("lists every short day in the window",
+              [x["date"] for x in c["incomplete_days"]]
+              == ["2026-11-16", "2026-11-13", "2026-11-12", "2026-11-11", "2026-11-10"], str(c))
+        check("part day 10 Nov is judged on its own 23:55 close",
+              c["incomplete_days"][-1] == {"date": "2026-11-10", "last_snapshot": "23:30", "close": "23:55"}, str(c))
+
+        # 18 Nov 09:00: 17 Nov ran to 23:55 (elapsed 895). Older short days
+        # stay listed but no longer stale the domain.
+        fs.now_ist = lambda: datetime(2026, 11, 18, 9, 0)
+        last["2026-11-17"] = 895
+        c = fs._check_relay_coverage(5)
+        check("17 Nov ran to 23:55 -> OK", c["status"] == "OK" and c["last_snapshot"] == "23:55", str(c))
+        check("older short days still listed", len(c["incomplete_days"]) == 4, str(c))
+
+        # Ten minutes short is within tolerance; a summer day at 23:30 is full.
+        last["2026-11-17"] = 885
+        check("885 of 895 min is full", fs._check_relay_coverage(1)["status"] == "OK")
+        fs.now_ist = lambda: datetime(2026, 10, 31, 9, 0)
+        last["2026-10-30"] = 870
+        check("summer day to 23:30 is full", fs._check_relay_coverage(1)["status"] == "OK")
+
+        # No snapshots at all for the expected day: the relay never ran.
+        fs.now_ist = lambda: datetime(2026, 11, 20, 9, 0)
+        c = fs._check_relay_coverage(1)
+        check("no snapshots -> STALE", c["status"] == "STALE" and c["last_snapshot"] is None, str(c))
+
+        # Evening-closed (morning-only) day: its close is 17:00, elapsed 480.
+        fs.now_ist = lambda: datetime(2026, 1, 2, 9, 0)
+        last["2026-01-01"] = 480
+        check("morning-only day judged on its 17:00 close", fs._check_relay_coverage(1)["status"] == "OK")
+    finally:
+        fs.supabase_read, fs.now_ist = real_read, real_now
+
+    with open(fs.MANIFEST) as f:
+        man = json.load(f)
+    rc = [d for d in man["domains"] if d["domain"] == "relay_coverage"]
+    check("manifest has relay_coverage with no fixer",
+          len(rc) == 1 and rc[0]["cadence"] == "session" and rc[0]["fixer"] is None, str(rc))
 
 # ── Part-day sessions ────────────────────────────────────────────────────────
 # 2026-11-10 Diwali-Balipratipada: morning closed, evening 17:00–23:55 (winter).
@@ -597,6 +702,7 @@ if __name__ == "__main__":
     test_replace_confirms_write()
     test_curves_and_freshness()
     test_curves_skip_short_days()
+    test_freshness_relay_coverage()
     test_session_shape()
     test_part_day_projection()
     test_refresh_part_day()
