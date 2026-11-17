@@ -72,6 +72,46 @@ check('with no lag (same-day entry, not tradeable) the old figures come back', f
 const priced = [100, 100, 100, 110].map((price, i) => ({ date: `2026-08-0${i + 1}`, ensemble_signal: 'BUY', price }));
 check('model rows carry the price as "price"', (x => [x.all.n, r2(x.all.avg)])(M.forward(priced, 'ensemble_signal', ['BUY'], 2, 'price')), [1, 10]);
 
+// ── Out-of-sample split and the study's trade rule ─────────────────────────
+// Rows dated around the rules' cutoff (11 Mar 2026)
+const seq = (sigs, closes, start = 5) => sigs.map((g, i) => {
+  const d = new Date(Date.UTC(2026, 2, start + i)).toISOString().slice(0, 10);
+  return { date: d, composite_signal: g, regime: g === 'SELL' ? 'COLD' : g === 'STRONG_BUY' ? 'HOT' : 'NEUTRAL', close_price: closes[i] };
+});
+check('rules cutoff is 11 Mar 2026', [M.MOM_RULES_FIXED, M.inStudy('2026-03-11'), M.afterRules('2026-03-12')], ['2026-03-11', true, true]);
+// 5 Mar … 16 Mar; signals on 10 Mar (study) and 12 Mar (live); h = 2
+const cut = seq(['HOLD', 'HOLD', 'HOLD', 'HOLD', 'HOLD', 'STRONG_BUY', 'HOLD', 'STRONG_BUY', 'HOLD', 'HOLD', 'HOLD', 'HOLD'], [100, 100, 100, 100, 100, 100, 100, 110, 121, 100, 110, 110]);
+const fs1 = M.forward(cut, 'composite_signal', ['STRONG_BUY'], 2, 'close_price', 1, M.inStudy);
+check('study side: a window that starts before the cutoff uses later prices (10 Mar → 11 Mar close to 13 Mar)', [fs1.rows[0].n, r2(fs1.rows[0].avg), fs1.last], [1, 21, '2026-03-11']);
+const fl1 = M.forward(cut, 'composite_signal', ['STRONG_BUY'], 2, 'close_price', 1, M.afterRules);
+check('live side: only signal days after the cutoff, first day 12 Mar', [fl1.rows[0].n, r2(fl1.rows[0].avg), fl1.first, fl1.all.n], [1, -9.09, '2026-03-12', 2]);
+check('no filter: old first/last semantics kept', (x => [x.first, x.all.n])(M.forward(cut, 'composite_signal', ['STRONG_BUY'], 2)), ['2026-03-05', 9]);
+
+// Trade rule: buy day i → enter close i+1; first Sell/Cold day j → exit close j+1
+const tb = M.tradeBacktest(seq(['BUY', 'HOLD', 'HOLD', 'SELL', 'HOLD', 'HOLD'], [100, 100, 104, 108, 110, 90], 1));
+check('enters the close after Buy, exits the close after Sell', tb.trades.map(t => [t.entry, t.exit, t.why, t.days, r2(t.ret)]), [['2026-03-02', '2026-03-05', 'sell', 3, 10]]);
+check('buy-and-hold over the same span and time in market', [r2(tb.bh), r2(tb.inMarket), tb.from, tb.to], [-10, 75, '2026-03-02', '2026-03-06']);
+const cold = M.tradeBacktest([{ date: '2026-04-01', composite_signal: 'STRONG_BUY', regime: 'HOT', close_price: 100 },
+  { date: '2026-04-02', composite_signal: 'HOLD', regime: 'HOT', close_price: 100 },
+  { date: '2026-04-03', composite_signal: 'WATCH', regime: 'COLD', close_price: 95 },
+  { date: '2026-04-06', composite_signal: 'WATCH', regime: 'COLD', close_price: 90 }]);
+check('a Cold day exits even when it reads Watch', cold.trades.map(t => [t.exit, t.why, r2(t.ret)]), [['2026-04-06', 'sell', -10]]);
+const long = M.tradeBacktest(seq(['BUY'].concat(Array(19).fill('HOLD')), Array.from({ length: 20 }, (_, i) => 100 + i), 1));
+check('15-day time stop', long.trades.map(t => [t.why, t.days, t.entry, t.exit]), [['time', 15, '2026-03-02', '2026-03-17']]);
+check('a trade still open at the end is left out', M.tradeBacktest(seq(['BUY', 'HOLD', 'HOLD'], [100, 101, 102], 1)).n, 0);
+const two = M.tradeBacktest(seq(['BUY', 'SELL', 'STRONG_BUY', 'SELL', 'HOLD'], [100, 110, 121, 110, 99], 1));
+check('one position at a time; win rate, average, median, compounded',
+  [two.n, two.win, r2(two.avg), r2(two.med), r2(two.compounded)], [2, 50, 0, 0, -1]);
+check('keep limits entries to after the cutoff', M.tradeBacktest(cut.map(r => Object.assign({}, r, { composite_signal: r.composite_signal === 'HOLD' ? 'SELL' : r.composite_signal })), 1, M.afterRules).trades.map(t => t.entry), ['2026-03-13']);
+
+// The caveat calls a breakdown only when Strong buy did no better than all days
+const cv = M.momCaveat(cut, 2);
+check('caveat: strong buy below all days after the cutoff → breakdown wording', [cv.broken, /has not held up out of sample/.test(cv.text), /Since the rules were set on 11 March 2026/.test(cv.text)], [true, true, true]);
+const good = seq(['HOLD', 'HOLD', 'HOLD', 'HOLD', 'HOLD', 'HOLD', 'HOLD', 'STRONG_BUY', 'HOLD', 'HOLD', 'HOLD', 'HOLD', 'HOLD'], [100, 100, 100, 100, 100, 100, 100, 100, 100, 120, 120, 120, 120]);
+const cg = M.momCaveat(good, 2);
+check('caveat: strong buy above all days → neutral record, no breakdown claim', [cg.broken, /not held up/.test(cg.text)], [false, false]);
+check('caveat: nothing to say without a strong-buy outcome', M.momCaveat(seq(['HOLD', 'HOLD', 'HOLD'], [1, 2, 3], 12), 2), null);
+
 // ── Model ensemble ─────────────────────────────────────────────────────────
 const es = { date: '2026-09-28', price: 3263.5, fair_value_base: 2940.65,
   ecm: { spread: 322.85, spread_pct: 10.98, z_score: -0.727, half_life_days: 34.7, signal: 'MILD_REVERT_UP' },

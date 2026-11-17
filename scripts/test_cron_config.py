@@ -36,4 +36,15 @@ check("no oi_participants cron", "oi_participants" in jobs, False)
 check("no margins cron", "margins" in jobs, False)
 check("every cron job is in the dispatch table", sorted(j for j in jobs if j not in table), [])
 check("crons still scheduled", len(jobs) > 0, True)
+
+# The momentum job needs day t's MCX revenue, which exists only after the evening session
+# (23:30 IST, 23:55 in US winter). Run it between 00:00 and 09:00 IST (18:30-03:30 UTC),
+# so day t is scored the next morning, before the 09:00 freshness check.
+mom = [c["schedule"] for c, j in zip(crons, jobs) if j == "momentum"]
+check("momentum cron scheduled once", len(mom), 1)
+if mom:
+    minute, hour = (int(x) for x in mom[0].split()[:2])
+    utc_min = hour * 60 + minute
+    check("momentum cron runs after the evening revenue (00:00-09:00 IST)",
+          utc_min >= 18 * 60 + 30 or utc_min < 3 * 60 + 30, True)
 sys.exit(1 if failed else 0)

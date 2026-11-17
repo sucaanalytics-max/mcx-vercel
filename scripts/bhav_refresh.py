@@ -14,6 +14,8 @@ Usage:
   python3 scripts/bhav_refresh.py              # refresh today + missing last 5 days
   python3 scripts/bhav_refresh.py 2026-02-20   # refresh specific date
   python3 scripts/bhav_refresh.py --backfill 30 # backfill last 30 days
+  python3 scripts/bhav_refresh.py --commodity 2026-11-10          # breakdown only
+  python3 scripts/bhav_refresh.py --commodity-recent 4 --retry-until 06:55
 """
 import sys, os, json, time, urllib.request
 from curl_cffi import requests as cfreq
@@ -111,6 +113,25 @@ def _get_hist_session(force_new=False):
         raise last_err  # all impersonation targets failed
     return _hist_session
 
+# MCX renamed the JSON keys when it moved the endpoint (Jun-2026). Accept both
+# spellings so a rollback on their side doesn't break us again.
+_FIELD_ALIASES = {
+    "InstrumentName": ("Instrumentname", "InstrumentName"),
+    "Symbol":         ("Commodity", "Symbol"),
+    "CommodityHead":  ("Segment", "CommodityHead"),
+    "TradedContract": ("TradedContract", "NoOfContract"),
+    "Volume":         ("Quantity", "Volume"),
+}
+
+
+def _field(row, logical, default=None):
+    """Read a logical field from a raw MCX row under either key spelling."""
+    for key in _FIELD_ALIASES.get(logical, (logical,)):
+        if key in row and row[key] not in (None, ""):
+            return row[key]
+    return default
+
+
 def _fetch_mcx_raw(date_iso):
     """Fetch raw contract-level rows from MCX Historical API for one date.
     Returns (raw_rows, None) on success or (None, error_msg) on failure."""
@@ -153,10 +174,9 @@ def _aggregate_commodity_rows(date_iso, raw_rows):
     Returns list of dicts for mcx_commodity_daily table."""
     groups = {}
     for r in raw_rows:
-        symbol = (r.get("Symbol") or r.get("Commodity") or "").strip()
-        # Sitefinity endpoint renamed the field to "Instrumentname" (lowercase n).
-        inst = (r.get("Instrumentname") or r.get("InstrumentName") or "").strip()
-        chead = (r.get("CommodityHead") or r.get("Segment") or "").strip()
+        symbol = str(_field(r, "Symbol", "")).strip()
+        inst = str(_field(r, "InstrumentName", "")).strip()
+        chead = str(_field(r, "CommodityHead", "")).strip()
         if not symbol or not inst:
             continue
         key = (symbol, inst)
@@ -167,11 +187,15 @@ def _aggregate_commodity_rows(date_iso, raw_rows):
                            "premium_turnover_lacs": 0.0, "open_interest": 0,
                            "oi_value_lacs": 0.0}
         g = groups[key]
-        g["contracts"] += int(r.get("NoOfContract", 0) or r.get("TradedContract", 0) or 0)
-        g["volume_lots"] += int(r.get("Volume", 0) or r.get("Quantity", 0) or 0)
+        g["contracts"] += int(_field(r, "TradedContract", 0) or 0)
+        g["volume_lots"] += int(_field(r, "Volume", 0) or 0)
         g["turnover_lacs"] += float(r.get("TotalValue", 0) or 0)
         prem_str = str(r.get("PremiumTurnover", "-")).strip()
-        if prem_str not in ("-", "", "0"):
+        # Futures have no premium. Since ~21 Sep 2026 MCX sometimes copies
+        # TotalValue into PremiumTurnover on futures rows (10 Nov 06:31: all 22
+        # traded FUTCOM rows, Rs 40,289 Cr = their notional); 610 FUT rows over
+        # 25 dates were stored with that value before this guard.
+        if inst.upper().startswith("OPT") and prem_str not in ("-", "", "0"):
             try: g["premium_turnover_lacs"] += float(prem_str)
             except ValueError: pass
         g["open_interest"] += int(r.get("OpenInterest", 0) or 0)
@@ -199,8 +223,42 @@ def _aggregate_commodity_rows(date_iso, raw_rows):
     return rows_out
 
 
+# ── Completeness gate ─────────────────────────────────────────────────────────
+# MCX publishes a day's Historical Detailed Report in pieces. Probed for
+# 10 Nov 2026 (close 23:30): 23:48 no rows; 00:35 and 02:00 the endpoint
+# returned zero rows for EVERY date (9 Nov too); 04:31 all 42 rows and
+# contracts, but no option premium; 06:31 complete. The anon key can INSERT
+# but not UPDATE mcx_commodity_daily, so a partial write is permanent unless
+# SUPABASE_SERVICE_KEY is set. Write only complete breakdowns.
+MIN_BREAKDOWN_ROWS = 20
+MIN_OPT_PREMIUM_SHARE = 0.9   # traded option rows that must carry premium
+
+
+def breakdown_completeness(rows):
+    """(ok, reason) for aggregated commodity rows from _aggregate_commodity_rows.
+
+    Complete = enough rows, futures turnover present, and (if any options
+    traded) nearly every traded option row carries premium."""
+    if not rows or len(rows) < MIN_BREAKDOWN_ROWS:
+        return False, f"only {len(rows or [])} commodity rows"
+    fut = [r for r in rows if str(r["instrument_type"]).upper().startswith("FUT")]
+    if sum(r["turnover_cr"] or 0 for r in fut) <= 0:
+        return False, "futures turnover missing"
+    opt = [r for r in rows if str(r["instrument_type"]).upper().startswith("OPT")
+           and (r["contracts"] or 0) > 0]
+    if opt:
+        with_prem = sum(1 for r in opt if r["premium_turnover_cr"])
+        if with_prem < MIN_OPT_PREMIUM_SHARE * len(opt):
+            return False, f"options premium missing ({with_prem}/{len(opt)} traded option rows)"
+    return True, ""
+
+
 def _upsert_commodity_batch(rows):
-    """Upsert commodity rows to mcx_commodity_daily."""
+    """Upsert commodity rows to mcx_commodity_daily.
+
+    merge-duplicates needs UPDATE rights. With the anon key the RLS USING
+    clause rejects it (42501) and a plain PATCH silently matches zero rows, so
+    existing dates can only be corrected with SUPABASE_SERVICE_KEY set."""
     url = f"{SUPABASE_URL}/rest/v1/mcx_commodity_daily"
     body = json.dumps(rows).encode()
     req = urllib.request.Request(url, data=body, method="POST", headers={
@@ -213,25 +271,35 @@ def _upsert_commodity_batch(rows):
         with urllib.request.urlopen(req, timeout=15) as resp:
             return True
     except Exception as e:
-        print(f"  ⚠ commodity upsert failed: {e}")
+        detail = ""
+        if hasattr(e, "read"):
+            try: detail = e.read().decode()[:200]
+            except Exception: pass
+        print(f"  ⚠ commodity upsert failed: {e} {detail}".rstrip())
+        if "42501" in detail:
+            print("      RLS blocked the write: set SUPABASE_SERVICE_KEY "
+                  "(worktrees have no .env — run writes from the main checkout).")
         return False
 
 
-def fetch_mcx_historical(date_iso):
+def fetch_mcx_historical(date_iso, write_commodity=True):
     """Fetch daily revenue from MCX Historical Detailed Report API.
     Returns revenue dict with exact PremiumTurnover (no proxy), or None on failure.
-    Also upserts commodity-level breakdown to mcx_commodity_daily."""
+    Also upserts commodity-level breakdown to mcx_commodity_daily unless
+    write_commodity is False (tests and dry runs)."""
     raw_rows, err = _fetch_mcx_raw(date_iso)
     if raw_rows is None:
         if err and err != "no data":
             print(f"  ⓘ Historical API unavailable: {err}")
         return None
 
-    # ── Commodity-level upsert (new) ──
+    # ── Commodity-level upsert (complete breakdowns only) ──
     commodity_rows = _aggregate_commodity_rows(date_iso, raw_rows)
-    if commodity_rows:
-        ok = _upsert_commodity_batch(commodity_rows)
-        if ok:
+    if commodity_rows and write_commodity:
+        complete, why = breakdown_completeness(commodity_rows)
+        if not complete:
+            print(f"  ⓘ {date_iso}: commodity breakdown not written — {why}")
+        elif _upsert_commodity_batch(commodity_rows):
             print(f"  ✓ {len(commodity_rows)} commodity rows → mcx_commodity_daily")
 
     # ── Exchange-wide aggregate (existing logic) ──
@@ -242,7 +310,7 @@ def fetch_mcx_historical(date_iso):
     n_opt = 0
 
     for r in raw_rows:
-        inst = (r.get("Instrumentname") or r.get("InstrumentName") or "").strip().upper()
+        inst = str(_field(r, "InstrumentName", "")).strip().upper()
         total_val = float(r.get("TotalValue", 0) or 0)
         prem_str = str(r.get("PremiumTurnover", "-")).strip()
 
@@ -294,12 +362,18 @@ def get_existing_dates():
 
 
 def get_commodity_dates(since_iso):
-    """Distinct trading_dates already present in mcx_commodity_daily on/after
-    since_iso. Paginated (Supabase caps at 1000 rows/request)."""
+    """Distinct trading_dates that already have a REAL breakdown in
+    mcx_commodity_daily on/after since_iso. Paginated (Supabase caps at 1000
+    rows/request).
+
+    The turnover_cr > 0 filter matters: the Dhan OI jobs insert OI-only stub
+    rows (turnover_cr = 0), often before bhav_refresh runs. Counting those as
+    coverage made ensure_commodity_breakdown() skip the date for good (found
+    2026-05-27/28)."""
     dates, offset = set(), 0
     while True:
         url = (f"{SUPABASE_URL}/rest/v1/mcx_commodity_daily"
-               f"?select=trading_date&trading_date=gte.{since_iso}"
+               f"?select=trading_date&trading_date=gte.{since_iso}&turnover_cr=gt.0"
                f"&order=trading_date.asc&limit=1000&offset={offset}")
         req = urllib.request.Request(url, headers={
             "apikey": SUPABASE_ANON_KEY,
@@ -314,6 +388,44 @@ def get_commodity_dates(since_iso):
     return dates
 
 
+# commodity_breakdown() outcomes, and the --commodity CLI exit code for each.
+BREAKDOWN_WRITTEN = "written"
+BREAKDOWN_PRESENT = "present"            # a real breakdown is already stored
+BREAKDOWN_NOT_PUBLISHED = "not_published"  # MCX returned no rows yet
+BREAKDOWN_INCOMPLETE = "incomplete"      # rows, but a leg is missing (gate)
+BREAKDOWN_FETCH_ERROR = "fetch_error"
+BREAKDOWN_WRITE_FAILED = "write_failed"
+EXIT_OK, EXIT_ERROR, EXIT_NOT_READY = 0, 1, 3
+_EXIT_CODES = {
+    BREAKDOWN_WRITTEN: EXIT_OK, BREAKDOWN_PRESENT: EXIT_OK,
+    BREAKDOWN_NOT_PUBLISHED: EXIT_NOT_READY, BREAKDOWN_INCOMPLETE: EXIT_NOT_READY,
+    BREAKDOWN_FETCH_ERROR: EXIT_ERROR, BREAKDOWN_WRITE_FAILED: EXIT_ERROR,
+}
+
+
+def commodity_breakdown(date_iso, present=None):
+    """Write the per-commodity breakdown for date_iso if MCX has a complete one.
+
+    Returns (status, n_rows, detail); status is one of the BREAKDOWN_* values.
+    `present` is a set of dates already covered (get_commodity_dates); pass it
+    to skip the fetch for those. Idempotent."""
+    if present is not None and date_iso in present:
+        return BREAKDOWN_PRESENT, 0, ""
+    raw_rows, err = _fetch_mcx_raw(date_iso)
+    if raw_rows is None:
+        if err == "no data":
+            return BREAKDOWN_NOT_PUBLISHED, 0, "MCX historical report has no rows yet"
+        return BREAKDOWN_FETCH_ERROR, 0, str(err)[:200]
+    commodity_rows = _aggregate_commodity_rows(date_iso, raw_rows)
+    complete, why = breakdown_completeness(commodity_rows)
+    if not complete:
+        return BREAKDOWN_INCOMPLETE, len(commodity_rows), why
+    if not _upsert_commodity_batch(commodity_rows):
+        return BREAKDOWN_WRITE_FAILED, len(commodity_rows), "upsert to mcx_commodity_daily failed"
+    contracts = sum(r["contracts"] for r in commodity_rows)
+    return BREAKDOWN_WRITTEN, len(commodity_rows), f"{contracts:,} contracts"
+
+
 def ensure_commodity_breakdown(date_iso, present=None):
     """Guarantee mcx_commodity_daily has the per-commodity breakdown for date_iso.
 
@@ -321,18 +433,65 @@ def ensure_commodity_breakdown(date_iso, present=None):
     the per-commodity rows — so without this, every relay-EOD day is missing from
     mcx_commodity_daily and the commodity dashboard / signals silently lose data.
     Idempotent (merge-duplicates). Returns the number of rows upserted."""
-    if present is not None and date_iso in present:
-        return 0
-    raw_rows, err = _fetch_mcx_raw(date_iso)
-    if raw_rows is None:
-        if err and err != "no data":
-            print(f"  ⓘ {date_iso}: commodity breakdown unavailable: {err}")
-        return 0
-    commodity_rows = _aggregate_commodity_rows(date_iso, raw_rows)
-    if commodity_rows and _upsert_commodity_batch(commodity_rows):
-        print(f"  ✓ {date_iso}: {len(commodity_rows)} commodity rows → mcx_commodity_daily")
-        return len(commodity_rows)
+    status, n, detail = commodity_breakdown(date_iso, present)
+    if status == BREAKDOWN_WRITTEN:
+        print(f"  ✓ {date_iso}: {n} commodity rows → mcx_commodity_daily ({detail})")
+        return n
+    if status != BREAKDOWN_PRESENT:
+        print(f"  ⓘ {date_iso}: commodity breakdown {status}: {detail}")
     return 0
+
+
+def run_commodity_cli(dates, retry_until=None, retry_every_min=20, now=None, sleep=time.sleep):
+    """Write breakdowns for `dates`, retrying not-yet-ready ones every
+    retry_every_min until the IST clock time retry_until ("HH:MM", same
+    morning). Returns the exit code: 0 all present/written, 3 some still not
+    published/incomplete, 1 a fetch or write error on the last pass."""
+    now = now or now_ist
+    pending = list(dict.fromkeys(dates))
+    if not pending:
+        print("No dates to check.")
+        return EXIT_OK
+    deadline = None
+    if retry_until:
+        hh, mm = (int(x) for x in retry_until.split(":"))
+        deadline = hh * 60 + mm
+    while True:
+        try:
+            present = get_commodity_dates(min(pending))
+        except Exception as e:
+            print(f"  ⚠ coverage read failed ({e}); fetching all pending dates")
+            present = set()
+        had_error, still = False, []
+        for d in pending:
+            status, n, detail = commodity_breakdown(d, present)
+            print(f"  {d}: {status}" + (f" — {n} rows, {detail}" if n or detail else ""))
+            code = _EXIT_CODES[status]
+            if code != EXIT_OK:
+                still.append(d)
+                had_error = had_error or code == EXIT_ERROR
+        if not still:
+            return EXIT_OK
+        t = now()
+        cur = t.hour * 60 + t.minute
+        if deadline is None or cur + retry_every_min > deadline:
+            return EXIT_ERROR if had_error else EXIT_NOT_READY
+        print(f"  {len(still)} date(s) not ready — retrying in {retry_every_min} min "
+              f"(until {retry_until} IST)")
+        sleep(retry_every_min * 60)
+        pending = still
+
+
+def recent_session_dates(days, today=None):
+    """Sessions (trading days + special sessions) in the `days` calendar days
+    before today, oldest first. Today is excluded: its session isn't over."""
+    today = today or now_ist().date()
+    out = []
+    for i in range(days, 0, -1):
+        d = today - timedelta(days=i)
+        if has_session(d):
+            out.append(d.strftime("%Y-%m-%d"))
+    return out
 
 
 def upsert_rows(rows):
@@ -446,9 +605,28 @@ def refresh(lookback_days=5, force_dates=None):
         print("No new data fetched.")
 
 
+def _opt(name, default=None):
+    if name in sys.argv:
+        i = sys.argv.index(name)
+        if i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+    return default
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         arg = sys.argv[1]
+        if arg in ("--commodity", "--commodity-recent"):
+            # Per-commodity breakdown only (mcx_commodity_daily), complete
+            # reports only. Exit 0 = written/present, 3 = not ready yet,
+            # 1 = fetch/write error.
+            #   --commodity 2026-11-10 [--retry-until 06:55 --retry-every 20]
+            #   --commodity-recent 4   [--retry-until 06:55 --retry-every 20]
+            val = sys.argv[2] if len(sys.argv) > 2 else ""
+            dates = ([val] if arg == "--commodity"
+                     else recent_session_dates(int(val or 4)))
+            sys.exit(run_commodity_cli(dates, retry_until=_opt("--retry-until"),
+                                       retry_every_min=int(_opt("--retry-every", 20))))
         if arg == "--backfill":
             days = int(sys.argv[2]) if len(sys.argv) > 2 else 30
             refresh(lookback_days=days)

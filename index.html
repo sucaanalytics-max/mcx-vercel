@@ -624,6 +624,7 @@
   <div class="kicker" id="moKicker"><span class="skel"></span></div>
   <h1 class="headline" id="moHead">Loading momentum&hellip;</h1>
   <p class="deck" id="moDeck"></p>
+  <p class="note mo-caveat" id="moCaveat" role="note" hidden></p>
 </header>
 
 <div class="td-hero sg-hero">
@@ -654,12 +655,12 @@
 
 <section class="sec" aria-labelledby="moEvTitle">
   <div class="sec-head"><div><h2 id="moEvTitle">What followed each signal</h2>
-    <div class="sec-sub" id="moEvSub">Share price change over 10 trading days, from the next day’s close</div></div></div>
+    <div class="sec-sub" id="moEvSub">Share price change over 10 trading days, from the next day’s close: since the rules were set, then before</div></div></div>
   <div id="moEvidence"><button type="button" class="more-btn" id="moEvBtn">Load the full history</button></div>
 </section>
 
 <footer class="v2-foot">
-  <span id="moFoot">Computed after each close from MCX&rsquo;s daily F&amp;O revenue and the NSE share price.</span>
+  <span id="moFoot">Computed each morning, once the previous evening&rsquo;s MCX revenue is in, from MCX&rsquo;s daily revenue and the NSE share price.</span>
   <a href="#/signals/ensemble">Model ensemble</a>
 </footer>
 </div>
@@ -804,6 +805,7 @@ fair value   = run-rate EPS × median P/E of the last 252 days</pre>
       <p><strong>Regime:</strong> the 10-day average revenue divided by the 45-day. Above 1.05 is hot, below 0.95 cold, in between neutral.</p>
       <p><strong>Price overlay:</strong> the share price’s move over 5 days and its average daily move (close to close) over 5 days against 20. Breakout: up more than 1.5% with the 5-day move above 1.5× the 20-day. Quiet rise: up more than 1% with it below 0.8×. Sharp fall: down more than 1% with it above 1.3×.</p>
       <p><strong>Composite:</strong> hot reads strong buy unless the overlay is a sharp fall (buy); neutral reads buy on a breakout or quiet rise, otherwise hold; cold reads sell, or watch after a sharp fall.</p>
+      <p><strong>Track record:</strong> the rules and thresholds come from a study of September 2024 to 11 March 2026. Signal days after that date are out of sample, and the page reports them separately. Since then, strong-buy days have done no better than the average day, so the composite is best read as a description of revenue activity, not as a trade. The job runs each morning, after the previous evening’s revenue is in.</p>
     </section>
     <section class="md-topic" id="md-ensemble" hidden>
       <h3>Model ensemble</h3>

@@ -138,6 +138,8 @@ def _patch_relay(relay, clock, writes):
     relay._hard_call = lambda fn, *a, hard_timeout=25, **k: fn(*a, **k)
     relay.supabase_upsert = lambda table, row, **k: writes.append((table, dict(row))) or [row]
     relay.send_heartbeat = lambda *a, **k: None
+    # close_session() runs bhav_refresh in a subprocess after the EOD row: keep it offline.
+    relay.capture_commodity_breakdown = lambda *a, **k: None
     relay.time = types.SimpleNamespace(sleep=lambda s: None, time=time.time)  # not the real module
     cfg.supabase_read = lambda *a, **k: []   # today's snapshots for drift
 

@@ -245,6 +245,10 @@ html.dark .c-soft { opacity: 0.72; }
 .td-figure .fig-head figcaption { margin-bottom: 0; }
 .sg-hero .stat-pill { margin: 6px 0 2px; }
 .pill--caution { color: var(--mcx-caution); border-color: var(--mcx-caution); background: transparent; }
+.mo-caveat { margin: 10px 0 0; padding: 8px 12px; border-left: 3px solid var(--mcx-text-2); }
+.mo-caveat--warn { border-left-color: var(--mcx-caution); color: var(--mcx-text); }
+.mo-ev-h { margin: 18px 0 6px; font-size: 14px; font-weight: 600; }
+.mo-ev-h:first-child { margin-top: 0; }
 .rg-HOT { fill: var(--mcx-up); } .rg-NEUTRAL { fill: var(--mcx-bar); opacity: 0.45; } .rg-COLD { fill: var(--mcx-down); }
 .sw.rg-HOT { background: var(--mcx-up); } .sw.rg-NEUTRAL { background: var(--mcx-bar); opacity: 0.45; } .sw.rg-COLD { background: var(--mcx-down); }
 .c-ink { fill: var(--mcx-text); }
