@@ -15,14 +15,13 @@ dependencies = [
 # Local jobs on the relay Mac (scripts/ and the lib/ modules only they load):
 # relay / bhav / iCOMDEX / MCXCCL fetches (curl_cffi), Sharekhan XLS and MCX
 # OI XLSX parsing (pandas + xlrd / openpyxl), Dhan OI + options paper trading
-# (dhanhq < 2.1, python-dotenv). Tests run with this extra.
+# (dhanhq < 2.1). Tests run with this extra.
 local = [
     "curl_cffi>=0.5.0",
     "pandas>=2.0.0",
     "xlrd>=2.0.1",
     "openpyxl>=3.1.0",
     "dhanhq<2.1",
-    "python-dotenv>=1.0",
 ]
 # One-off studies in research/.
 research = [
