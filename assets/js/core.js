@@ -51,14 +51,37 @@
   // 4xx/5xx — those are returned for the caller to show. A non-JSON answer
   // (Vercel's HTML error page, a gateway timeout) becomes a readable error
   // instead of "Unexpected token '<' … is not valid JSON".
+  // A request that never answers (a stalled connection, or the browser's HTTP
+  // cache lock held by an earlier request that hung) used to leave a page on
+  // "Loading…" for good with no Retry. After `timeout` ms (default 45 s, past
+  // the slowest cold endpoint; Vercel cuts functions at 60 s) it is aborted —
+  // which also releases that cache lock — and rejects like any other failure,
+  // so the caller shows its usual error and Retry.
+  MCX.FETCH_TIMEOUT_MS = 45000;
   MCX.getJSON = function (url, init) {
-    return fetch(url, init).then(r => {
+    const opts = Object.assign({}, init);
+    const ms = opts.timeout != null ? opts.timeout : MCX.FETCH_TIMEOUT_MS;
+    delete opts.timeout;
+    const ctrl = typeof AbortController === 'function' && !opts.signal && ms > 0 ? new AbortController() : null;
+    let timer = null, timedOut = false;
+    if (ctrl) {
+      opts.signal = ctrl.signal;
+      timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, ms);
+    }
+    const done = () => { if (timer) clearTimeout(timer); };
+    return fetch(url, opts).then(r => {
       const ct = (r.headers && r.headers.get && r.headers.get('content-type')) || '';
       if (ct && !/json/i.test(ct)) {
         throw new Error(r.ok ? 'Unexpected response from the server' : 'Service unavailable (HTTP ' + r.status + ')');
       }
-      return r.json().catch(() => { throw new Error(r.ok ? 'Unreadable response from the server' : 'Service unavailable (HTTP ' + r.status + ')'); });
-    });
+      return r.json().catch(e => {
+        if (timedOut) throw e;
+        throw new Error(r.ok ? 'Unreadable response from the server' : 'Service unavailable (HTTP ' + r.status + ')');
+      });
+    }).catch(e => {
+      if (timedOut) throw new Error('The server took too long to answer (over ' + Math.round(ms / 1000) + ' s)');
+      throw e;
+    }).then(d => { done(); return d; }, e => { done(); throw e; });
   };
 
   // ── Timestamps ───────────────────────────────────────────────────────────
