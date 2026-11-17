@@ -11,7 +11,7 @@ from collections import defaultdict
 try:
     from lib.mcx_config import (
         FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY, TRADING_DAYS,
-        SESSION_START, session_end, session_total,
+        SESSION_START, session_shape, session_clock, traded_minutes,
         DAY_MULTIPLIER, DAY_DESCRIPTION,
         get_day_type, get_intraday_weight, project_full_day,
         calc_revenue, calc_uncertainty, now_ist, is_market_open, is_trading_day,
@@ -21,7 +21,7 @@ try:
 except (ImportError, Exception):
     from lib.mcx_config import (  # type: ignore
         FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY, TRADING_DAYS,
-        SESSION_START, session_end, session_total,
+        SESSION_START, session_shape, session_clock, traded_minutes,
         DAY_MULTIPLIER, DAY_DESCRIPTION,
         get_day_type, get_intraday_weight, project_full_day,
         calc_revenue, calc_uncertainty, now_ist, is_market_open, is_trading_day,
@@ -140,10 +140,11 @@ def process_market_data(raw_json, capture_time_ist, raw_json2=None):
         fut_notl, opt_notl, opt_prem = fut_n1, opt_n1, opt_p1
         dual_call = False
 
-    current_min = capture_time_ist.hour * 60 + capture_time_ist.minute
-    total_min = session_total(capture_time_ist)   # 870, or 895 in US winter
-    elapsed_min = max(0, min(current_min - SESSION_START, total_min))
-    time_pct = elapsed_min / total_min
+    # elapsed_min counts from 09:00 (what snapshots store); the share of the
+    # session gone uses the day's real hours, which differ on part-day sessions.
+    elapsed_min, traded_min, shape = session_clock(capture_time_ist)
+    total_min = shape["total"]   # 870 / 895 full day; 480 morning-only; 390 / 415 evening-only
+    time_pct = traded_min / total_min if total_min > 0 else 0
 
     day_type = get_day_type(capture_time_ist)
     raw_day_mult = DAY_MULTIPLIER[day_type]
@@ -186,8 +187,15 @@ def process_market_data(raw_json, capture_time_ist, raw_json2=None):
         "timestamp": capture_time_ist.strftime("%H:%M IST, %d %b %Y"),
         "elapsed_min": elapsed_min,
         "session_total_min": total_min,
+        "session_type": shape["type"],
+        # The likely range is measured on full days by minutes after 09:00. A
+        # part-day session reads it at minutes traded, not at its clock time.
+        # Over 2026's nine part days with snapshots, that band held for 96% of
+        # an average day's snapshots; read at the same share of session gone it
+        # held for 79% (11% on 3 Mar), too tight for an 8-in-10 range.
+        "range_min": traded_min,
         "elapsed_pct": round(time_pct * 100, 1),
-        "session_closed": elapsed_min >= total_min,
+        "session_closed": total_min > 0 and traded_min >= total_min,
         "active_futures": len(futures),
         "active_options": len(options),
         "fut_notl_cr": round(fut_notl, 2),
@@ -223,7 +231,7 @@ def process_market_data(raw_json, capture_time_ist, raw_json2=None):
             snapshot = {
                 "trading_date": capture_time_ist.strftime("%Y-%m-%d"),
                 "elapsed_min": elapsed_min,
-                "session_closed": elapsed_min >= total_min,
+                "session_closed": result["session_closed"],
                 "fut_notl_cr": round(fut_notl, 2),
                 "opt_notl_cr": round(opt_notl, 2),
                 "opt_prem_cr": round(opt_prem, 2),
@@ -305,7 +313,7 @@ class handler(BaseHTTPRequestHandler):
                 cap = datetime.fromisoformat(snap["captured_at"].replace("Z", "+00:00"))
                 snap_age_min = round((t.astimezone(timezone.utc) - cap.astimezone(timezone.utc)).total_seconds() / 60, 1)
 
-            is_market_hours = (SESSION_START <= t.hour * 60 + t.minute <= session_end(t)) and is_trading_day(t.date())
+            is_market_hours = is_market_open(t)
             alive = snap_age_min is not None and snap_age_min < 30 if is_market_hours else True
 
             result = {
@@ -360,9 +368,9 @@ class handler(BaseHTTPRequestHandler):
                 # otherwise serve it but flag it so the frontend won't trust the projection.
                 opening_artifact = False
                 try:
-                    _elapsed = row.get("elapsed_min") or 0
+                    _traded = traded_minutes(row.get("elapsed_min") or 0, today)
                     _total = row.get("total_rev_cr") or 0
-                    if _elapsed <= 20 and _total > 30:
+                    if _traded <= 20 and _total > 30:
                         if len(rows) > 1:
                             # Use the previous good snapshot for the day.
                             row = rows[1]
@@ -379,10 +387,14 @@ class handler(BaseHTTPRequestHandler):
                 }
                 # Enrich with computed fields the frontend expects
                 elapsed = result.get("elapsed_min") or 0
-                total_min = session_total(today)
-                elapsed_pct = round(elapsed / total_min * 100, 1) if total_min > 0 else 0
+                shape = session_shape(today)
+                total_min = shape["total"]
+                traded = traded_minutes(elapsed, today)
+                elapsed_pct = round(traded / total_min * 100, 1) if total_min > 0 else 0
                 result["elapsed_pct"] = elapsed_pct
                 result["session_total_min"] = total_min
+                result["session_type"] = shape["type"]
+                result["range_min"] = traded   # see process_market_data
 
                 fut_n = result.get("fut_notl_cr") or 0
                 opt_n = result.get("opt_notl_cr") or 0
@@ -413,7 +425,7 @@ class handler(BaseHTTPRequestHandler):
                     result["proj_total_rev"] = round(total_rev, 4)
                     result["confidence"] = conf
 
-                time_pct = elapsed / total_min if total_min > 0 else 0
+                time_pct = traded / total_min if total_min > 0 else 0
                 dual = result.get("dual_call", False)
                 unc = calc_uncertainty(time_pct, day_type, dual)
                 result["uncertainty_pct"] = round(unc * 100, 1)
@@ -483,10 +495,8 @@ class handler(BaseHTTPRequestHandler):
         # F-10: Only do second call late in session when accuracy matters most
         raw2 = None
         capture = now_ist()
-        current_min = capture.hour * 60 + capture.minute
-        total_min = session_total(capture)
-        elapsed = max(0, min(current_min - SESSION_START, total_min))
-        time_pct = elapsed / total_min if total_min > 0 else 0
+        _, traded, shape = session_clock(capture)
+        time_pct = traded / shape["total"] if shape["total"] > 0 else 0
 
         if time_pct > 0.80:
             try:

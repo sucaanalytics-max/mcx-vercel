@@ -101,11 +101,23 @@ def completed_days(rows, now):
         opt = r.get("opt_rev_cr") or 0
         if fut + opt <= 0 or d > today:
             continue
-        if d == today and not (r.get("source") in FINAL_ROW_SOURCES and now_min >= session_end(today)):
+        if d == today and not (r.get("source") in FINAL_ROW_SOURCES and now_min >= _close_min(today)):
             continue
         out.append({"date": d, "fut": fut, "opt": opt, "total": fut + opt})
     out.sort(key=lambda x: x["date"])
     return out
+
+
+def _close_min(d):
+    """The day's real close: 17:00 on an evening-closed session, else session_end(d)."""
+    try:
+        from lib.mcx_config import session_shape
+        shape = session_shape(d)
+        if shape["type"] != "closed":
+            return shape["end"]
+    except ImportError:
+        pass
+    return session_end(d)
 
 
 def _mean(rows):
