@@ -20,6 +20,7 @@ from datetime import date, datetime, timedelta
 from lib.mcx_config import (
     supabase_read_all, now_ist, is_trading_day,
     SESSION_START, MCX_MORNING_CLOSE, MCX_EVENING_CLOSE,
+    FINAL_ROW_SOURCES,
 )
 try:
     from lib.mcx_config import MCX_SPECIAL_SESSIONS   # weekend Muhurat etc.
@@ -33,7 +34,6 @@ except ImportError:                             # older lib: fixed 23:30 close
     def session_end(d=None):
         return SESSION_END
 
-FINAL_ROW_SOURCES = {"mcx_relay_eod", "mcx_historical"}
 THIN_SESSIONS = MCX_MORNING_CLOSE | MCX_EVENING_CLOSE    # part-day sessions: not typical days
 # US market holidays (NYSE). MCX's evening session is thin when US markets are shut, so the
 # projection runs high on these days; they are known in advance, so they are left out of the

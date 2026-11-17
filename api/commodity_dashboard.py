@@ -15,6 +15,7 @@ from urllib.parse import urlparse, parse_qs
 from lib.mcx_config import (
     COMMODITY_MAP,
     supabase_read_all, now_ist, 
+    BOUNDED_RANGE_DAYS as RANGE_DAYS, DEFAULT_RANGE,
 )
 from lib.margin_dashboard import generate_margin_dashboard
 from lib.oi_participants_dashboard import generate_oi_participants_dashboard
@@ -45,8 +46,7 @@ def _pct(cur, prev):
 
 # ─── Main computation ────────────────────────────────────────────────────
 
-RANGE_DAYS = {"30D": 30, "60D": 60, "Q": 63, "1Y": 252, "2Y": 504}
-DEFAULT_RANGE = "60D"
+# RANGE_DAYS: lib/mcx_config.BOUNDED_RANGE_DAYS (no Max: ?range=Max serves the 60D default).
 
 
 def generate_commodity_dashboard(range_key=DEFAULT_RANGE):

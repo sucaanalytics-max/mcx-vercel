@@ -106,7 +106,7 @@
     rail.title = (v.live ? 'Projected revenue for today: ₹' : 'Final revenue for today: ₹') + MCX.fmt.num(v.value, 2) + ' Cr';
   });
 
-  // ── Theme and settings buttons (rail foot and More sheet) ───────────────
+  // ── Theme button (rail foot and More sheet) ───────────────
   const THEME_NAMES = { light: 'Light', dark: 'Dark', system: 'System' };
   function syncThemeButtons() {
     const mode = MCX.theme.mode(), next = MCX.theme.next();
@@ -121,7 +121,6 @@
     const b = e.target.closest && e.target.closest('[data-action]');
     if (!b) return;
     if (b.dataset.action === 'theme') { MCX.theme.cycle(); syncThemeButtons(); }
-    if (b.dataset.action === 'settings') { closeSheet(); openSettings(); }
     if (b.dataset.action === 'more') openSheet();
   });
   MCX.theme.onChange(() => MCX.router.retheme());
@@ -148,7 +147,7 @@
   let refreshing = false, refreshPoll = null;
   const inTradingHours = () => { const t = MCX.market.ist(); return t.dow >= 1 && t.dow <= 5 && t.min >= 535 && t.min <= 1415; };
   function showSnapshotTime(d) {
-    const meta = $('refreshMeta'), t = MCX.parseTs(d.timestamp);   // ISO on GET, "HH:MM IST, DD Mon YYYY" after a manual refresh
+    const meta = $('refreshMeta'), t = MCX.parseTs(d.timestamp);   // ISO from GET /api/refresh
     if (!t) { meta.textContent = '—'; return; }
     const tz = { timeZone: 'Asia/Kolkata' };
     const hhmm = t.toLocaleTimeString('en-GB', { ...tz, hour: '2-digit', minute: '2-digit' });
@@ -164,16 +163,9 @@
     const btn = $('refreshBtn');
     btn.classList.add('loading'); btn.disabled = true; btn.setAttribute('aria-busy', 'true');
     try {
-      let data;
-      if (manual) {             // a manual refresh asks the server to fetch from MCX first, with the saved cookie if any
-        try {
-          const cookie = MCX.storage.get('mcxCookie');
-          data = await MCX.getJSON('/api/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cookie ? { cookie } : {}) });
-          if (!data.success) throw new Error(data.error);
-        } catch (e) { data = await MCX.getJSON('/api/refresh'); }
-      } else {
-        data = await MCX.getJSON('/api/refresh');
-      }
+      // The relay pushes a snapshot every 15 minutes; a manual refresh re-reads it.
+      // (The old POST path asked Vercel to fetch MCX itself, which Akamai blocks.)
+      const data = await MCX.getJSON('/api/refresh');
       MCX.store.set('refresh', data);
       if (data.success) {
         clearRangedCache();
@@ -207,29 +199,6 @@
   }
   MCX.poll.every('cmp', fetchPrice, 60 * 1000, () => MCX.market.nseOpen() && !document.hidden && ['val-scen', 'val-fv'].includes(MCX.router.current()));
 
-  // ── Data source settings: an MCX session cookie for the manual refresh ──
-  const dlg = $('settingsDialog');
-  function openSettings() {
-    const c = MCX.storage.get('mcxCookie');
-    $('cookieText').value = c || '';
-    $('cookieStatus').textContent = c ? `A cookie is saved in this browser (${c.length} characters).` : 'No cookie saved; the server tries to get one itself.';
-    if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', '');
-  }
-  $('settingsSave').addEventListener('click', () => {
-    const v = $('cookieText').value.trim();
-    MCX.storage.set('mcxCookie', v);
-    dlg.close();
-    MCX.ui.toast(v ? 'Cookie saved in this browser' : 'Cookie cleared');
-  });
-  $('settingsCancel').addEventListener('click', () => dlg.close());
-  dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });     // the backdrop
-  // ?cookie=… in the URL: save it, drop it from the address bar, refresh from MCX
-  const urlCookie = new URLSearchParams(location.search).get('cookie');
-  if (urlCookie) {
-    MCX.storage.set('mcxCookie', urlCookie);
-    history.replaceState({}, '', location.pathname + location.hash);
-  }
-
   // ── Methodology drawer: opened from any [data-method] button, or ?m=<topic> in the URL ──
   const md = $('methodDrawer');
   let mdReturn = null;
@@ -253,7 +222,7 @@
   const mParam = new URLSearchParams(location.search).get('m');
 
   MCX.router.start({ fallback: 'today', legacy: LEGACY });
-  setTimeout(() => refresh(!!urlCookie), 300);     // the first snapshot
+  setTimeout(() => refresh(false), 300);     // the first snapshot
   fetchPrice();
   if (mParam) setTimeout(() => openMethod(mParam), 400);
 })();

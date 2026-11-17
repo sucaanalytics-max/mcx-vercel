@@ -49,12 +49,18 @@ def test_single_copies():
                  "supabase_read_all"):
         got = set(defs(name, "api", "lib", "scripts"))
         check(f"{name} defined only in lib/supabase.py", got <= {"lib/supabase.py"}, str(got))
-    # Direct REST calls: only lib/supabase.py, plus two writers with a PATCH
-    # fallback the shared client doesn't model, and /api/mcxprice's cache row.
-    rest_ok = {"lib/supabase.py", "scripts/price_refresh.py", "scripts/commodity_price_refresh.py",
-               "api/mcxprice.py"}
-    rest = {p for p, s in src_files("api", "lib", "scripts") if "/rest/v1/" in s and "urllib.request.Request(" in s}
-    check("raw Supabase REST calls only in lib/supabase.py (+ 3 known)", rest <= rest_ok, str(rest - rest_ok))
+    # Direct REST calls: only lib/supabase.py (the price writers' POST -> PATCH
+    # fallbacks use its post_rows / patch_rows).
+    rest = {p for p, s in src_files("api", "lib", "scripts") if "/rest/v1/" in s}
+    check("raw Supabase REST calls only in lib/supabase.py", rest <= {"lib/supabase.py"}, str(rest))
+    # Shared constants and the float parser: one definition each, in lib/mcx_config.py.
+    for name in ("RANGE_DAYS", "DEFAULT_RANGE", "FINAL_ROW_SOURCES"):
+        got = {p for p, s in src_files("api", "lib", "scripts")
+               if re.search(rf"^{name}\s*=", s, re.M)}
+        check(f"{name} assigned only in lib/mcx_config.py", got == {"lib/mcx_config.py"}, str(got))
+    for name in ("_f", "safe_float", "_safe_float"):
+        got = set(defs(name, "api", "lib", "scripts"))
+        check(f"{name} defined only in lib/mcx_config.py", got <= {"lib/mcx_config.py"}, str(got))
     fee = {p for p, s in src_files("api", "lib", "scripts")
            if re.search(r"^\s*(FUTURES_RATE|OPTIONS_RATE|FUT_RATE|OPT_RATE)\s*=", s, re.M)}
     check("fee rates defined only in lib/mcx_config.py", fee == {"lib/mcx_config.py"}, str(fee))

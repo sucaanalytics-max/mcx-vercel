@@ -26,6 +26,7 @@ from lib.mcx_config import (
     is_trading_day, MCX_SPECIAL_SESSIONS, supabase_read, supabase_read_all, now_ist,
     session_shape, session_weight, SESSION_FULL, SESSION_CLOSED,
     
+    FINAL_ROW_SOURCES,
 )
 try:
     from lib.mcx_config import session_end      # seasonal close: 23:55 in US winter
@@ -35,10 +36,6 @@ except ImportError:                             # older lib: fixed 23:30 close
     def session_end(d=None):
         return SESSION_END
 
-# Sources whose row for a date is the final full-day figure. A row for today
-# only counts as a completed session if it comes from one of these and the
-# session has closed; anything else could be a partial intraday figure.
-FINAL_ROW_SOURCES = {"mcx_relay_eod", "mcx_historical"}
 
 # ─── Quarterly Actuals (from Screener.in, validated) ─────────────────────────
 QUARTERLY_ACTUALS = [

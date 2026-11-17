@@ -26,3 +26,6 @@ logs/
 .DS_Store
 tsconfig.tsbuildinfo
 trading/data/*.duckdb
+
+# Audits describe security details and the repository is public: never commit them
+tasks/audit-*.md

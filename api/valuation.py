@@ -5,7 +5,6 @@ Economic chain:
   45DMA F&O Rev → Annualized Total Rev → PAT (55% margin) → EPS → Fair Value via P/E bands
 
 Primary: reads pre-computed valuations from mcx_valuation table (written by lib/cron_valuation.py: the Vercel cron, and scripts/run_cron.py valuation locally).
-Fallback: computes live from mcx_daily_revenue + mcx_share_price.
 
 Returns:
   - Current valuation snapshot (EPS, fair value bear/base/bull, signal)
@@ -18,14 +17,12 @@ from lib.api_handler import JSONHandler
 from lib.mcx_config import (
     TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
     PE_MEAN_DEFAULT, PE_SD_DEFAULT,
-    SUPABASE_ANON_KEY, supabase_read, supabase_read_all,
-    now_ist, 
+    SUPABASE_ANON_KEY, supabase_read, supabase_read_all, now_ist,
+    RANGE_DAYS, DEFAULT_RANGE,
 )
 
 from lib import house_model
 
-RANGE_DAYS = {"30D": 30, "60D": 60, "Q": 63, "1Y": 252, "2Y": 504, "Max": None}
-DEFAULT_RANGE = "60D"
 
 # ─── Core valuation engine ─────────────────────────────────────────────────
 
@@ -106,20 +103,6 @@ def _fetch_regression_pairs():
             f"?select=trading_date,ma45_rev_cr,close_price&trading_date=gte.{house_model.REGRESSION_START.isoformat()}"
             f"&order=trading_date.asc", max_rows=3000)
         return [(float(r["ma45_rev_cr"]), float(r["close_price"])) for r in rows if r.get("ma45_rev_cr") and r.get("close_price")]
-    except Exception:
-        return []
-
-
-def _fetch_revenue_for_live(days=60):
-    """Fetch revenue for live fallback computation."""
-    if not SUPABASE_ANON_KEY:
-        return []
-    try:
-        rows = supabase_read(
-            "mcx_daily_revenue",
-            f"?select=trading_date,total_rev_cr&order=trading_date.desc&limit={days}"
-        )
-        return sorted(rows, key=lambda r: r["trading_date"])
     except Exception:
         return []
 

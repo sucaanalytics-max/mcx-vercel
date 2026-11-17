@@ -1,87 +1,23 @@
 """
-/api/refresh — MCX live intraday data via GetMarketWatch API.
-Fixes: F-02 (shared config), F-07 (no hardcoded keys), F-08 (Supabase relay),
-       F-09 (secure cookie), F-10 (conditional dual-call), F-12 (error differentiation),
-       F-13 (restricted CORS), F-22 (no duplication)
+/api/refresh — the latest live snapshot, read from Supabase.
+
+The local relay (scripts/mcx_relay.py) fetches MCX every 15 minutes and writes
+mcx_snapshots; this endpoint only reads it and enriches it for the frontend
+(share of the session gone, projection band, booked/projected revenue by
+segment). ?health=1 reports relay health (last heartbeat + snapshot age).
+
+GET only. The old POST path, which asked Vercel to fetch MCX itself and upsert
+the snapshot, was removed: MCX's Akamai blocks cloud IPs, so it only added
+12-30 s to every manual refresh before the frontend fell back to GET.
 """
 from lib.api_handler import JSONHandler
-import json, time, urllib.request, urllib.error
-from datetime import datetime
-from collections import defaultdict
 from lib.mcx_config import (
-    NONTX_DAILY, TRADING_DAYS,
-    session_shape, session_clock, traded_minutes,
+    TRADING_DAYS, session_shape, traded_minutes,
     DAY_MULTIPLIER, DAY_DESCRIPTION,
     get_day_type, project_full_day,
-    calc_revenue, calc_uncertainty, now_ist, is_market_open, 
-    SUPABASE_ANON_KEY,
-    supabase_read, supabase_upsert, calendar_status,
+    calc_revenue, calc_uncertainty, now_ist, is_market_open,
+    SUPABASE_ANON_KEY, supabase_read, calendar_status,
 )
-
-def _auto_fetch_cookies(timeout: int = 12):
-    """Attempt to obtain fresh MCX session cookie server-side."""
-    try:
-        import http.cookiejar
-        cj = http.cookiejar.CookieJar()
-        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
-        req = urllib.request.Request(
-            "https://www.mcxindia.com/market-data/market-watch",
-            headers={
-                "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            },
-        )
-        opener.open(req, timeout=timeout)
-        parts = [f"{c.name}={c.value}" for c in cj]
-        cookie_str = "; ".join(parts)
-        if "ASP.NET_SessionId" in cookie_str or len(parts) >= 2:
-            return cookie_str
-        return ""
-    except Exception:
-        return ""
-
-
-def _fetch_mcx(cookie: str, timeout: int = 18):
-    """Single call to MCX GetMarketWatch. Returns raw dict or raises.
-
-    2026-06: MCX migrated to Sitefinity. The old ASP.NET WebMethod
-    (POST backpage.aspx/GetMarketWatch, returning {"d":...}) now 404s. The
-    live endpoint is a page-scoped GET returning {"data":{"Data":[...]}}.
-    Mirrors scripts/mcx_relay.py (the real writer). Note: this server's cloud
-    IP is typically blocked by MCX, so the POST handler treats failure as a
-    graceful fall-through to the cached GET — the relay is the source of truth.
-    """
-    req = urllib.request.Request(
-        "https://www.mcxindia.com/market-data/market-watch/GetMarketWatch?culture=en-US",
-        method="GET",
-        headers={
-            "accept": "application/json, text/javascript, */*; q=0.01",
-            "content-type": "application/json",
-            "referer": "https://www.mcxindia.com/market-data/market-watch",
-            "x-requested-with": "XMLHttpRequest",
-            "cookie": cookie,
-            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw_bytes = resp.read()
-        encoding = resp.info().get("Content-Encoding", "")
-        if "gzip" in encoding:
-            import gzip
-            raw_bytes = gzip.decompress(raw_bytes)
-        return json.loads(raw_bytes.decode("utf-8"))
-
-
-def _extract_notionals(raw_json: dict):
-    """Return (fut_notl, opt_notl, opt_prem, futures_list, options_list)."""
-    # New Sitefinity shape: {"data":{"Data":[...]}}; fall back to legacy {"d":...}.
-    contracts = (raw_json.get("data") or raw_json.get("d") or {}).get("Data", [])
-    futures = [c for c in contracts if c.get("InstrumentName") == "FUTCOM" and c.get("Volume", 0) > 0]
-    options = [c for c in contracts if c.get("InstrumentName") == "OPTFUT" and c.get("Volume", 0) > 0]
-    fut_notl = sum(c.get("NotionalValue", 0) for c in futures) / 100
-    opt_notl = sum(c.get("NotionalValue", 0) for c in options) / 100
-    opt_prem = sum(c.get("PremiumValue",  0) for c in options) / 100
-    return fut_notl, opt_notl, opt_prem, futures, options
 
 
 def _revenue_fields(fut_notl, opt_prem, proj_fut, proj_opt):
@@ -94,150 +30,13 @@ def _revenue_fields(fut_notl, opt_prem, proj_fut, proj_opt):
     }
 
 
-def process_market_data(raw_json, capture_time_ist, raw_json2=None):
-    """Process one (or two averaged) MCX API snapshots."""
-    fut_n1, opt_n1, opt_p1, futures, options = _extract_notionals(raw_json)
-
-    if raw_json2 is not None:
-        fut_n2, opt_n2, opt_p2, _, _ = _extract_notionals(raw_json2)
-        fut_notl = max(fut_n1, fut_n2)
-        opt_notl = max(opt_n1, opt_n2)
-        opt_prem = max(opt_p1, opt_p2)
-        dual_call = True
-    else:
-        fut_notl, opt_notl, opt_prem = fut_n1, opt_n1, opt_p1
-        dual_call = False
-
-    # elapsed_min counts from 09:00 (what snapshots store); the share of the
-    # session gone uses the day's real hours, which differ on part-day sessions.
-    elapsed_min, traded_min, shape = session_clock(capture_time_ist)
-    total_min = shape["total"]   # 870 / 895 full day; 480 morning-only; 390 / 415 evening-only
-    time_pct = traded_min / total_min if total_min > 0 else 0
-
-    day_type = get_day_type(capture_time_ist)
-    raw_day_mult = DAY_MULTIPLIER[day_type]
-    day_desc = DAY_DESCRIPTION[day_type]
-
-    proj_fut, proj_opt, conf = project_full_day(fut_notl, opt_prem, elapsed_min, day_type,
-                                                 trading_date=capture_time_ist)
-    fut_rev, opt_rev, tx_rev, total_rev = calc_revenue(proj_fut, proj_opt)
-    _, _, tx_rev_realized, _ = calc_revenue(fut_notl, opt_prem)
-
-    combined_unc = calc_uncertainty(time_pct, day_type, dual_call)
-    rev_low = round(total_rev * (1 - combined_unc), 2)
-    rev_high = round(total_rev * (1 + combined_unc), 2)
-
-    # Per-commodity breakdown
-    sym_fut = defaultdict(float)
-    sym_opt = defaultdict(float)
-    sym_optN = defaultdict(float)
-    # MCX now returns Symbol=null; the commodity name is in ProductCode.
-    for c in futures:
-        sym_fut[c.get("ProductCode") or c.get("Symbol")] += c.get("NotionalValue", 0) / 100
-    for c in options:
-        base = c.get("ProductCode") or (c.get("Symbol") or "").replace("OPT", "")
-        sym_opt[base] += c.get("PremiumValue", 0) / 100
-        sym_optN[base] += c.get("NotionalValue", 0) / 100
-
-    top_fut = sorted(
-        [{"sym": k, "notl": round(v, 2)} for k, v in sym_fut.items()],
-        key=lambda x: -x["notl"]
-    )[:12]
-    top_opt = sorted(
-        [{"sym": k, "prem": round(v, 2), "notl": round(sym_optN[k], 2),
-          "ratio": round(v / sym_optN[k] * 100, 3) if sym_optN[k] > 0 else 0}
-         for k, v in sym_opt.items()],
-        key=lambda x: -x["prem"]
-    )[:12]
-
-    result = {
-        "success": True,
-        "timestamp": capture_time_ist.strftime("%H:%M IST, %d %b %Y"),
-        "elapsed_min": elapsed_min,
-        "session_total_min": total_min,
-        "session_type": shape["type"],
-        # The likely range is measured on full days by minutes after 09:00. A
-        # part-day session reads it at minutes traded, not at its clock time.
-        # Over 2026's nine part days with snapshots, that band held for 96% of
-        # an average day's snapshots; read at the same share of session gone it
-        # held for 79% (11% on 3 Mar), too tight for an 8-in-10 range.
-        "range_min": traded_min,
-        "elapsed_pct": round(time_pct * 100, 1),
-        "session_closed": total_min > 0 and traded_min >= total_min,
-        "active_futures": len(futures),
-        "active_options": len(options),
-        "fut_notl_cr": round(fut_notl, 2),
-        "opt_notl_cr": round(opt_notl, 2),
-        "opt_prem_cr": round(opt_prem, 2),
-        "prem_notl_pct": round(opt_prem / opt_notl * 100, 3) if opt_notl > 0 else 0,
-        "total_notl_cr": round(fut_notl + opt_notl, 2),
-        "proj_fut_cr": round(proj_fut, 2),
-        "proj_opt_cr": round(proj_opt, 2),
-        "proj_fut_rev": round(fut_rev, 2),
-        "proj_opt_rev": round(opt_rev, 2),
-        "proj_tx_rev": round(tx_rev, 2),
-        "proj_total_rev": round(total_rev, 2),
-        "proj_annual": round(total_rev * TRADING_DAYS, 0),
-        "rev_low": rev_low,
-        "rev_high": rev_high,
-        "uncertainty_pct": round(combined_unc * 100, 1),
-        "confidence": conf,
-        "dual_call": dual_call,
-        "day_type": day_type,
-        "day_multiplier": raw_day_mult,
-        "day_description": day_desc,
-        "nontx_rev": NONTX_DAILY,
-        "top_futures": top_fut,
-        "top_options": top_opt,
-        "trading_date": capture_time_ist.strftime("%Y-%m-%d"),
-        **_revenue_fields(fut_notl, opt_prem, proj_fut, proj_opt),
-    }
-
-    # F-08: Push snapshot to Supabase for relay
-    if SUPABASE_ANON_KEY:
-        try:
-            snapshot = {
-                "trading_date": capture_time_ist.strftime("%Y-%m-%d"),
-                "elapsed_min": elapsed_min,
-                "session_closed": result["session_closed"],
-                "fut_notl_cr": round(fut_notl, 2),
-                "opt_notl_cr": round(opt_notl, 2),
-                "opt_prem_cr": round(opt_prem, 2),
-                "fut_rev_cr": round(fut_rev, 4),
-                "opt_rev_cr": round(opt_rev, 4),
-                "nontx_rev_cr": NONTX_DAILY,
-                "total_rev_cr": round(total_rev, 4),
-                "proj_fut_cr": round(proj_fut, 2),
-                "proj_opt_cr": round(proj_opt, 2),
-                "proj_total_rev": round(total_rev, 4),
-                "uncertainty_pct": round(combined_unc * 100, 2),
-                "confidence": conf,
-                "day_type": day_type,
-                "day_multiplier": raw_day_mult,
-                "active_futures": len(futures),
-                "active_options": len(options),
-                "prem_notl_pct": round(opt_prem / opt_notl * 100, 3) if opt_notl > 0 else 0,
-                "dual_call": dual_call,
-                "data_source": "mcx_api",
-                "top_futures": top_fut,
-                "top_options": top_opt,
-            }
-            supabase_upsert("mcx_snapshots", snapshot, on_conflict="trading_date,elapsed_min")
-        except Exception:
-            pass  # Don't fail the response if Supabase push fails
-
-    return result
-
-
 class handler(JSONHandler):
-    allow_methods = "GET, POST, OPTIONS"
 
     def _health_check(self):
         """Return relay health: last heartbeat + last snapshot age."""
-        from datetime import timezone
+        from datetime import datetime, timezone
         try:
             t = now_ist()
-            today = t.strftime("%Y-%m-%d")
 
             # Try heartbeat table first
             heartbeat = None
@@ -249,7 +48,7 @@ class handler(JSONHandler):
                 pass  # Table may not exist yet
 
             # Last snapshot (always available)
-            snaps = supabase_read("mcx_snapshots", f"?order=captured_at.desc&limit=1")
+            snaps = supabase_read("mcx_snapshots", "?order=captured_at.desc&limit=1")
             snap = snaps[0] if snaps else None
 
             snap_age_min = None
@@ -398,68 +197,3 @@ class handler(JSONHandler):
                 self.send_json({"success": False, "error": "No data for today yet. Run the local relay script."})
         except Exception as e:
             self.send_json({"success": False, "error": f"Supabase read failed: {str(e)[:200]}"})
-
-    def do_POST(self):
-        content_len = int(self.headers.get("Content-Length", 0))
-        raw_body = self.rfile.read(content_len)
-
-        cookie = ""
-        try:
-            payload = json.loads(raw_body)
-            cookie = payload.get("cookie", "")
-        except Exception:
-            pass
-
-        # Auto-cookie fallback
-        auto_cookie_used = False
-        if not cookie:
-            cookie = _auto_fetch_cookies(timeout=12)
-            if cookie:
-                auto_cookie_used = True
-            else:
-                self.send_json({
-                    "success": False,
-                    "error": "Auto-cookie failed (MCX likely blocks this server's IP). Use the local relay script or paste a cookie manually.",
-                    "error_type": "ip_blocked"  # F-12: error differentiation
-                })
-                return
-
-        # F-10: Conditional dual-call — only if session is >80% complete
-        try:
-            raw1 = _fetch_mcx(cookie, timeout=18)
-        except urllib.error.HTTPError as e:
-            error_type = "cookie_expired" if e.code in (302, 401, 403) else "server_error"
-            self.send_json({
-                "success": False,
-                "error": f"MCX API error {e.code}",
-                "error_type": error_type,
-                "hint": "Cookie expired — refresh it" if error_type == "cookie_expired" else "MCX server issue"
-            })
-            return
-        except Exception as e:
-            self.send_json({
-                "success": False,
-                "error": f"MCX unreachable: {str(e)[:100]}",
-                "error_type": "network_error"
-            })
-            return
-
-        # F-10: Only do second call late in session when accuracy matters most
-        raw2 = None
-        capture = now_ist()
-        _, traded, shape = session_clock(capture)
-        time_pct = traded / shape["total"] if shape["total"] > 0 else 0
-
-        if time_pct > 0.80:
-            try:
-                time.sleep(2)
-                raw2 = _fetch_mcx(cookie, timeout=15)
-            except Exception:
-                pass
-
-        try:
-            processed = process_market_data(raw1, capture, raw_json2=raw2)
-            processed["auto_cookie"] = auto_cookie_used
-            self.send_json(processed)
-        except Exception as e:
-            self.send_json({"success": False, "error": str(e)[:200]})

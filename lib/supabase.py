@@ -287,6 +287,38 @@ def upsert_batches(table, rows, on_conflict=None, batch=50, timeout=15, stats=No
     return errors
 
 
+def get_rows(table, params="", timeout=15):
+    """GET /rest/v1/<table><params> with the read key and only the auth
+    headers. Unlike supabase_read, urllib's errors are raised as-is."""
+    req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/{table}{params}",
+                                 headers=supabase_headers(SUPABASE_ANON_KEY))
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode())
+
+
+def post_rows(table, rows, on_conflict=None, timeout=15, prefer="resolution=merge-duplicates"):
+    """One POST (an upsert, by default) of a row or a list of rows with the
+    write key. Returns nothing; urllib's HTTPError / URLError are raised as-is,
+    for callers that branch on the status (e.g. 409 -> PATCH)."""
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    if on_conflict:
+        url += f"?on_conflict={on_conflict}"
+    req = urllib.request.Request(url, data=json.dumps(rows).encode(), method="POST", headers={
+        **supabase_headers(SUPABASE_WRITE_KEY), "Content-Type": "application/json", "Prefer": prefer})
+    with urllib.request.urlopen(req, timeout=timeout):
+        pass
+
+
+def patch_rows(table, params, row, timeout=15, prefer="return=minimal"):
+    """PATCH the rows matching `params` (e.g. "?trading_date=eq.2026-11-17")
+    with the columns in `row`, using the write key. Raises urllib's errors."""
+    req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/{table}{params}",
+                                 data=json.dumps(row).encode(), method="PATCH", headers={
+        **supabase_headers(SUPABASE_WRITE_KEY), "Content-Type": "application/json", "Prefer": prefer})
+    with urllib.request.urlopen(req, timeout=timeout):
+        pass
+
+
 def fetch_all(table, select, order="trading_date", params="", timeout=15):
     """Every row of `table` (no cap), ascending by `order` with the table's
     unique key as tiebreaker. `params` adds filters ("&trading_date=gte.…")."""

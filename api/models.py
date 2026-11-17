@@ -12,8 +12,8 @@ from lib.api_handler import JSONHandler
 import math
 
 from lib.mcx_config import (
-    SUPABASE_ANON_KEY, supabase_read, supabase_read_all,
-    now_ist, 
+    SUPABASE_ANON_KEY, supabase_read, supabase_read_all, now_ist,
+    safe_float as _f, RANGE_DAYS, DEFAULT_RANGE,
 )
 
 
@@ -69,15 +69,6 @@ MODEL_META = {
 
 # Range key → trading-day window. Used both to size the Supabase fetch and to
 # slice the tail of the sorted result for chart history.
-RANGE_DAYS = {
-    "30D": 30,
-    "60D": 60,
-    "Q":   63,
-    "1Y":  252,
-    "2Y":  504,
-    "Max": None,  # all rows
-}
-DEFAULT_RANGE = "60D"
 
 
 def _fetch_model_signals(limit=120):
@@ -210,16 +201,6 @@ def generate_models_response(range_key=DEFAULT_RANGE):
             "range": range_key,
         },
     }
-
-
-def _f(v):
-    """Safe float conversion."""
-    if v is None:
-        return None
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
 
 
 # ─── Momentum view ───────────────────────────────────────────────────────

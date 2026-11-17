@@ -17,9 +17,6 @@ OPTIONS_RATE = 4180.0       # ₹ per crore of premium, both sides
 NONTX_DAILY  = float(os.environ.get("MCX_NONTX_DAILY", "0.00"))  # removed from daily predictor
 TRADING_DAYS = int(os.environ.get("MCX_TRADING_DAYS", "256"))      # FY27 MCX sessions: 261 weekdays − 5 full closures (FY28: 260). Annualises daily revenue for valuation and the Annualized KPI.
 
-# ─── Alpha Vantage (F-07: from env var, not hardcoded) ───────────────────────
-AV_KEY = os.environ.get("ALPHA_VANTAGE_KEY", "")
-
 # ─── Supabase ────────────────────────────────────────────────────────────────
 # The REST client, keys and pagination live in lib/supabase.py. Re-exported
 # here because ~40 modules import them from lib.mcx_config.
@@ -78,6 +75,19 @@ ALLOWED_ORIGINS = os.environ.get(
     "ALLOWED_ORIGINS",
     "https://mcx-vercel.vercel.app,http://localhost:8765,http://localhost:3000"
 ).split(",")
+
+# ─── RANGE CHIPS (30D / 60D / Q / 1Y / 2Y / Max) ─────────────────────────────
+# Trading days behind each range chip; mirrors RANGE_TRADING_DAYS in
+# assets/js/core.js. Max = every row. Endpoints that cannot serve all history
+# use BOUNDED_RANGE_DAYS, so ?range=Max falls back to DEFAULT_RANGE there.
+RANGE_DAYS = {"30D": 30, "60D": 60, "Q": 63, "1Y": 252, "2Y": 504, "Max": None}
+BOUNDED_RANGE_DAYS = {k: v for k, v in RANGE_DAYS.items() if v is not None}
+DEFAULT_RANGE = "60D"
+
+# mcx_daily_revenue.source values whose row is the final figure for its day:
+# the relay's end-of-day capture and MCX's historical report. A row for today
+# counts as a finished session only with one of these and after the close.
+FINAL_ROW_SOURCES = {"mcx_relay_eod", "mcx_historical"}
 
 # ─── Calendar ────────────────────────────────────────────────────────────────
 # Session hours, holidays, part-day and special sessions, now_ist and the

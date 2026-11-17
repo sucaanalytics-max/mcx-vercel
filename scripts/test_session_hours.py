@@ -484,31 +484,31 @@ def test_part_day_projection():
 
 
 def test_refresh_part_day():
-    print("\n[13] /api/refresh on a part-day session")
+    print("\n[13] GET /api/refresh on a part-day session")
     import api.refresh as rf
-    writes = []
-    rf.supabase_upsert = lambda table, row, **k: writes.append((table, dict(row))) or [row]
-    raw = _market_watch(60000, 9000)
-    r = rf.process_market_data(raw, datetime(2026, 11, 10, 20, 0))
+    snap = {"id": 1, "captured_at": "2026-11-10T14:30:00+00:00", "trading_date": "2026-11-10",
+            "elapsed_min": 660, "session_closed": False, "fut_notl_cr": 60000.0, "opt_notl_cr": 90000.0,
+            "opt_prem_cr": 9000.0, "total_rev_cr": 10.0, "proj_fut_cr": 138333.33, "proj_opt_cr": 20750.0,
+            "proj_total_rev": 23.0, "day_type": "LOW", "dual_call": False}
+    sent = {}
+    real = (rf.supabase_read, rf.now_ist)
+    rf.supabase_read = lambda table, params="", timeout=10: [dict(snap)] if table == "mcx_snapshots" else []
+    rf.now_ist = lambda: datetime(2026, 11, 10, 20, 0)
+    try:
+        h = rf.handler.__new__(rf.handler)
+        h.path = "/api/refresh"
+        h.send_json = lambda data, status=200, **k: sent.update(data=data, status=status)
+        h.do_GET()
+    finally:
+        rf.supabase_read, rf.now_ist = real
+    r = sent["data"]
     tp = 180 / 415
-    check("elapsed_min stays clock-based (660)", r["elapsed_min"] == 660, str(r["elapsed_min"]))
+    check("served", r.get("success") is True, str(r)[:200])
     check("session 415 min, evening_only", r["session_total_min"] == 415 and r["session_type"] == "evening_only")
     check("elapsed_pct is share of the real session", r["elapsed_pct"] == round(tp * 100, 1), str(r["elapsed_pct"]))
-    check("not closed", r["session_closed"] is False)
-    check("projection ×415/180", abs(r["proj_fut_cr"] - round(60000 * 415 / 180, 2)) < 0.01, str(r["proj_fut_cr"]))
+    check("range read at minutes traded, not the clock", r["range_min"] == 180, str(r["range_min"]))
     check("uncertainty from share gone",
           r["uncertainty_pct"] == round(cfg.calc_uncertainty(tp, r["day_type"], False) * 100, 1))
-    check("range read at minutes traded, not the clock", r["range_min"] == 180, str(r["range_min"]))
-    snap = [row for t, row in writes if t == "mcx_snapshots"]
-    check("snapshot not marked closed", snap and snap[-1]["session_closed"] is False and snap[-1]["elapsed_min"] == 660)
-
-    r = rf.process_market_data(raw, datetime(2026, 11, 2, 20, 0))
-    check("normal winter day: 895 min, full, range at clock", r["session_total_min"] == 895
-          and r["session_type"] == "full" and r["range_min"] == 660 and r["elapsed_pct"] == round(660 / 895 * 100, 1))
-    r = rf.process_market_data(raw, datetime(2026, 9, 29, 20, 0))
-    check("normal summer day: 870 min", r["session_total_min"] == 870 and r["elapsed_pct"] == round(660 / 870 * 100, 1))
-    r = rf.process_market_data(raw, datetime(2026, 1, 1, 17, 1))
-    check("evening-closed day closed at 17:00", r["session_closed"] is True and r["elapsed_pct"] == 100.0)
 
 
 def test_relay_part_day():

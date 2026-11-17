@@ -19,8 +19,10 @@ functions read Supabase; a static single-page frontend (`index.html` +
 | Lab | `/lab/diagnostics`, `/lab/positioning`, `/lab/margins` |
 
 Routes live in `assets/js/shell.js`. MCX's Akamai front end blocks Vercel and
-other cloud IPs, so **every MCX fetch runs locally** (relay / scripts); Vercel
-only reads Supabase (plus yfinance for the share price).
+other cloud IPs, so **every MCX fetch runs locally** (relay / scripts). Vercel
+reads Supabase (plus yfinance for the share price); its only writer is
+`/api/cron`. `/api/refresh` is GET-only: the header's refresh button re-reads
+the relay's latest snapshot.
 
 ## Layout
 
@@ -31,7 +33,8 @@ lib/            Shared code, imported by api/ and scripts/
   mcx_config.py   fee schedule, intraday curve, projection, day types,
                   valuation constants; re-exports lib.supabase + lib.calendar
   supabase.py     the only Supabase REST client (keys, reads, paginated reads,
-                  upserts, upsert_batches, fetch_all)
+                  upserts, upsert_batches, fetch_all; raw get_rows / post_rows /
+                  patch_rows for callers that branch on the HTTP status)
   calendar.py     session hours, holidays, part-day / special sessions,
                   calendar_status, now_ist, FY / quarter labels
   curl_session.py curl_cffi session with Chrome impersonation (local only)
@@ -89,13 +92,17 @@ recompute puts them back, and `/api/valuation` rebuilds history on current
 constants. Find and stop it if you can.
 
 Other tables: `mcx_share_price` (price_refresh / valuation cron),
-`mcx_icomdex_daily`, `mcx_commodity_prices`, `mcx_options_paper`,
+`mcx_icomdex_daily`, `mcx_commodity_prices` (written by daily_verify's
+commodity price step; no endpoint reads it any more), `mcx_options_paper`,
 `mcx_options_feed` (options_paper). Quarterly actuals are **code**, not a table:
 `QUARTERLY_ACTUALS` in `api/quarterly.py` (process: `.claude/agents/quarterly-updater.md`).
 
 ## Rules
 
-- **Fee schedule and valuation constants** only in `lib/mcx_config.py`.
+- **Fee schedule and valuation constants** only in `lib/mcx_config.py`; so are
+  the range chips (`RANGE_DAYS`, `BOUNDED_RANGE_DAYS` for endpoints without
+  Max, `DEFAULT_RANGE`; keep them in step with `RANGE_TRADING_DAYS` in
+  `assets/js/core.js`), `FINAL_ROW_SOURCES` and `safe_float`.
 - **Calendar** only in `lib/calendar.py`. When MCX publishes a year's holiday
   circular (mid-December), add its full-day, morning-closed and evening-closed
   dates **and** the year to `MCX_CALENDAR_YEARS`; the freshness `calendar`
