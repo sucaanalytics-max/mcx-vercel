@@ -497,7 +497,7 @@
       + '<p class="note">The price overlay compares the share price’s move over 5 days with its average daily move (close to close) over 5 days against 20 days, checked in this order:</p>'
       + '<ul class="sg-rules"><li><strong>Breakout</strong>: up more than 1.5%, with the 5-day average move above 1.5× the 20-day</li>'
       + '<li><strong>Quiet rise</strong>: up more than 1%, with the 5-day average move below 0.8× the 20-day</li>'
-      + '<li><strong>Sharp fall</strong>: down more than 1%, with the 5-day average move above 1.3× the 20-day</li>'
+      + '<li><strong>Sharp fall</strong>: down more than 1%, with the 5-day average move above 1.3× the 20-day. The study reads this as a sell-off likely to bounce, so it softens the signal rather than deepening it</li>'
       + '<li><strong>Neutral</strong>: none of these</li></ul>'
       + `<div class="table-scroll"><table class="v2-table sg-matrix"><caption>The composite: price overlay × regime</caption><thead><tr><th scope="col">Overlay</th>${['HOT', 'NEUTRAL', 'COLD'].map(r => `<th scope="col">${esc(label(REGIME, r))}</th>`).join('')}</tr></thead><tbody>`
       + ov.map(o => `<tr><th scope="row">${esc(label(OVERLAY, o))}</th>${['HOT', 'NEUTRAL', 'COLD'].map(r => `<td>${cell(r, o)}</td>`).join('')}</tr>`).join('')
