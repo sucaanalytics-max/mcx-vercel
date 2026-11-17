@@ -15,7 +15,7 @@ from urllib.parse import urlparse, parse_qs
 
 from lib.mcx_config import (
     SUPABASE_URL, SUPABASE_ANON_KEY, COMMODITY_MAP,
-    supabase_read_all, now_ist, make_cors_headers,
+    supabase_read_all, now_ist, make_cors_headers, cache_header,
 )
 from lib.margin_dashboard import generate_margin_dashboard
 from lib.oi_participants_dashboard import generate_oi_participants_dashboard
@@ -350,7 +350,7 @@ class handler(BaseHTTPRequestHandler):
             for k, v in headers.items():
                 self.send_header(k, v)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Cache-Control", cache)
+            self.send_header("Cache-Control", cache_header(result, cache))
             self.end_headers()
             self.wfile.write(json.dumps(result, default=str).encode())
         except Exception as e:
@@ -359,7 +359,7 @@ class handler(BaseHTTPRequestHandler):
                 self.send_header(k, v)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode())
+            self.wfile.write(json.dumps({"success": False, "error": str(e)[:200]}).encode())
 
     def do_OPTIONS(self):
         headers = make_cors_headers()

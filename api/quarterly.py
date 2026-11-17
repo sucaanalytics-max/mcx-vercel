@@ -25,7 +25,7 @@ from datetime import date, datetime, timedelta
 from lib.mcx_config import (
     SUPABASE_URL, SUPABASE_ANON_KEY, DILUTED_SHARES_CR, SESSION_START,
     MCX_HOLIDAYS_2026, MCX_SPECIAL_SESSIONS, supabase_read, supabase_read_all, now_ist,
-    make_cors_headers,
+    make_cors_headers, cache_header,
 )
 try:
     from lib.mcx_config import session_end      # seasonal close: 23:55 in US winter
@@ -512,7 +512,7 @@ class handler(BaseHTTPRequestHandler):
             for k, v in cors.items():
                 self.send_header(k, v)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Cache-Control", "public, max-age=60, s-maxage=60")
+            self.send_header("Cache-Control", cache_header(result, "public, max-age=60, s-maxage=60"))
             self.end_headers()
             self.wfile.write(json.dumps(result).encode())
         except Exception as e:
@@ -521,7 +521,7 @@ class handler(BaseHTTPRequestHandler):
                 self.send_header(k, v)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode())
+            self.wfile.write(json.dumps({"success": False, "error": str(e)[:200]}).encode())
 
     def do_OPTIONS(self):
         origin = self.headers.get("Origin", "")

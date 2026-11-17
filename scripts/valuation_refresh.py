@@ -56,7 +56,8 @@ def sb_upsert(table, rows):
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates",
     }
-    # Batch in chunks of 50
+    # Batch in chunks of 50; returns the number of failed batches
+    failed = 0
     for i in range(0, len(rows), 50):
         chunk = rows[i:i+50]
         body = json.dumps(chunk).encode()
@@ -67,6 +68,8 @@ def sb_upsert(table, rows):
         except urllib.error.HTTPError as e:
             err = e.read().decode()[:200] if e.fp else ""
             print(f"  ✗ Upsert error batch {i}: {e.code} — {err}")
+            failed += 1
+    return failed
 
 
 def fetch_all_paginated(table, select, order_col="trading_date"):
@@ -237,7 +240,7 @@ def main():
     # backfill = all
 
     print(f"  Upserting {len(valuations)} rows ({mode} mode)...")
-    sb_upsert("mcx_valuation", valuations)
+    failed_batches = sb_upsert("mcx_valuation", valuations)
 
     # Print summary
     latest = valuations[-1]
@@ -252,8 +255,12 @@ def main():
     print(f"     Signal:        {latest['signal']}")
     print(f"     P/E Band:      {latest['pe_mean_used']}x ± {latest['pe_sd_used']}x")
 
+    if failed_batches:
+        print(f"\n    FAILED — {failed_batches} batch(es) not written (see errors above)")
+        return 1
     print(f"\n    Done — {len(valuations)} rows upserted")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

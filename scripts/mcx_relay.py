@@ -314,7 +314,11 @@ def run_snapshot():
     }
 
     print(f"  Pushing to Supabase...")
-    result = _hard_call(supabase_upsert, "mcx_snapshots", snapshot, hard_timeout=20)
+    # Merge on the table's unique key (mcx_snapshots_trading_date_elapsed_min_key):
+    # without on_conflict a second write for the same minute (relay restart, or
+    # the /api/refresh POST path) was a 409 that counted as a failed snapshot.
+    result = _hard_call(supabase_upsert, "mcx_snapshots", snapshot, hard_timeout=20,
+                        on_conflict="trading_date,elapsed_min")
     print(f"  ✓ {capture.strftime('%H:%M IST')} — Rev: ₹{total_rev:.2f} Cr "
           f"(Fut: {fut_notl:.0f} | Opt Prem: {opt_prem:.0f}) "
           f"[{conf}, ±{unc*100:.0f}%] "
@@ -564,11 +568,16 @@ def refresh_margins_local():
         today_str = now_ist().strftime("%Y-%m-%d")
         if pub_date != today_str:
             print(f"  ⚠ Stale: Sharekhan file published {pub_date} ≠ today {today_str}")
-        errors = margin_upsert("mcx_margin_daily", rows)
+        stats = {}
+        errors = margin_upsert("mcx_margin_daily", rows, stats=stats)
+        skipped = stats.get("skipped", 0)
         if errors:
             print(f"  ⚠ Upsert errors: {errors[:2]}")
+        elif skipped >= len(rows):
+            print(f"  · Margins {pub_date}: already stored, nothing written ({len(rows)} rows)")
         else:
-            print(f"  ✓ Margins upserted: {pub_date} ({len(rows)} rows)")
+            print(f"  ✓ Margins upserted: {pub_date} ({len(rows) - skipped} rows"
+                  + (f", {skipped} already stored" if skipped else "") + ")")
     except Exception as e:
         print(f"  ✗ Margin refresh failed: {e}")
 
@@ -610,11 +619,15 @@ def refresh_oi_participants_local():
         if not rows:
             print(f"  ✗ No OI participant rows parsed for {resolved_dt}")
             return
-        errors = oi_upsert("mcx_oi_participants", rows)
+        stats = {}
+        errors = oi_upsert("mcx_oi_participants", rows, stats=stats)
+        skipped = stats.get("skipped", 0)
         if errors:
             print(f"  ⚠ Upsert errors: {errors[:2]}")
+        elif skipped >= len(rows):
+            print(f"  · OI participants {report_date}: already stored, nothing written")
         else:
-            print(f"  ✓ OI participants upserted: {report_date} ({len(rows)} rows)")
+            print(f"  ✓ OI participants upserted: {report_date} ({len(rows) - skipped} rows)")
     except Exception as e:
         print(f"  ✗ OI participants refresh failed: {e}")
 
@@ -712,11 +725,24 @@ def capture_commodity_breakdown(session_date, timeout=COMMODITY_EOD_TIMEOUT, run
 
 def close_session(session_date, clock_fallback=False):
     """Everything after the close, in priority order. Revenue first and always:
-    nothing after it can fail or delay it."""
-    capture_eod(session_date)
+    nothing after it can fail or delay it.
+
+    A failed revenue write (network, the 409 a re-run hits on the unique
+    trading_date, or the guard trigger) is logged and reported in the heartbeat
+    but no longer aborts the steps after it: before, the exception skipped
+    margins / OI / commodity and sent the outer loop into up to 10 restarts that
+    retried the same failing write. daily_verify (07:00) and the next start-up's
+    catch-up backfill a missing revenue row."""
+    try:
+        eod_ok = capture_eod(session_date)
+    except Exception as e:
+        eod_ok = False
+        print(f"  ✗ EOD write failed for {session_date}: {e}")
+        print("    (daily_verify at 07:00 and the next relay start-up backfill missing revenue)")
+        send_heartbeat("error", error=f"eod {session_date}: {e}")
     refresh_margins_local()
     refresh_oi_participants_local()
-    if not clock_fallback:
+    if not clock_fallback and eod_ok:
         send_heartbeat("eod_done")
     try:
         capture_commodity_breakdown(session_date)

@@ -155,6 +155,7 @@ def backfill(start_date, end_date):
     total = 0
     success = 0
     failed = 0
+    hard_failed = 0
     skipped = 0
 
     while d <= end_date:
@@ -212,6 +213,7 @@ def backfill(start_date, end_date):
                 print(f"Upsert errors: {errors[:1]}")
                 progress["failed"].append(ds)
                 failed += 1
+                hard_failed += 1
             else:
                 print(f"OK ({len(rows)} rows, date: {report_date})")
                 progress["completed"].append(ds)
@@ -222,6 +224,7 @@ def backfill(start_date, end_date):
             print(f"Error: {e}")
             progress["failed"].append(ds)
             failed += 1
+            hard_failed += 1
 
         save_progress(progress)
         d += timedelta(days=1)
@@ -235,6 +238,9 @@ def backfill(start_date, end_date):
     if failed > 0:
         print(f"  Failed dates saved to: {PROGRESS_FILE}")
         print(f"  Re-run with --retry-failed to retry")
+    # Only write/network errors are failures. "No document" / not-yet-published is
+    # MCX's T+1 publication lag and must not turn every morning run red.
+    return hard_failed
 
 
 def main():
@@ -256,8 +262,7 @@ def main():
         save_progress(progress)
         start = datetime.strptime(dates[0], "%Y-%m-%d").date()
         end = datetime.strptime(dates[-1], "%Y-%m-%d").date()
-        backfill(start, end)
-        return
+        return 1 if backfill(start, end) else 0
 
     if args.recent:
         end = now_ist().date()
@@ -266,8 +271,8 @@ def main():
         start = datetime.strptime(args.from_date, "%Y-%m-%d").date()
         end = datetime.strptime(args.to_date, "%Y-%m-%d").date() if args.to_date else now_ist().date()
 
-    backfill(start, end)
+    return 1 if backfill(start, end) else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

@@ -14,7 +14,7 @@ from http.server import BaseHTTPRequestHandler
 import json, math
 
 from lib.mcx_config import (
-    supabase_read_all, now_ist, make_cors_headers,
+    supabase_read_all, now_ist, make_cors_headers, int_param,
     safe_float as _f, pearson as _pearson,
 )
 
@@ -359,8 +359,7 @@ class handler(BaseHTTPRequestHandler):
 
             if section == "hourly_accuracy":
                 from lib.hourly_analysis import generate_hourly_accuracy
-                days = int(qs.get("days", ["90"])[0])
-                result = generate_hourly_accuracy(lookback_days=min(days, 180))
+                result = generate_hourly_accuracy(lookback_days=int_param(qs, "days", 90, 5, 180))
             else:
                 result = generate_analytics()
 
