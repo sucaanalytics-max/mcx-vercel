@@ -47,6 +47,10 @@ def main():
     mode = sys.argv[2] if len(sys.argv) > 2 else "recent"
     result = _run(job, mode)
     print(json.dumps(result, default=str)[:600])
+    # Exit non-zero on a failed run: daily_verify and the freshness fixers read
+    # the exit code, and used to print "<job> OK" even when every upsert failed.
+    if isinstance(result, dict) and result.get("success") is False:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

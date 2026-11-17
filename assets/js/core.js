@@ -24,22 +24,42 @@
   const MON_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   function dparts(iso) {
     const [y, m, d] = String(iso).split('-').map(Number);
-    return { y, m, d, dow: new Date(Date.UTC(y, m - 1, d)).getUTCDay() };
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    // null / '' / garbage: callers print '—' instead of "NaN undefined"
+    if (!Number.isFinite(dow) || !(m >= 1 && m <= 12)) return null;
+    return { y, m, d, dow };
   }
+  const NO_DATE = '—';
   Object.assign(MCX.fmt, {
-    weekday: iso => DOW[dparts(iso).dow],                                   // Mon
-    weekdayLong: iso => DOW_LONG[dparts(iso).dow],                          // Monday
-    dayMonth: iso => { const p = dparts(iso); return p.d + ' ' + MON[p.m - 1]; },               // 28 Sep
-    day: iso => { const p = dparts(iso); return DOW[p.dow] + ' ' + p.d + ' ' + MON[p.m - 1]; }, // Mon 28 Sep
-    dateLong: iso => { const p = dparts(iso); return `${DOW_LONG[p.dow]} ${p.d} ${MON_LONG[p.m - 1]} ${p.y}`; },
+    weekday: iso => { const p = dparts(iso); return p ? DOW[p.dow] : NO_DATE; },                // Mon
+    weekdayLong: iso => { const p = dparts(iso); return p ? DOW_LONG[p.dow] : NO_DATE; },       // Monday
+    dayMonth: iso => { const p = dparts(iso); return p ? p.d + ' ' + MON[p.m - 1] : NO_DATE; }, // 28 Sep
+    day: iso => { const p = dparts(iso); return p ? DOW[p.dow] + ' ' + p.d + ' ' + MON[p.m - 1] : NO_DATE; }, // Mon 28 Sep
+    dateLong: iso => { const p = dparts(iso); return p ? `${DOW_LONG[p.dow]} ${p.d} ${MON_LONG[p.m - 1]} ${p.y}` : NO_DATE; },
     // 22–28 Sep · 1 Jul – 28 Sep · 12 Nov 2026 – 20 Jan 2027
     span(a, b) {
       const p = dparts(a), q = dparts(b);
+      if (!p || !q) return NO_DATE;
       if (p.y !== q.y) return `${p.d} ${MON[p.m - 1]} ${p.y} – ${q.d} ${MON[q.m - 1]} ${q.y}`;
       if (p.m !== q.m) return `${p.d} ${MON[p.m - 1]} – ${q.d} ${MON[q.m - 1]}`;
       return p.d === q.d ? `${q.d} ${MON[q.m - 1]}` : `${p.d}–${q.d} ${MON[q.m - 1]}`;
     },
   });
+
+  // ── JSON fetch ───────────────────────────────────────────────────────────
+  // Every /api/* endpoint answers JSON, including {success:false} bodies on a
+  // 4xx/5xx — those are returned for the caller to show. A non-JSON answer
+  // (Vercel's HTML error page, a gateway timeout) becomes a readable error
+  // instead of "Unexpected token '<' … is not valid JSON".
+  MCX.getJSON = function (url, init) {
+    return fetch(url, init).then(r => {
+      const ct = (r.headers && r.headers.get && r.headers.get('content-type')) || '';
+      if (ct && !/json/i.test(ct)) {
+        throw new Error(r.ok ? 'Unexpected response from the server' : 'Service unavailable (HTTP ' + r.status + ')');
+      }
+      return r.json().catch(() => { throw new Error(r.ok ? 'Unreadable response from the server' : 'Service unavailable (HTTP ' + r.status + ')'); });
+    });
+  };
 
   // ── Timestamps ───────────────────────────────────────────────────────────
   // /api/refresh returns ISO 8601 on GET but "14:42 IST, 28 Sep 2026" after a
@@ -366,9 +386,17 @@
     updateRangeLabels(cfg, initial);
     return initial;
   }
-  // One request per URL until the cache is cleared (a refresh clears it)
+  // One request per URL until the cache is cleared (a refresh clears it).
+  // A failed answer — network error, non-JSON page, or {success:false} — is not
+  // kept, so the Retry buttons really retry instead of re-serving the error.
   function fetchRanged(url) {
-    if (!fetchCache[url]) fetchCache[url] = fetch(url).then(r => r.json()).catch(e => { delete fetchCache[url]; throw e; });
+    if (!fetchCache[url]) {
+      const p = MCX.getJSON(url).then(d => {
+        if (!d || d.success === false) { if (fetchCache[url] === p) delete fetchCache[url]; }
+        return d;
+      }, e => { if (fetchCache[url] === p) delete fetchCache[url]; throw e; });
+      fetchCache[url] = p;
+    }
     return fetchCache[url];
   }
   const clearRangedCache = () => Object.keys(fetchCache).forEach(k => { delete fetchCache[k]; });

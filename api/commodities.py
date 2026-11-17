@@ -14,11 +14,13 @@ try:
     from lib.mcx_config import (
         AV_KEY, make_cors_headers, now_ist, COMMODITY_MAP,
         SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_upsert,
+        cache_header,
     )
 except ImportError:
     from lib.mcx_config import (
         AV_KEY, make_cors_headers, now_ist, COMMODITY_MAP,
         SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_upsert,
+        cache_header,
     )
 
 # Legacy fragmented commodity symbols whose data is now consolidated into the
@@ -473,13 +475,13 @@ class handler(BaseHTTPRequestHandler):
             self.send_header(k, v)
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Cache-Control", "public, max-age=1800")
 
     def send_json(self, data, status=200):
         body = json.dumps(data, default=str).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", cache_header(data, "public, max-age=1800") if status == 200 else "no-store")
         self._cors()
         self.end_headers()
         self.wfile.write(body)

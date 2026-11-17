@@ -145,7 +145,7 @@
 
   // ── Live snapshot: the refresh button, a refresh every 2 minutes in trading hours, the header time ──
   const AUTO_REFRESH_MS = 2 * 60 * 1000;
-  let autoTimer = null, refreshing = false;
+  let refreshing = false, refreshPoll = null;
   const inTradingHours = () => { const t = MCX.market.ist(); return t.dow >= 1 && t.dow <= 5 && t.min >= 535 && t.min <= 1415; };
   function showSnapshotTime(d) {
     const meta = $('refreshMeta'), t = MCX.parseTs(d.timestamp);   // ISO on GET, "HH:MM IST, DD Mon YYYY" after a manual refresh
@@ -160,6 +160,7 @@
   async function refresh(manual) {
     if (refreshing) return;
     refreshing = true;
+    if (refreshPoll) refreshPoll.last = Date.now();   // a manual refresh resets the 2-minute clock
     const btn = $('refreshBtn');
     btn.classList.add('loading'); btn.disabled = true; btn.setAttribute('aria-busy', 'true');
     try {
@@ -167,11 +168,11 @@
       if (manual) {             // a manual refresh asks the server to fetch from MCX first, with the saved cookie if any
         try {
           const cookie = MCX.storage.get('mcxCookie');
-          data = await fetch('/api/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cookie ? { cookie } : {}) }).then(r => r.json());
+          data = await MCX.getJSON('/api/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cookie ? { cookie } : {}) });
           if (!data.success) throw new Error(data.error);
-        } catch (e) { data = await fetch('/api/refresh').then(r => r.json()); }
+        } catch (e) { data = await MCX.getJSON('/api/refresh'); }
       } else {
-        data = await fetch('/api/refresh').then(r => r.json());
+        data = await MCX.getJSON('/api/refresh');
       }
       MCX.store.set('refresh', data);
       if (data.success) {
@@ -179,13 +180,12 @@
         MCX.store.set('liveRevenue', { value: data.proj_rev_cr, live: !data.session_closed });
         showSnapshotTime(data);
         if (manual) MCX.ui.toast('Data refreshed');
-        if (!autoTimer && inTradingHours()) autoTimer = setInterval(() => { if (inTradingHours() && !document.hidden) refresh(false); }, AUTO_REFRESH_MS);
       } else if (manual) {
         MCX.ui.toast('Refresh failed' + (data.error ? ': ' + data.error : ''), 'error');
       }
     } catch (e) {
-      MCX.store.set('refresh', { success: false, error: 'Network error' });
-      if (manual) MCX.ui.toast('Network error', 'error');
+      MCX.store.set('refresh', { success: false, error: e && e.message ? e.message : 'Network error' });
+      if (manual) MCX.ui.toast(e && e.message ? e.message : 'Network error', 'error');
     } finally {
       refreshing = false;
       btn.classList.remove('loading'); btn.disabled = false; btn.removeAttribute('aria-busy');
@@ -193,12 +193,17 @@
   }
   $('refreshBtn').addEventListener('click', () => refresh(true));
   MCX.refresh = refresh;
+  // Armed at load, whatever the first refresh does: it used to start only after a
+  // successful refresh inside trading hours, so a tab opened before 08:55 IST or
+  // after one failed fetch never auto-refreshed again that day.
+  refreshPoll = MCX.poll.every('refresh', () => refresh(false), AUTO_REFRESH_MS,
+    () => inTradingHours() && !document.hidden);
 
   // ── Share price: at load, then every minute in NSE hours on the pages that show it ──
   function fetchPrice() {
-    return fetch('/api/mcxprice').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(d => { if (d.error) throw new Error(d.error); MCX.store.set('price', d); })
-      .catch(e => { console.warn('Share price:', e.message); MCX.store.set('priceStale', true); });
+    return MCX.getJSON('/api/mcxprice')
+      .then(d => { if (!d || d.error) throw new Error((d && d.error) || 'No price'); MCX.store.set('price', d); })
+      .catch(e => { console.warn('Share price:', e.message); });
   }
   MCX.poll.every('cmp', fetchPrice, 60 * 1000, () => MCX.market.nseOpen() && !document.hidden && ['val-scen', 'val-fv'].includes(MCX.router.current()));
 

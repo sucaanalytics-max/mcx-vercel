@@ -12,6 +12,7 @@ from collections import defaultdict
 
 from lib.mcx_config import (
     supabase_read_all, now_ist, make_cors_headers, MCX_SPECIAL_SESSIONS,
+    int_param, cache_header,
 )
 
 
@@ -446,8 +447,7 @@ class handler(BaseHTTPRequestHandler):
             cache = "public, max-age=120, s-maxage=120"
             if view == "intraday_curve":
                 from lib.intraday_curves import generate_intraday_curves
-                days = int(qs.get("days", ["30"])[0])
-                result = generate_intraday_curves(days=min(days, 90))
+                result = generate_intraday_curves(days=int_param(qs, "days", 30, 5, 90))
             elif view == "home":
                 # Today page: completed days, six averages, measured projection error.
                 # Changes once a day (after the close), so the CDN can hold it longer.
@@ -461,7 +461,7 @@ class handler(BaseHTTPRequestHandler):
             for k, v in cors.items():
                 self.send_header(k, v)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Cache-Control", cache)
+            self.send_header("Cache-Control", cache_header(result, cache))
             self.end_headers()
             self.wfile.write(json.dumps(result).encode())
         except Exception as e:
@@ -470,7 +470,7 @@ class handler(BaseHTTPRequestHandler):
                 self.send_header(k, v)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode())
+            self.wfile.write(json.dumps({"success": False, "error": str(e)[:200]}).encode())
 
     def do_OPTIONS(self):
         origin = self.headers.get("Origin", "")

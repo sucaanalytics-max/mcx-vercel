@@ -977,10 +977,42 @@ def make_cors_headers(origin: str = "") -> dict:
     """Generate CORS headers, restricting to allowed origins (F-13)."""
     if origin in ALLOWED_ORIGINS:
         return {"Access-Control-Allow-Origin": origin}
-    # Fallback for Vercel preview deployments
-    if origin and (".vercel.app" in origin or "localhost" in origin):
+    # This project's own Vercel previews and local dev only. Matching on the parsed
+    # host — a substring test also admitted evil.vercel.app / evil-localhost.com.
+    if origin and _is_dev_or_preview_origin(origin):
         return {"Access-Control-Allow-Origin": origin}
     return {"Access-Control-Allow-Origin": ALLOWED_ORIGINS[0] if ALLOWED_ORIGINS else "*"}
+
+
+def _is_dev_or_preview_origin(origin: str) -> bool:
+    from urllib.parse import urlparse
+    try:
+        u = urlparse(origin)
+        host = (u.hostname or "").lower()
+    except ValueError:
+        return False
+    if host in ("localhost", "127.0.0.1"):
+        return u.scheme in ("http", "https")
+    return u.scheme == "https" and host.startswith("mcx-vercel") and host.endswith(".vercel.app")
+
+
+def int_param(qs: dict, name: str, default: int, lo: int, hi: int) -> int:
+    """Integer query param clamped to [lo, hi]; garbage falls back to the default
+    instead of a 500 (?days=abc used to surface a Python error)."""
+    try:
+        v = int(qs.get(name, [default])[0])
+    except (TypeError, ValueError):
+        v = default
+    return max(lo, min(hi, v))
+
+
+def cache_header(result, ok_value: str) -> str:
+    """Cache-Control for a JSON payload: never let the CDN or browser hold a
+    {success: false} body — a transient Supabase error would otherwise be served
+    for the whole max-age / stale-while-revalidate window."""
+    if isinstance(result, dict) and result.get("success") is False:
+        return "no-store"
+    return ok_value
 
 
 # ─── SUPABASE HELPERS ────────────────────────────────────────────────────────

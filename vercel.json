@@ -87,7 +87,7 @@
       "destination": "/api/commodity_dashboard"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ],

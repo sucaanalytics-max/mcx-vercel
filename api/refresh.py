@@ -254,7 +254,7 @@ def process_market_data(raw_json, capture_time_ist, raw_json2=None):
                 "top_futures": top_fut,
                 "top_options": top_opt,
             }
-            supabase_upsert("mcx_snapshots", snapshot)
+            supabase_upsert("mcx_snapshots", snapshot, on_conflict="trading_date,elapsed_min")
         except Exception:
             pass  # Don't fail the response if Supabase push fails
 
@@ -311,7 +311,9 @@ class handler(BaseHTTPRequestHandler):
             snap_age_min = None
             if snap and snap.get("captured_at"):
                 cap = datetime.fromisoformat(snap["captured_at"].replace("Z", "+00:00"))
-                snap_age_min = round((t.astimezone(timezone.utc) - cap.astimezone(timezone.utc)).total_seconds() / 60, 1)
+                # now_ist() is a naive IST wall clock: astimezone() would read it in
+                # the host's zone (UTC on Vercel) and add 330 min to every age.
+                snap_age_min = round((datetime.now(timezone.utc) - cap.astimezone(timezone.utc)).total_seconds() / 60, 1)
 
             is_market_hours = is_market_open(t)
             alive = snap_age_min is not None and snap_age_min < 30 if is_market_hours else True
