@@ -12,12 +12,12 @@ from urllib.parse import urlparse, parse_qs
 
 try:
     from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
+        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY,
         now_ist, make_cors_headers, paginated_order,
     )
 except ImportError:
     from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
+        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY,
         now_ist, make_cors_headers, paginated_order,
     )
 
@@ -38,8 +38,7 @@ W_MF   = 0.70
 def sb_get(table, params=""):
     url = f"{SUPABASE_URL}/rest/v1/{table}{params}"
     req = urllib.request.Request(url, headers={
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        **supabase_headers(SUPABASE_ANON_KEY),
     })
     with urllib.request.urlopen(req, timeout=15) as resp:
         return json.loads(resp.read().decode())
@@ -52,8 +51,7 @@ def sb_upsert(table, rows, on_conflict=None):
         # colliding with the unique constraint (the surrogate id PK can't merge).
         url += f"?on_conflict={on_conflict}"
     headers = {
-        "apikey": SUPABASE_WRITE_KEY,
-        "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
+        **supabase_headers(SUPABASE_WRITE_KEY),
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates",
     }

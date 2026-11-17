@@ -9,7 +9,7 @@ from collections import defaultdict
 from pathlib import Path
 
 
-_PROJECT_ENV_KEYS = ("SUPABASE_SERVICE_KEY",)
+_PROJECT_ENV_KEYS = ("SUPABASE_SERVICE_KEY", "SUPABASE_SECRET_KEY", "SUPABASE_PUBLISHABLE_KEY")
 
 
 def _load_project_env():
@@ -48,17 +48,53 @@ AV_KEY = os.environ.get("ALPHA_VANTAGE_KEY", "")
 
 # ─── Supabase (F-08: data relay) ─────────────────────────────────────────────
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supabase.co")
-SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY",
+# Supabase API keys. Supabase is retiring the legacy JWT keys (anon /
+# service_role) by the end of 2026 in favour of non-JWT keys:
+#   SUPABASE_PUBLISHABLE_KEY  sb_publishable_...  replaces anon (reads, RLS applies)
+#   SUPABASE_SECRET_KEY       sb_secret_...       replaces service_role (writes)
+# Set the new ones in .env.local (relay Mac) and Vercel env; until then the
+# legacy names keep working. Send every request's headers through
+# supabase_headers(key): the new keys go only in `apikey` (they are not JWTs, so
+# an `Authorization: Bearer` copy can be rejected); legacy JWTs keep both.
+_LEGACY_ANON_KEY = (
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2cXdwZWJ2ZXFldHd3emttdHV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDkwMzMsImV4cCI6MjA4Njk4NTAzM30.U_Ug61Fp1NSCesXBkYU7GJGTbuATFtXsz6GTi5948Rw")
-# Service-role key for server-side WRITES (crons/relay). Bypasses RLS, so tables
-# can keep anon read-only policies. Falls back to the anon key when unset, which
-# only works on tables whose RLS permits anon INSERT/UPDATE (see
-# scripts/sql/enable_signal_table_writes.sql). Reads always use the anon key.
-SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+# The read key (name kept for the ~40 modules that import it): publishable first.
+SUPABASE_ANON_KEY = (os.environ.get("SUPABASE_PUBLISHABLE_KEY")
+                     or os.environ.get("SUPABASE_ANON_KEY") or _LEGACY_ANON_KEY)
+# Server-side WRITE key. Bypasses RLS, so tables can keep anon read-only
+# policies. Falls back to the read key when unset, which only works while RLS
+# still lets anon INSERT/UPDATE (scripts/sql/lock_*.sql removes that).
+SUPABASE_SERVICE_KEY = (os.environ.get("SUPABASE_SECRET_KEY")
+                        or os.environ.get("SUPABASE_SERVICE_KEY", ""))
 SUPABASE_WRITE_KEY = SUPABASE_SERVICE_KEY or SUPABASE_ANON_KEY
 # Logged by the relay at start-up. mcx_daily_revenue accepts writes only from
 # service_role once scripts/sql/lock_mcx_daily_revenue.sql has been applied.
 SUPABASE_WRITE_ROLE = "service_role" if SUPABASE_SERVICE_KEY else "anon"
+
+
+def _is_jwt(key: str) -> bool:
+    return isinstance(key, str) and key.startswith("eyJ") and key.count(".") == 2
+
+
+def supabase_key_kind(key: str) -> str:
+    """'publishable' | 'secret' | 'legacy-jwt' | 'unknown' (never the key itself)."""
+    if not key:
+        return "unknown"
+    if key.startswith("sb_publishable_"):
+        return "publishable"
+    if key.startswith("sb_secret_"):
+        return "secret"
+    return "legacy-jwt" if _is_jwt(key) else "unknown"
+
+
+def supabase_headers(key: str) -> dict:
+    """Auth headers for a Supabase REST call with this key. New sb_ keys go only
+    in `apikey`; a legacy JWT key also goes in `Authorization: Bearer`, exactly
+    as before, so nothing changes until the new keys are configured."""
+    h = {"apikey": key}
+    if _is_jwt(key):
+        h["Authorization"] = f"Bearer {key}"
+    return h
 
 # ─── Commodity normalization ─────────────────────────────────────────────────
 # Groups MCX mini/micro/petal variants under their parent commodity so all
@@ -1089,8 +1125,7 @@ def _supabase_request(method, table, data=None, params="", timeout=10):
     import urllib.request, urllib.error, json
     url = f"{SUPABASE_URL}/rest/v1/{table}{params}"
     headers = {
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        **supabase_headers(SUPABASE_ANON_KEY),
         "Content-Type": "application/json",
         "Prefer": "return=representation",
     }
@@ -1222,8 +1257,7 @@ def supabase_upsert(table, data, timeout=10, on_conflict=None):
     if on_conflict:
         url += f"?on_conflict={on_conflict}"
     headers = {
-        "apikey": SUPABASE_WRITE_KEY,
-        "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
+        **supabase_headers(SUPABASE_WRITE_KEY),
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates,return=representation",
     }

@@ -21,7 +21,7 @@ from curl_cffi import requests as cfreq
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from lib.cron_oi_participants import _parse_participants, sb_upsert
-from lib.mcx_config import now_ist, SUPABASE_URL, SUPABASE_ANON_KEY
+from lib.mcx_config import now_ist, SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers
 
 # Sitefinity document API — discovered from archive page JS
 SITEFINITY_API = (
@@ -69,8 +69,7 @@ def get_existing_dates():
     url = (f"{SUPABASE_URL}/rest/v1/mcx_oi_participants"
            f"?select=report_date&order=report_date.desc&limit=2000")
     headers = {
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        **supabase_headers(SUPABASE_ANON_KEY),
     }
     req = urllib.request.Request(url, headers=headers)
     try:

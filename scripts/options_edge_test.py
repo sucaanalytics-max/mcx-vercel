@@ -11,9 +11,9 @@ import sys, json, math, urllib.request
 sys.path.insert(0, "/Users/tusk-jvb/Claude Projects/mcx-vercel")
 import numpy as np, pandas as pd, yfinance as yf
 from scipy import stats
-from lib.mcx_config import SUPABASE_URL, SUPABASE_ANON_KEY
+from lib.mcx_config import SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers
 
-H = {"apikey": SUPABASE_ANON_KEY, "Authorization": "Bearer " + SUPABASE_ANON_KEY}
+H = {**supabase_headers(SUPABASE_ANON_KEY)}
 
 def fetch(table, select, order):
     rows, off = [], 0

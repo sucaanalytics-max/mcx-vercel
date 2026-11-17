@@ -23,7 +23,7 @@ import sys, os, json, time, urllib.request
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib.mcx_config import paginated_order
 from scripts.bhav_refresh import (
-    SUPABASE_URL, SUPABASE_ANON_KEY,
+    SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers,
     commodity_breakdown, BREAKDOWN_WRITTEN,
 )
 
@@ -32,7 +32,7 @@ FUT_RATE, OPT_RATE, BOTH = 210.0, 4180.0, 2.0
 
 def _get(path):
     req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/{path}", headers={
-        "apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {SUPABASE_ANON_KEY}"})
+        **supabase_headers(SUPABASE_ANON_KEY)})
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read().decode())
 

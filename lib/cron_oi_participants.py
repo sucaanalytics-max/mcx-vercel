@@ -23,12 +23,12 @@ from urllib.parse import urlparse, parse_qs
 
 try:
     from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
+        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY,
         now_ist, is_trading_day, make_cors_headers,
     )
 except ImportError:
     from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
+        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY,
         now_ist, is_trading_day, make_cors_headers,
     )
 
@@ -180,8 +180,7 @@ def sb_upsert(table, rows, stats=None):
     stats dict is passed, so callers stop reporting them as upserted."""
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     headers = {
-        "apikey": SUPABASE_WRITE_KEY,
-        "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
+        **supabase_headers(SUPABASE_WRITE_KEY),
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates",
     }

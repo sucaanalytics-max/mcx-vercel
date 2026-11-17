@@ -17,14 +17,14 @@ try:
     from lib.mcx_config import (
         TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
         PE_MEAN_DEFAULT, PE_SD_DEFAULT,
-        SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
+        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY,
         now_ist, make_cors_headers, paginated_order,
     )
 except ImportError:
     from lib.mcx_config import (
         TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
         PE_MEAN_DEFAULT, PE_SD_DEFAULT,
-        SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
+        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY,
         now_ist, make_cors_headers, paginated_order,
     )
 try:
@@ -44,8 +44,7 @@ PE_LOOKBACK = 252   # trailing trading days for dynamic PE computation (1 year)
 def sb_get(table, params=""):
     url = f"{SUPABASE_URL}/rest/v1/{table}{params}"
     req = urllib.request.Request(url, headers={
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+        **supabase_headers(SUPABASE_ANON_KEY),
     })
     with urllib.request.urlopen(req, timeout=15) as resp:
         return json.loads(resp.read().decode())
@@ -55,8 +54,7 @@ def sb_upsert(table, rows):
     """Batch upsert rows to Supabase (chunks of 50)."""
     url = f"{SUPABASE_URL}/rest/v1/{table}"
     headers = {
-        "apikey": SUPABASE_WRITE_KEY,
-        "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
+        **supabase_headers(SUPABASE_WRITE_KEY),
         "Content-Type": "application/json",
         "Prefer": "resolution=merge-duplicates",
     }
