@@ -49,10 +49,10 @@ MCX_MAX_RETRIES = 2
 CHROME_IMPERSONATE = os.environ.get("MCX_IMPERSONATE", "chrome142")
 CHROME_IMPERSONATE_FALLBACKS = ["chrome136", "chrome131", "chrome"]
 
-# MCX holidays (full-day closures only — no trading at all)
-MCX_HOLIDAYS = {
-    "2025-12-25", "2026-01-26", "2026-04-03", "2026-10-02", "2026-12-25",
-}
+# MCX holidays (full-day closures only — no trading at all). One calendar for
+# every year, kept in lib/mcx_config.py: a local copy here would silently miss
+# the 2027 dates when they are added there.
+from lib.mcx_config import MCX_HOLIDAYS, paginated_order  # noqa: E402
 
 
 def now_ist():
@@ -253,12 +253,58 @@ def breakdown_completeness(rows):
     return True, ""
 
 
-def _upsert_commodity_batch(rows):
+_OI_FIELDS = ("open_interest", "oi_value_cr")
+
+
+def _read_existing_oi(dates):
+    """{(trading_date, commodity, instrument_type): {open_interest, oi_value_cr}}
+    for stored rows on `dates` that carry non-zero OI."""
+    out = {}
+    for d in sorted(set(dates)):
+        url = (f"{SUPABASE_URL}/rest/v1/mcx_commodity_daily?trading_date=eq.{d}&open_interest=gt.0"
+               f"&select=trading_date,commodity,instrument_type,open_interest,oi_value_cr"
+               f"&order=commodity.asc,instrument_type.asc&limit=1000")
+        req = urllib.request.Request(url, headers={
+            "apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {SUPABASE_ANON_KEY}"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            for r in json.loads(resp.read().decode()):
+                out[(r["trading_date"], r["commodity"], r["instrument_type"])] = {
+                    k: r[k] for k in _OI_FIELDS}
+    return out
+
+
+def preserve_existing_oi(rows, existing):
+    """MCX's historical report carries no open interest, so freshly aggregated
+    rows have open_interest = 0. The Dhan OI backfill (backfill_commodity_oi)
+    writes the real figure onto those rows afterwards. A later re-write of the
+    breakdown (merge-duplicates, which can UPDATE once SUPABASE_SERVICE_KEY is
+    set) must not reset it to zero: keep the stored OI wherever the new row has
+    none. Returns new row dicts; a row with its own non-zero OI is unchanged."""
+    out = []
+    for r in rows:
+        key = (r["trading_date"], r["commodity"], r["instrument_type"])
+        if not r.get("open_interest") and key in existing:
+            r = {**r, **existing[key]}
+        out.append(r)
+    return out
+
+
+def _upsert_commodity_batch(rows, read_existing_oi=None):
     """Upsert commodity rows to mcx_commodity_daily.
 
     merge-duplicates needs UPDATE rights. With the anon key the RLS USING
     clause rejects it (42501) and a plain PATCH silently matches zero rows, so
-    existing dates can only be corrected with SUPABASE_SERVICE_KEY set."""
+    existing dates can only be corrected with SUPABASE_SERVICE_KEY set.
+
+    Stored non-zero open interest is carried into the payload (see
+    preserve_existing_oi). If it can't be read, nothing is written: a write
+    without it could zero the day's OI."""
+    try:
+        existing = (read_existing_oi or _read_existing_oi)(r["trading_date"] for r in rows)
+    except Exception as e:
+        print(f"  ⚠ commodity upsert skipped: could not read stored OI ({e})")
+        return False
+    rows = preserve_existing_oi(rows, existing)
     url = f"{SUPABASE_URL}/rest/v1/mcx_commodity_daily"
     body = json.dumps(rows).encode()
     req = urllib.request.Request(url, data=body, method="POST", headers={
@@ -372,9 +418,10 @@ def get_commodity_dates(since_iso):
     2026-05-27/28)."""
     dates, offset = set(), 0
     while True:
-        url = (f"{SUPABASE_URL}/rest/v1/mcx_commodity_daily"
-               f"?select=trading_date&trading_date=gte.{since_iso}&turnover_cr=gt.0"
-               f"&order=trading_date.asc&limit=1000&offset={offset}")
+        q = paginated_order("mcx_commodity_daily",
+                            f"?select=trading_date&trading_date=gte.{since_iso}&turnover_cr=gt.0"
+                            f"&order=trading_date.asc")
+        url = f"{SUPABASE_URL}/rest/v1/mcx_commodity_daily{q}&limit=1000&offset={offset}"
         req = urllib.request.Request(url, headers={
             "apikey": SUPABASE_ANON_KEY,
             "Authorization": f"Bearer {SUPABASE_ANON_KEY}",

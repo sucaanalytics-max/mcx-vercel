@@ -113,7 +113,10 @@ def generate_intraday_curves(days=30, include_today=True):
         f"?select=trading_date,elapsed_min,fut_notl_cr,opt_prem_cr"
         f"&trading_date=gte.{start_date}"
         f"&order=trading_date.asc,elapsed_min.asc",
-        max_rows=5000,
+        # days<=90 (+10) is ~70 sessions x ~60 snapshots = ~4.2k rows: close to
+        # the old 5k cap. newest_first: an overflow drops the oldest days.
+        max_rows=8000,
+        newest_first=True,
     )
 
     # Group by trading_date

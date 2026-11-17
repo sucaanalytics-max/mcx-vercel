@@ -21,6 +21,11 @@ from datetime import date, datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import api.quarterly as q
 
+# These scenarios are dated Sep-Oct 2026, while Q2 FY27 was still the live
+# quarter: give generate_quarterly only the actuals reported by then (through
+# Q1 FY27), so adding a newly reported quarter doesn't move the fixtures.
+q.QUARTERLY_ACTUALS = [a for a in q.QUARTERLY_ACTUALS if a["end"] <= "2026-06-30"]
+
 FAILED = []
 
 # Q2 FY27 daily revenue (Rs Cr) as published by /api/quarterly on 29 Sep 2026.

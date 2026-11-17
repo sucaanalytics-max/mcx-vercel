@@ -78,6 +78,7 @@ def generate_oi_participants_dashboard():
         "others_long,others_short"
         "&order=report_date.asc",
         max_rows=50000,
+        newest_first=True,   # a cap drops the oldest dates, never the latest
     )
 
     if not rows:

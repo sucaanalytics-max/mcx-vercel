@@ -13,13 +13,13 @@ from urllib.parse import urlparse, parse_qs
 try:
     from lib.mcx_config import (
         AV_KEY, make_cors_headers, now_ist, COMMODITY_MAP,
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_upsert,
+        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_read_all, supabase_upsert,
         cache_header,
     )
 except ImportError:
     from lib.mcx_config import (
         AV_KEY, make_cors_headers, now_ist, COMMODITY_MAP,
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_upsert,
+        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_read_all, supabase_upsert,
         cache_header,
     )
 
@@ -223,17 +223,11 @@ def _f(v):
 
 
 def _fetch_all(table, select, limit=20000, where=""):
-    all_rows, offset = [], 0
-    while True:
-        rows = supabase_read(
-            table,
-            f"?select={select}{where}&order=trading_date.asc&limit=1000&offset={offset}"
-        )
-        all_rows.extend(rows)
-        if len(rows) < 1000 or len(all_rows) >= limit:
-            break
-        offset += 1000
-    return all_rows
+    """Rows of `table` ascending by trading_date, newest kept if over `limit`
+    (every caller filters to a recent window, so the cap is only a backstop).
+    The order is total (paginated_order appends the table's unique key)."""
+    return supabase_read_all(table, f"?select={select}{where}&order=trading_date.asc",
+                             max_rows=limit, newest_first=True)
 
 
 RANGE_DAYS = {"30D": 30, "60D": 60, "Q": 63, "1Y": 252, "2Y": 504}

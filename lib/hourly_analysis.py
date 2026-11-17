@@ -15,7 +15,14 @@ from lib.mcx_config import (
     project_full_day, calc_revenue, get_day_type,
     safe_float as _f, pearson as _pearson,
     session_shape, SESSION_FULL,
+    trim_stale_open, ADAPTIVE_LOOKBACK_DAYS,
 )
+
+# Forward returns start at the close ENTRY_LAG NSE sessions after the day, as in
+# api/analytics.py: the day's own close is not a fair entry, since the EOD
+# signal and most of MCX's session (evening, to 23:30/23:55) come after the
+# NSE close at 15:30.
+ENTRY_LAG = 1
 
 # Target hours: elapsed minutes from session start (09:00 IST)
 TARGET_HOURS = [
@@ -68,6 +75,26 @@ def _interpolate_snapshot(snapshots, target_elapsed):
     return _get(snapshots[-1], "fut_notl_cr"), _get(snapshots[-1], "opt_prem_cr")
 
 
+def forward_returns(price_dates, price_map, hold, lag=ENTRY_LAG):
+    """{date: return} from the close `lag` sessions after date to the close
+    `hold` sessions after that. price_dates ascending."""
+    out = {}
+    for i, dt in enumerate(price_dates):
+        a, b = i + lag, i + lag + hold
+        if b < len(price_dates):
+            p0 = price_map[price_dates[a]]
+            out[dt] = (price_map[price_dates[b]] - p0) / p0
+    return out
+
+
+def in_sample_overlap(evaluated_dates, today, lookback_days=ADAPTIVE_LOOKBACK_DAYS):
+    """Evaluated days that lie inside the adaptive curve's training window
+    (the last lookback_days calendar days before today)."""
+    start = (today - timedelta(days=lookback_days)).isoformat()
+    end = today.isoformat()
+    return sorted(d for d in evaluated_dates if start <= d < end)
+
+
 def _zscore(value, window):
     """Compute z-score of value within a window of values."""
     if len(window) < 10:
@@ -90,6 +117,7 @@ def generate_hourly_accuracy(lookback_days=90):
         f"&trading_date=gte.{start_date}"
         f"&order=trading_date.asc,elapsed_min.asc",
         max_rows=8000,
+        newest_first=True,   # a cap drops the oldest days, never the latest
     )
 
     daily_revenue = supabase_read_all(
@@ -98,6 +126,7 @@ def generate_hourly_accuracy(lookback_days=90):
         f"&trading_date=gte.{start_date}"
         f"&order=trading_date.asc",
         max_rows=500,
+        newest_first=True,
     )
 
     model_signals = supabase_read_all(
@@ -107,6 +136,7 @@ def generate_hourly_accuracy(lookback_days=90):
         f"&trading_date=gte.{start_date}"
         f"&order=trading_date.asc",
         max_rows=500,
+        newest_first=True,
     )
 
     share_prices = supabase_read_all(
@@ -115,6 +145,7 @@ def generate_hourly_accuracy(lookback_days=90):
         f"&trading_date=gte.{start_date}"
         f"&order=trading_date.asc",
         max_rows=500,
+        newest_first=True,
     )
 
     # ── Build lookups ──
@@ -153,21 +184,18 @@ def generate_hourly_accuracy(lookback_days=90):
             price_map[p["trading_date"]] = c
             price_dates.append(p["trading_date"])
 
-    # ── Compute forward returns ──
-    fwd_1d = {}
-    fwd_5d = {}
-    for i, dt in enumerate(price_dates):
-        if i + 1 < len(price_dates):
-            fwd_1d[dt] = (price_map[price_dates[i + 1]] - price_map[dt]) / price_map[dt]
-        if i + 5 < len(price_dates):
-            fwd_5d[dt] = (price_map[price_dates[i + 5]] - price_map[dt]) / price_map[dt]
+    # ── Compute forward returns (entry ENTRY_LAG closes after the day) ──
+    fwd_1d = forward_returns(price_dates, price_map, 1)
+    fwd_5d = forward_returns(price_dates, price_map, 5)
 
     # ── Per-hour analysis ──
     hourly_results = {elapsed: [] for elapsed, _ in TARGET_HOURS}
 
     sorted_dates = sorted(by_date_snaps.keys())
     for dt_str in sorted_dates:
-        snaps = by_date_snaps[dt_str]
+        # Same stale-opening trim as the adaptive curve: a first poll carrying
+        # the prior day's cumulative inflates the early-hour projections.
+        snaps = trim_stale_open(sorted(by_date_snaps[dt_str], key=lambda x: x["elapsed_min"]))
         if len(snaps) < 4:
             continue
         rev_data = rev_map.get(dt_str)
@@ -341,9 +369,27 @@ def generate_hourly_accuracy(lookback_days=90):
             "direction": "over" if ra["mean_error_pct"] > 0 else "under",
         })
 
+    evaluated = sorted({o["date"] for obs in hourly_results.values() for o in obs})
+    overlap = in_sample_overlap(evaluated, ist.date())
+
     return {
         "success": True,
         "as_of": ist.strftime("%Y-%m-%d %H:%M IST"),
+        "methodology": {
+            # project_full_day uses the adaptive EWMA intraday curve, which is
+            # fitted on the last ADAPTIVE_LOOKBACK_DAYS of snapshots, the same
+            # days scored here: on those days the revenue errors are in-sample
+            # (optimistic). Days before the window are out-of-sample.
+            "curve": "adaptive EWMA (falls back to the static curve)",
+            "curve_fitted_in_sample": bool(overlap),
+            "curve_training_days": ADAPTIVE_LOOKBACK_DAYS,
+            "in_sample_days": len(overlap),
+            "evaluated_days": len(evaluated),
+            "entry_lag_days": ENTRY_LAG,
+            "entry": f"the close {ENTRY_LAG} NSE session(s) after the day",
+            "stale_open_trimmed": True,
+            "full_sessions_only": True,
+        },
         "revenue_accuracy": revenue_accuracy,
         "signal_stability": signal_stability,
         "forward_accuracy": forward_accuracy,

@@ -107,7 +107,14 @@
     return { head, deck: parts.join(' '), tender: tender.length };
   }
 
-  MCX.labModel = { diagLede, corr, posLede, mix, marginLede, pretty, signed };
+  // The projections use the adaptive intraday curve, fitted on the latest days of
+  // snapshots: on those days the check is in-sample and reads better than it should.
+  function hourlyInSampleNote(m) {
+    if (!m || !m.curve_fitted_in_sample) return '';
+    return `${num(m.in_sample_days)} of the ${num(m.evaluated_days)} days are inside the ${num(m.curve_training_days)}-day window the intraday curve is fitted on, so on those days the projections are in-sample and flatter the result.`;
+  }
+
+  MCX.labModel = { diagLede, corr, posLede, mix, marginLede, pretty, signed, hourlyInSampleNote };
   if (window.MCX_TEST) return;
 
   // ════════════════════════════════════════════════════════════════════════
@@ -274,7 +281,8 @@
     const cv = d.convergence || {};
     $('dgHourlyBasis').innerHTML = INFO + `<span>Re-runs the ensemble at each hour of the last ${(d.data_quality || {}).lookback_days || 90} days, feeding it that hour’s projected revenue instead of the final. `
       + (cv.signal_90pct ? `The intraday signal first matches the close on 9 days in 10 at ${esc(cv.signal_90pct.label)}. ` : '')
-      + 'Direction right compares the signal’s sign with the share price over the next day and 5 days, from that day’s close; readings after 15:30, when the NSE has shut, could only be acted on a day later.</span>';
+      + `Direction right compares the signal’s sign with the share price over the next day and 5 days, entering at the next session’s close (${(d.methodology || {}).entry_lag_days || 1} day later), since most readings come after the NSE shuts at 15:30. `
+      + hourlyInSampleNote(d.methodology) + '</span>';
   }
 
   makeRangeToggle({ key: 'icChart', containerId: 'dgIcRange', ranges: ['Q', '1Y', '2Y', 'Max'], defaultRange: '1Y', labelIds: ['dgIcRangeLabel'], onChange: () => DG.an && renderIc(DG.an) });

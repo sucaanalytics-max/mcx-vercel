@@ -183,3 +183,40 @@ Dhan Pro data probe 29 Oct (`Docs/Dhan_Pro_Data_Opportunities.md`): token renewe
       `git branch -D options-agent-research && git push origin --delete options-agent-research`.
 - [ ] refresh_dhan_oi.py has no scheduled callers (backfill_commodity_oi.py replaced it).
       Delete it, or keep it for manual use.
+
+---
+
+# Phase 2 — data correctness (2026-11-17)
+
+- [x] Q2 FY27 actuals 800 / 189 / 455 (Screener consolidated; revenue and PAT
+      corroborated by 5 sources; expenses Screener-only, 188 or 189). Tape check:
+      txn-fee ratio 92.6% (Q1 92.0%). freshness `quarterly` OK.
+- [x] 2027 calendar: NOT published by MCX or NSE as of 17 Nov (expected mid-Dec).
+      No dates invented. Rollover now fails loudly: `calendar_status()` →
+      freshness domain `calendar` (DUE from 11 Dec, STALE from 1 Jan), daily_verify
+      exits 1 on STALE, relay heartbeat last_error, `/api/refresh?health=1`
+      unhealthy. bhav_refresh uses the shared MCX_HOLIDAYS.
+- [ ] When the circulars land: add 2027 to MCX_HOLIDAYS / MCX_MORNING_CLOSE /
+      MCX_EVENING_CLOSE + MCX_CALENDAR_YEARS + _MACRO_EVENTS_BY_YEAR[2027];
+      NSE_HOLIDAYS + HOLIDAY_COVERAGE_END in scripts/options_paper.py.
+- [x] Commodity OI: daily_verify runs backfill_commodity_oi --nightly before the
+      signal recompute; bhav_refresh carries stored non-zero OI into re-writes.
+      Needs Dhan credentials on the relay Mac (none on it today → soft-fails).
+- [x] Pagination: PAGINATION_KEYS tiebreaker in supabase_read_all + all cron
+      fetch_all copies; capped ascending reads use newest_first.
+- [x] backfill_commodity_gaps.repair goes through the completeness gate.
+- [x] Valuation: history recomputed on the snapshot's constants. Root cause: the
+      20:27 UTC writer runs pre-29-Sep code (252 days, Rs 527 Cr non-F&O); its
+      rows since ~7 Oct sat ~2.8% above the snapshot. daily_verify now
+      recomputes valuation (recent) before models.
+- [ ] HUMAN: find and stop the 20:27 UTC mcx_valuation writer (an old checkout:
+      constants fingerprint 252 / 527). Likely the other Mac's launchd.
+- [x] Hourly accuracy: entry lag 1, stale-opening trim, in-sample flag + caption.
+- [x] DECIDED 17 Nov (user: "you decide"): replaced from MCX's historical report.
+      46 excel_calibrated rows: totals already within 0.01%, so only the
+      fut/opt split fields changed (opt_prem_cr was off by −53%…+25%); tagged
+      mcx_historical / mcx_historical_reconciled; day_type, active_*, opt_notl
+      kept. Null rows filled: 2024-11-01 Rs 0.4964 Cr (Muhurat), 2025-01-01
+      Rs 0.426 Cr (evening closed). 2024-11-01 and 2025-10-21 added to
+      MCX_SPECIAL_SESSIONS, 2025-01-01 to MCX_EVENING_CLOSE. Backup of the 49
+      original rows: side-session-notes/…/backup_mcx_daily_revenue_2026-11-17.json.

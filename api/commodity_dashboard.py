@@ -98,7 +98,12 @@ def generate_commodity_dashboard(range_key=DEFAULT_RANGE):
         f"?select=trading_date,commodity,instrument_type,turnover_cr,premium_turnover_cr"
         f"&trading_date=gte.{start_date.isoformat()}"
         f"&order=trading_date.asc",
-        max_rows=25000,
+        # The window is ~800 calendar days (~550 sessions) at ~42 rows/session
+        # = ~23k rows (21.9k on 17 Nov 2026), already near the old 25k cap,
+        # which as an ascending read would have dropped the NEWEST days.
+        # 30k leaves room; newest_first makes any overflow drop the oldest.
+        max_rows=30000,
+        newest_first=True,
     )
 
     if not rows:

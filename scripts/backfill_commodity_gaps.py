@@ -21,9 +21,10 @@ Usage:
 import sys, os, json, time, urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from lib.mcx_config import paginated_order
 from scripts.bhav_refresh import (
     SUPABASE_URL, SUPABASE_ANON_KEY,
-    _fetch_mcx_raw, _aggregate_commodity_rows, _upsert_commodity_batch,
+    commodity_breakdown, BREAKDOWN_WRITTEN,
 )
 
 FUT_RATE, OPT_RATE, BOTH = 210.0, 4180.0, 2.0
@@ -37,6 +38,8 @@ def _get(path):
 
 
 def _paged(path, page=1000):
+    table, _, params = path.partition("?")
+    path = table + paginated_order(table, "?" + params)   # total order: offset pages
     out, off = [], 0
     while True:
         chunk = _get(f"{path}&limit={page}&offset={off}")
@@ -62,17 +65,17 @@ def find_gaps(since="2022-01-01"):
     return gaps
 
 
-def repair(date_iso):
-    """Re-fetch and write the per-commodity breakdown for one date."""
-    raw, err = _fetch_mcx_raw(date_iso)
-    if not raw:
-        return False, err or "no data"
-    rows = _aggregate_commodity_rows(date_iso, raw)
-    if not rows:
-        return False, "no commodity rows parsed"
-    if not _upsert_commodity_batch(rows):
-        return False, "write failed"
-    return True, f"{len(rows)} rows"
+def repair(date_iso, breakdown=None):
+    """Re-fetch and write the per-commodity breakdown for one date.
+
+    Goes through bhav_refresh.commodity_breakdown, so it applies the same
+    completeness gate (enough rows, futures turnover, option premium) and the
+    same stored-OI preservation before writing. Under the anon key a partial
+    write is permanent, so a half-published MCX report is refused here too."""
+    status, n, detail = (breakdown or commodity_breakdown)(date_iso)
+    if status != BREAKDOWN_WRITTEN:
+        return False, f"{status}: {detail}" if detail else status
+    return True, f"{n} rows ({detail})" if detail else f"{n} rows"
 
 
 def verify(date_iso):

@@ -13,12 +13,12 @@ from urllib.parse import urlparse, parse_qs
 try:
     from lib.mcx_config import (
         SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
-        now_ist, make_cors_headers,
+        now_ist, make_cors_headers, paginated_order,
     )
 except ImportError:
     from lib.mcx_config import (
         SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
-        now_ist, make_cors_headers,
+        now_ist, make_cors_headers, paginated_order,
     )
 
 import os
@@ -72,9 +72,12 @@ def sb_upsert(table, rows, on_conflict=None):
 
 
 def fetch_all(table, select, order="trading_date"):
+    # paginated_order appends the table's unique key: offset pages over a
+    # non-unique order can skip or repeat rows.
+    base = paginated_order(table, f"?select={select}&order={order}.asc")
     all_rows, offset = [], 0
     while True:
-        rows = sb_get(table, f"?select={select}&order={order}.asc&limit=1000&offset={offset}")
+        rows = sb_get(table, f"{base}&limit=1000&offset={offset}")
         all_rows.extend(rows)
         if len(rows) < 1000:
             break

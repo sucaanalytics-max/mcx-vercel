@@ -83,6 +83,16 @@ QUARTERLY_ACTUALS = [
     {"quarter": "Q1 FY27", "label": "Jun 2026", "fy": "FY27", "q_num": 1,
      "start": "2026-04-01", "end": "2026-06-30",
      "revenue_cr": 702, "expenses_cr": 208, "pat_cr": 413},
+    # Q2 FY27 reported 03 Nov 2026 (Screener.in consolidated; revenue and PAT
+    # corroborated with Business Standard, Kotak Neo, Angel One, Multibagg and
+    # Investywise, citing the BSE filing). Revenue +114% YoY, PAT +130% YoY.
+    # revenue_cr is revenue from OPERATIONS (799.66), not total income (851.28).
+    # expenses_cr is Screener's figure, EXCLUDING depreciation (~23): filed total
+    # expenses were 211.36. pat_cr is CONSOLIDATED (454.57); standalone was 405.35.
+    # Tax was ~185 Cr (~29% effective vs ~21% in Q1), so PAT grew less than PBT.
+    {"quarter": "Q2 FY27", "label": "Sep 2026", "fy": "FY27", "q_num": 2,
+     "start": "2026-07-01", "end": "2026-09-30",
+     "revenue_cr": 800, "expenses_cr": 189, "pat_cr": 455},
 ]
 
 Q4_EXPENSE_ADJ_CR = 15
