@@ -103,8 +103,9 @@ def compute_commodity_signals(mode="recent"):
         a["total_premium_cr"] += float(r.get("premium_turnover_cr") or 0)
         a["total_open_interest"] += int(r.get("open_interest") or 0)
         a["total_oi_value_cr"] += float(r.get("oi_value_cr") or 0)
-        # OI comes from Dhan (scripts/backfill_commodity_oi.py) and 0 means
-        # missing: a Dhan gap or a filtered glitch day. If any futures leg of
+        # OI comes from MCX's Bhavcopy (scripts/backfill_commodity_oi.py; Dhan
+        # before Nov 2026) and 0 means missing: no Bhavcopy yet, or an old
+        # Dhan gap / glitch day. If any futures leg of
         # the complex lacks it, the parent total would be a partial sum, so
         # the whole day is excluded from the OI z-score.
         if r.get("instrument_type") == "FUTCOM" and not r.get("open_interest"):

@@ -38,7 +38,8 @@ lib/            Shared code, imported by api/ and scripts/
   api_handler.py  JSONHandler: JSON + CORS + OPTIONS + no-cache-on-error
   cron_*.py       signal / valuation / margin / OI jobs (Vercel cron + local)
   home_view.py, intraday_curves.py, hourly_analysis.py, margin_dashboard.py,
-  oi_participants_dashboard.py, house_model.py, options_costs.py, dhan_client.py
+  oi_participants_dashboard.py, house_model.py, options_costs.py, dhan_client.py,
+  mcx_bhavcopy.py (futures OI from MCX's daily Bhavcopy; local only)
 scripts/        Local jobs, never deployed (.vercelignore)
   mcx_relay.py      15-min snapshots, EOD revenue, margins, OI participants
   daily_verify.py   07:00 reconcile + backfills + signal recompute (see below)
@@ -77,7 +78,7 @@ interpreter that can import curl_cffi + pandas).
 |---|---|---|
 | 08:55–close, every 15 min | `com.mcx.relay` → `mcx_relay.py --loop` | `mcx_snapshots`, `relay_heartbeat`; at the close `mcx_daily_revenue` (EOD), `mcx_margin_daily`, `mcx_oi_participants` |
 | 05:30–06:55 | `com.mcx.commodity-eod` → `bhav_refresh.py --commodity-recent 4` | `mcx_commodity_daily` (only complete reports) |
-| 07:00 | `com.mcx.daily-verify` → `daily_verify.py --days 3` | reconciles revenue vs MCX's report (>1% → replace), commodity breakdown, iCOMDEX, commodity prices, margins (MCXCCL), OI participants, Dhan futures OI (needs Dhan credentials), then valuation → models → momentum → commodity_signals |
+| 07:00 | `com.mcx.daily-verify` → `daily_verify.py --days 3` | reconciles revenue vs MCX's report (>1% → replace), commodity breakdown, iCOMDEX, commodity prices, margins (MCXCCL), OI participants, futures OI from MCX's Bhavcopy (`backfill_commodity_oi.py --nightly`), then valuation → models → momentum → commodity_signals |
 | 19:30 / 19:45 / 19:50 | Vercel crons: valuation, models, commodity_signals | `mcx_valuation`, `mcx_model_signals`, `mcx_commodity_signals` |
 | 08:00 Tue–Sat | Vercel cron: momentum | `mcx_momentum_signals` |
 | 09:00 (optional) | `com.mcx.freshness` → headless `/freshness-check` | `.claude/state/freshness-status.json` |
@@ -129,5 +130,6 @@ Other tables: `mcx_share_price` (price_refresh / valuation cron),
 | `MCX_IMPERSONATE` | curl_cffi target (default chrome142) |
 | `MCX_PYTHON` | interpreter override for the launchd jobs |
 
-Dhan (futures OI, options paper trading): `~/.dhan/credentials.json`, else
+Dhan (options paper trading only; futures OI comes from MCX's Bhavcopy,
+`lib/mcx_bhavcopy.py`, no login): `~/.dhan/credentials.json`, else
 `DHAN_CLIENT_ID` / `DHAN_ACCESS_TOKEN` in `.env`.

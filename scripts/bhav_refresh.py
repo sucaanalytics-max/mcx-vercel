@@ -225,10 +225,46 @@ def _read_existing_oi(dates):
     return out
 
 
+_bhav_session = None
+
+
+def fill_futures_oi(rows, date_iso, fetch=None):
+    """Put MCX Bhavcopy open interest on the futures rows (FUTCOM / FUTIDX) of
+    a freshly aggregated breakdown. The historical report has none, so without
+    this every new row starts at OI = 0 until backfill_commodity_oi runs.
+
+    fetch(date_iso) -> {(symbol, instrument): {open_interest, oi_value_cr}}
+    (default: lib.mcx_bhavcopy over a shared session). Soft: on any error, or
+    when MCX has no Bhavcopy for the date yet, the rows are returned unchanged
+    and preserve_existing_oi / the nightly backfill cover them."""
+    global _bhav_session
+    try:
+        if fetch is None:
+            from lib.mcx_bhavcopy import new_bhavcopy_session, fetch_futures_oi
+            if _bhav_session is None:
+                _bhav_session = new_bhavcopy_session(timeout=MCX_TIMEOUT)
+            fetch = lambda d: fetch_futures_oi(_bhav_session, d)[0]   # noqa: E731
+        oi = fetch(date_iso)
+    except Exception as e:   # noqa: BLE001
+        print(f"  ⓘ {date_iso}: Bhavcopy OI unavailable ({type(e).__name__}); OI left for the nightly backfill")
+        return rows
+    if not oi:
+        return rows
+    out = []
+    for r in rows:
+        new = oi.get((r["commodity"], r["instrument_type"]))
+        if new and new["open_interest"]:
+            r = {**r, "open_interest": new["open_interest"],
+                 "oi_value_cr": new["oi_value_cr"] if new["oi_value_cr"] is not None else 0}
+        out.append(r)
+    return out
+
+
 def preserve_existing_oi(rows, existing):
     """MCX's historical report carries no open interest, so freshly aggregated
-    rows have open_interest = 0. The Dhan OI backfill (backfill_commodity_oi)
-    writes the real figure onto those rows afterwards. A later re-write of the
+    rows have open_interest = 0 unless fill_futures_oi found the Bhavcopy. The
+    nightly OI backfill (backfill_commodity_oi, MCX Bhavcopy) writes the real
+    figure onto those rows afterwards. A later re-write of the
     breakdown (merge-duplicates, which can UPDATE once SUPABASE_SERVICE_KEY is
     set) must not reset it to zero: keep the stored OI wherever the new row has
     none. Returns new row dicts; a row with its own non-zero OI is unchanged."""
@@ -283,7 +319,7 @@ def fetch_mcx_historical(date_iso, write_commodity=True):
         complete, why = breakdown_completeness(commodity_rows)
         if not complete:
             print(f"  ⓘ {date_iso}: commodity breakdown not written — {why}")
-        elif _upsert_commodity_batch(commodity_rows):
+        elif _upsert_commodity_batch(fill_futures_oi(commodity_rows, date_iso)):
             print(f"  ✓ {len(commodity_rows)} commodity rows → mcx_commodity_daily")
 
     # ── Exchange-wide aggregate (existing logic) ──
@@ -389,7 +425,7 @@ def commodity_breakdown(date_iso, present=None):
     complete, why = breakdown_completeness(commodity_rows)
     if not complete:
         return BREAKDOWN_INCOMPLETE, len(commodity_rows), why
-    if not _upsert_commodity_batch(commodity_rows):
+    if not _upsert_commodity_batch(fill_futures_oi(commodity_rows, date_iso)):
         return BREAKDOWN_WRITE_FAILED, len(commodity_rows), "upsert to mcx_commodity_daily failed"
     contracts = sum(r["contracts"] for r in commodity_rows)
     return BREAKDOWN_WRITTEN, len(commodity_rows), f"{contracts:,} contracts"
