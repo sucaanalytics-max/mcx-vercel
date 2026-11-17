@@ -20,6 +20,12 @@ before the signal domains that read them. Pass each fixer the
 `expected_trading_day` from the scan. Collect each fixer's JSON result.
 - `commodity_prices` blocked on the SQL grant → record it, do not retry.
 - `margins` result `source_stale` → not a failure; record and move on.
+- `relay_coverage` STALE has no fixer either: the expected day's snapshots stop
+  before its close (or are missing), and a past session's snapshots cannot be
+  recovered → record it with its `message`, never dispatch anything. A human
+  checks the relay log (`~/Library/Logs/mcx/relay_stdout.log`, or
+  `/tmp/mcx_relay_stdout.log` on an older launchd install) and that the
+  production checkout is on current `main`.
 - `calendar` STALE/DUE has no fixer (the 2027+ MCX holiday circular must be
   entered by a human) → record it, never dispatch anything; it keeps `overall`
   DEGRADED so the macOS notification fires every morning until it is added.

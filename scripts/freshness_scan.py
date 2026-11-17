@@ -17,7 +17,10 @@ import sys, os, json
 from datetime import timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from lib.mcx_config import now_ist, is_trading_day, session_end, supabase_read  # noqa: E402
+from lib.mcx_config import (  # noqa: E402
+    now_ist, is_trading_day, session_end, session_shape, supabase_read,
+    SESSION_START, ADAPTIVE_CLOSE_TOLERANCE_MIN, fmt_ist_minutes,
+)
 
 MANIFEST = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                         ".claude", "state", "freshness-manifest.json")
@@ -103,6 +106,44 @@ def _check_calendar():
         return {"status": "ERROR", "error": str(e)[:100]}
 
 
+def _check_relay_coverage(lookback_days=5):
+    """STALE when the expected trading day's snapshots stop before that day's
+    close (or are missing): the relay was down or ran wrong session hours.
+    2-16 Nov 2026 all ended at 23:30 because the production checkout ran
+    pre-23:55 code; nothing flagged it, and every winter day was then unusable
+    for the intraday curves. The last `lookback_days` trading days are listed
+    for context; only the expected day decides the status, so one bad night
+    alerts once. No fixer: a past session's snapshots cannot be recovered
+    (revenue still is, by daily_verify); a human checks the relay."""
+    try:
+        exp = expected_trading_day()
+        days, cur = [], exp
+        while len(days) < lookback_days:
+            if is_trading_day(cur):
+                days.append(cur)
+            cur -= timedelta(days=1)
+        incomplete, latest_last = [], None
+        for i, d in enumerate(days):
+            iso = d.strftime("%Y-%m-%d")
+            rows = supabase_read("mcx_snapshots", f"?select=elapsed_min&trading_date=eq.{iso}"
+                                                  f"&order=elapsed_min.desc&limit=1")
+            last = rows[0]["elapsed_min"] if rows else None
+            # The day's own close (part days included); elapsed counts from 09:00.
+            close = session_shape(d)["end"]
+            last_lbl = fmt_ist_minutes(SESSION_START + last) if last is not None else None
+            if i == 0:
+                latest_last = last_lbl
+            if last is None or last < close - SESSION_START - ADAPTIVE_CLOSE_TOLERANCE_MIN:
+                incomplete.append({"date": iso, "last_snapshot": last_lbl, "close": fmt_ist_minutes(close)})
+        stale = bool(incomplete) and incomplete[0]["date"] == days[0].strftime("%Y-%m-%d")
+        msg = (f"{days[0]}: last snapshot {latest_last or 'none'}, close "
+               f"{fmt_ist_minutes(session_shape(days[0])['end'])}") if stale else ""
+        return {"status": "STALE" if stale else "OK", "latest": days[0].strftime("%Y-%m-%d"),
+                "last_snapshot": latest_last, "incomplete_days": incomplete, "message": msg}
+    except Exception as e:
+        return {"status": "ERROR", "error": str(e)[:100]}
+
+
 def scan():
     with open(MANIFEST) as f:
         manifest = json.load(f)
@@ -116,6 +157,12 @@ def scan():
         if dom.get("cadence") == "yearly":
             c = _check_calendar()
             out["domains"].append({"domain": name, "kind": "code", **c, "fixer": dom.get("fixer")})
+            if c.get("status") != "OK":
+                stale.append(name)
+            continue
+        if dom.get("cadence") == "session":
+            c = _check_relay_coverage(dom.get("lookback_days", 5))
+            out["domains"].append({"domain": name, "table": dom.get("table"), **c, "fixer": dom.get("fixer")})
             if c.get("status") != "OK":
                 stale.append(name)
             continue

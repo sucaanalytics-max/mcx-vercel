@@ -22,6 +22,7 @@ Run:  python3 scripts/test_session_hours.py            # offline, no network
       python3 scripts/test_session_hours.py --network  # + read-only MCX/Supabase checks
 """
 import sys, os, time, types
+import json
 from datetime import datetime, date, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -433,6 +434,65 @@ def test_curves_skip_short_days():
           f"mean {late_mean} ewma {late_ewma} newest {late_newest}")
 
 
+
+def test_freshness_relay_coverage():
+    """The freshness scan flags a session whose snapshots stop before its own
+    close: 2-16 Nov 2026 all ended at 23:30 and nothing noticed for two weeks."""
+    print("\n[10b] Freshness: relay coverage")
+    import scripts.freshness_scan as fs
+    last = {}   # trading_date -> last elapsed_min (missing = no snapshots)
+    def fake_read(table, params, **k):
+        assert table == "mcx_snapshots", table
+        d = params.split("trading_date=eq.")[1].split("&")[0]
+        return [{"elapsed_min": last[d]}] if d in last else []
+    real_read, real_now = fs.supabase_read, fs.now_ist
+    fs.supabase_read = fake_read
+    try:
+        # 17 Nov 2026 09:00: expected day 16 Nov, which stopped at 23:30.
+        fs.now_ist = lambda: datetime(2026, 11, 17, 9, 0)
+        last.update({"2026-11-16": 870, "2026-11-13": 870, "2026-11-12": 870,
+                     "2026-11-11": 870, "2026-11-10": 870})
+        c = fs._check_relay_coverage(5)
+        check("16 Nov cut at 23:30 -> STALE", c["status"] == "STALE" and c["last_snapshot"] == "23:30", str(c))
+        check("lists every short day in the window",
+              [x["date"] for x in c["incomplete_days"]]
+              == ["2026-11-16", "2026-11-13", "2026-11-12", "2026-11-11", "2026-11-10"], str(c))
+        check("part day 10 Nov is judged on its own 23:55 close",
+              c["incomplete_days"][-1] == {"date": "2026-11-10", "last_snapshot": "23:30", "close": "23:55"}, str(c))
+
+        # 18 Nov 09:00: 17 Nov ran to 23:55 (elapsed 895). Older short days
+        # stay listed but no longer stale the domain.
+        fs.now_ist = lambda: datetime(2026, 11, 18, 9, 0)
+        last["2026-11-17"] = 895
+        c = fs._check_relay_coverage(5)
+        check("17 Nov ran to 23:55 -> OK", c["status"] == "OK" and c["last_snapshot"] == "23:55", str(c))
+        check("older short days still listed", len(c["incomplete_days"]) == 4, str(c))
+
+        # Ten minutes short is within tolerance; a summer day at 23:30 is full.
+        last["2026-11-17"] = 885
+        check("885 of 895 min is full", fs._check_relay_coverage(1)["status"] == "OK")
+        fs.now_ist = lambda: datetime(2026, 10, 31, 9, 0)
+        last["2026-10-30"] = 870
+        check("summer day to 23:30 is full", fs._check_relay_coverage(1)["status"] == "OK")
+
+        # No snapshots at all for the expected day: the relay never ran.
+        fs.now_ist = lambda: datetime(2026, 11, 20, 9, 0)
+        c = fs._check_relay_coverage(1)
+        check("no snapshots -> STALE", c["status"] == "STALE" and c["last_snapshot"] is None, str(c))
+
+        # Evening-closed (morning-only) day: its close is 17:00, elapsed 480.
+        fs.now_ist = lambda: datetime(2026, 1, 2, 9, 0)
+        last["2026-01-01"] = 480
+        check("morning-only day judged on its 17:00 close", fs._check_relay_coverage(1)["status"] == "OK")
+    finally:
+        fs.supabase_read, fs.now_ist = real_read, real_now
+
+    with open(fs.MANIFEST) as f:
+        man = json.load(f)
+    rc = [d for d in man["domains"] if d["domain"] == "relay_coverage"]
+    check("manifest has relay_coverage with no fixer",
+          len(rc) == 1 and rc[0]["cadence"] == "session" and rc[0]["fixer"] is None, str(rc))
+
 # ── Part-day sessions ────────────────────────────────────────────────────────
 # 2026-11-10 Diwali-Balipratipada: morning closed, evening 17:00–23:55 (winter).
 # 2026-10-20 Dassera: morning closed, evening 17:00–23:30 (summer).
@@ -642,6 +702,7 @@ if __name__ == "__main__":
     test_replace_confirms_write()
     test_curves_and_freshness()
     test_curves_skip_short_days()
+    test_freshness_relay_coverage()
     test_session_shape()
     test_part_day_projection()
     test_refresh_part_day()

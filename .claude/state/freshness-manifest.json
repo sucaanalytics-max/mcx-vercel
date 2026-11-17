@@ -44,6 +44,9 @@
      "source": "code:api/quarterly.py:QUARTERLY_ACTUALS", "cadence": "quarterly",
      "report_lag_days": 45, "fixer": "quarterly-updater",
      "note": "Not DB-backed. The scanner flags it when the most recently reportable fiscal quarter is absent from QUARTERLY_ACTUALS."},
+    {"domain": "relay_coverage", "tabs": ["Today (session profile, projection curves)"],
+     "table": "mcx_snapshots", "cadence": "session", "lookback_days": 5, "fixer": null,
+     "note": "STALE when the expected trading day's 15-min snapshots stop more than 10 min before that day's own close (23:30, 23:55 in US winter, 17:00 on an evening-closed day) or are missing. 2-16 Nov 2026 all stopped at 23:30 (prod checkout on pre-23:55 code) and nothing flagged it. No fixer: past snapshots cannot be recovered; a human checks the relay (launchd log, prod checkout up to date). Older short days in the window are listed but do not stale the domain."},
     {"domain": "calendar", "tabs": ["all (trading-day calendar)"],
      "source": "code:lib/mcx_config.py:MCX_CALENDAR_YEARS", "cadence": "yearly", "fixer": null,
      "note": "Not DB-backed. STALE when the running year's MCX holiday circular is not loaded (holidays count as trading days); DUE from 21 days before 1 Jan when next year's is missing. No fixer: a human adds the dates from MCX's circular (MCX_HOLIDAYS / MCX_MORNING_CLOSE / MCX_EVENING_CLOSE + MCX_CALENDAR_YEARS)."}
