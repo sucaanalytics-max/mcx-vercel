@@ -126,5 +126,36 @@ location.hash = '#/value/fair-value'; winListeners.hashchange();
 location.hash = '#/today'; winListeners.hashchange();
 check('retheme happens once, not on every visit', rethemes, ['today']);
 
-console.log(failed ? `\n${failed} FAILED` : '\nAll core.js tests passed.');
-process.exit(failed ? 1 : 0);
+// Dates: bad input prints a dash, never "NaN undefined"
+check('date formatters on null', [MCX.fmt.dayMonth(null), MCX.fmt.day(undefined), MCX.fmt.weekday(''), MCX.fmt.dateLong('nope')], ['—', '—', '—', '—']);
+check('span with a missing end', MCX.fmt.span('2026-11-02', null), '—');
+check('valid dates unchanged', [MCX.fmt.dayMonth('2026-09-28'), MCX.fmt.day('2026-09-28'), MCX.fmt.span('2026-09-22', '2026-09-28')], ['28 Sep', 'Mon 28 Sep', '22–28 Sep']);
+
+// Fetching: errors are readable and are not cached
+(async () => {
+  const res = (body, { status = 200, type = 'application/json' } = {}) => ({
+    ok: status < 400, status, headers: { get: k => (k.toLowerCase() === 'content-type' ? type : null) },
+    json: () => (typeof body === 'string' ? Promise.reject(new SyntaxError('bad')) : Promise.resolve(body)),
+  });
+  const queue = [];
+  let calls = 0;
+  global.fetch = () => { calls++; return Promise.resolve(queue.shift()); };
+
+  queue.push(res('<!DOCTYPE html>', { status: 504, type: 'text/html' }));
+  let msg = null; try { await MCX.getJSON('/api/x'); } catch (e) { msg = e.message; }
+  check('HTML error page becomes a readable error', msg, 'Service unavailable (HTTP 504)');
+  queue.push(res({ success: false, error: 'boom' }, { status: 500 }));
+  check('JSON error body is returned to the caller', await MCX.getJSON('/api/x'), { success: false, error: 'boom' });
+
+  calls = 0;
+  queue.push(res({ success: false, error: 'supabase down' }), res({ success: true, v: 1 }));
+  check('first answer is the error', (await fetchRanged('/api/r1')).success, false);
+  check('retry fetches again and gets the good answer', (await fetchRanged('/api/r1')).v, 1);
+  check('good answer is cached', [(await fetchRanged('/api/r1')).v, calls], [1, 2]);
+  queue.push(res('<html>', { status: 502, type: 'text/html' }), res({ success: true, v: 2 }));
+  let threw = false; try { await fetchRanged('/api/r2'); } catch (e) { threw = true; }
+  check('a thrown fetch is not cached either', [threw, (await fetchRanged('/api/r2')).v], [true, 2]);
+
+  console.log(failed ? `\n${failed} FAILED` : '\nAll core.js tests passed.');
+  process.exit(failed ? 1 : 0);
+})();

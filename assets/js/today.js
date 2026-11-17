@@ -238,7 +238,7 @@
   function loadHome(force) {
     if (!force && S.home && Date.now() - S.homeAt < HOME_TTL) return Promise.resolve();
     if (loadingHome) return loadingHome;
-    loadingHome = fetch('/api/exchange_dashboard?view=home').then(r => r.json()).then(d => {
+    loadingHome = MCX.getJSON('/api/exchange_dashboard?view=home').then(d => {
       if (!d.success) throw new Error(d.error || 'No data');
       S.home = d; S.homeAt = Date.now(); S.homeErr = null;
     }).catch(e => { S.homeErr = e.message || String(e); }).finally(() => { loadingHome = null; render(); });
@@ -247,7 +247,7 @@
   function loadQuarter() {
     if (S.qtr && Date.now() - S.qtrAt < QTR_TTL) return;
     if (loadingQtr) return;
-    loadingQtr = fetch('/api/quarterly').then(r => r.json()).then(d => {
+    loadingQtr = MCX.getJSON('/api/quarterly').then(d => {
       if (d.success && d.current_quarter) { S.qtr = d.current_quarter; S.qtrAt = Date.now(); }
     }).catch(() => {}).finally(() => { loadingQtr = null; renderQuarter(); });
   }
@@ -816,13 +816,18 @@
     if (S.refresh === undefined && !S.home) return;        // nothing to show yet
     const d = derive();
     if (S.refresh === undefined && d.state === 'pre' && d.ist.min >= 540) return;   // wait for the first refresh during the day
-    const l = lede(d);
-    $('tdStats').innerHTML = panelStats(d);
-    renderSessions(d); renderAverages(d); renderTrust(d); renderDaily(d);
-    renderDrivers(d); renderContracts(d); renderQuarter(); renderFoot(d);
-    publishStatus(d);
-    if (S.present) renderPresent(d, l);
-    if (PF.data) renderProfile();
+    // Each section on its own: one that throws on odd data is logged and keeps
+    // its last content, instead of stopping every section after it.
+    const safe = (name, fn) => { try { return fn(); } catch (e) { console.error('[today] ' + name, e); } };
+    const l = safe('lede', () => lede(d));
+    safe('stats', () => { $('tdStats').innerHTML = panelStats(d); });
+    safe('sessions', () => renderSessions(d)); safe('averages', () => renderAverages(d));
+    safe('trust', () => renderTrust(d)); safe('daily', () => renderDaily(d));
+    safe('drivers', () => renderDrivers(d)); safe('contracts', () => renderContracts(d));
+    safe('quarter', () => renderQuarter()); safe('foot', () => renderFoot(d));
+    safe('status', () => publishStatus(d));
+    if (S.present) safe('present', () => renderPresent(d, l));
+    if (PF.data) safe('profile', () => renderProfile());
     S.width = $('today').clientWidth;
   }
 
@@ -911,10 +916,15 @@
     const d = PF.data;
     if (!d || !$('tdProfile').open || !$('tdProfCum').clientWidth) return;     // drawn when it is visible
     const bs = profileShares(d);
+    if (!bs || !bs.length) {          // no buckets in the payload: say so instead of throwing on reduce()
+      $('tdProfLede').textContent = 'No session profile is available for this period.';
+      $('tdProfBuckets').innerHTML = ''; $('tdProfCum').innerHTML = '';
+      return;
+    }
     const evening = bs.filter(b => b.start >= 480).reduce((a, b) => a + b.share, 0);
     const top = bs.reduce((a, b) => (b.share / (b.end - b.start) > a.share / (a.end - a.start) ? b : a));
     const r = S.refresh, live = r && r.success && !r.session_closed && r.trading_date === MCX.market.ist().iso;
-    const n = d.rolling_average.days_used;
+    const n = (d.rolling_average && d.rolling_average.days_used) || '—';
     const span = bs[bs.length - 1].end, closeLab = bs[bs.length - 1].label.split('–')[1];   // 23:30, or 23:55 in US winter
     $('tdProfLede').textContent = `On the median day of the last ${n}, ${num(evening, 0)}% of turnover came in the evening session (17:00–${closeLab}). `
       + `The busiest stretch per hour is ${top.label}.` + (live ? ` By ${clock(r.elapsed_min)} a typical day has done ${num(doneBy(bs, r.elapsed_min), 0)}% of its turnover.` : '');
