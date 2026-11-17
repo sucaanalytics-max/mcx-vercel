@@ -24,7 +24,7 @@ from datetime import date, datetime, timedelta
 
 from lib.mcx_config import (
     SUPABASE_URL, SUPABASE_ANON_KEY, DILUTED_SHARES_CR, SESSION_START,
-    MCX_HOLIDAYS_2026, MCX_SPECIAL_SESSIONS, supabase_read, supabase_read_all, now_ist,
+    is_trading_day, MCX_SPECIAL_SESSIONS, supabase_read, supabase_read_all, now_ist,
     session_shape, session_weight, SESSION_FULL, SESSION_CLOSED,
     make_cors_headers, cache_header,
 )
@@ -107,8 +107,7 @@ BACKTEST_QUARTERS = 5
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
-def _is_trading_day(d):
-    return d.weekday() < 5 and d.strftime("%Y-%m-%d") not in MCX_HOLIDAYS_2026
+_is_trading_day = is_trading_day     # lib.calendar (was a local copy)
 
 
 def _classify_days(q_start, q_end, now, rows):

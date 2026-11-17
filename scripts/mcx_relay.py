@@ -25,7 +25,7 @@ if sys.platform == "win32":
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
-from curl_cffi import requests as cfreq
+from curl_cffi import requests as cfreq  # noqa: F401  (fail fast without curl_cffi; sessions: lib.curl_session)
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 import concurrent.futures as _cf
@@ -52,12 +52,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib.mcx_config import (
     FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY, SESSION_START, fmt_ist_minutes,
     session_shape, session_clock, SESSION_FULL, SESSION_CLOSED,
-    DAY_MULTIPLIER, MCX_HOLIDAYS_2026,
+    DAY_MULTIPLIER, is_trading_day,
     now_ist, get_day_type, project_full_day, calc_revenue, calc_uncertainty,
     check_regime_drift, supabase_upsert, SUPABASE_WRITE_ROLE,
     calendar_status, supabase_read,
 )
 
+from lib.curl_session import new_session
 from lib.cron_margins import (
     _download_xls, _parse_xls,
     sb_upsert as margin_upsert,
@@ -85,39 +86,17 @@ EOD_FALLBACK_MIN = 15
 LATEST_EOD_MIN = 23 * 60 + 57
 RELAY_ID = os.environ.get("MCX_RELAY_ID", "default")
 
-# Alias for backward compat (relay uses MCX_HOLIDAYS directly)
-MCX_HOLIDAYS = MCX_HOLIDAYS_2026
-
-
-def is_trading_day(d):
-    return d.weekday() < 5 and d.strftime("%Y-%m-%d") not in MCX_HOLIDAYS
-
-
-
 # ── MCX API (curl_cffi with Chrome TLS impersonation) ───────────────────────
 _mw_session = None
 _hist_session = None
 # Newest target first; older curl_cffi builds (e.g. 0.13 under the system
 # python that daily_verify may run on) reject chrome142 with ImpersonateError.
-CHROME_IMPERSONATE = os.environ.get("MCX_IMPERSONATE", "chrome142")
-CHROME_IMPERSONATE_FALLBACKS = ["chrome136", "chrome131", "chrome"]
 
 
 def _new_session(warm_url):
-    """curl_cffi session warmed on warm_url, trying impersonation targets in turn."""
-    last_err = None
-    for target in [CHROME_IMPERSONATE, *CHROME_IMPERSONATE_FALLBACKS]:
-        try:
-            sess = cfreq.Session(impersonate=target)
-            # Some builds only reject an unknown target on the first request.
-            _hard_call(sess.get, warm_url, timeout=20, hard_timeout=25)
-            return sess
-        except Exception as e:
-            if "impersonat" in str(e).lower() or "not supported" in str(e).lower():
-                last_err = e
-                continue  # token unknown to this curl_cffi build — try the next
-            raise
-    raise last_err
+    """curl_cffi session warmed on warm_url (lib.curl_session), the warm-up
+    under the relay's hard wall-clock guard."""
+    return new_session(warm_url, get=lambda s, u, t: _hard_call(s.get, u, timeout=20, hard_timeout=25))
 
 
 def _get_mw_session(force_new=False):
@@ -595,10 +574,7 @@ def refresh_oi_participants_local():
         return
     print(f"\n  -- OI Participants Refresh --")
     try:
-        session = cfreq.Session(impersonate="chrome142")
-        _hard_call(session.get,
-                   "https://www.mcxindia.com/market-operations/trading-survelliance",
-                   timeout=20, hard_timeout=25)
+        session = _new_session("https://www.mcxindia.com/market-operations/trading-survelliance")
 
         dt = now_ist().date()
         xlsx_bytes = None

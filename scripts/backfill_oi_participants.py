@@ -15,7 +15,7 @@ Requires: curl_cffi, pandas, openpyxl
 """
 import sys, os, json, time, argparse
 from datetime import datetime, timedelta
-from curl_cffi import requests as cfreq
+from curl_cffi import requests as cfreq  # noqa: F401  (fail fast without curl_cffi; sessions: lib.curl_session)
 
 # Add parent to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib.cron_oi_participants import _parse_participants, sb_upsert
 from lib.mcx_config import now_ist
 from lib.supabase import supabase_read_all
+from lib.curl_session import new_session
 
 # Sitefinity document API — discovered from archive page JS
 SITEFINITY_API = (
@@ -131,18 +132,13 @@ def backfill(start_date, end_date):
     progress = load_progress()
     completed_set = set(progress["completed"])
 
-    # Create curl_cffi session (try chrome142 for newer curl_cffi, fallback to chrome)
-    session = cfreq.Session(impersonate="chrome")
+    # curl_cffi session (lib.curl_session); a failed warm-up is not fatal here.
     print("  Warming up session...")
     try:
-        session.get("https://www.mcxindia.com/", timeout=30)
-    except Exception:
-        # Retry with different impersonate if first attempt fails
-        try:
-            session = cfreq.Session(impersonate="chrome142")
-            session.get("https://www.mcxindia.com/", timeout=30)
-        except Exception as e:
-            print(f"  Warning: session warmup failed: {e}")
+        session = new_session("https://www.mcxindia.com/", timeout=30)
+    except Exception as e:
+        print(f"  Warning: session warmup failed: {e}")
+        session = new_session(None)
 
     # Iterate trading days
     d = start_date

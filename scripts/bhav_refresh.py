@@ -18,60 +18,30 @@ Usage:
   python3 scripts/bhav_refresh.py --commodity-recent 4 --retry-until 06:55
 """
 import sys, os, time
-from curl_cffi import requests as cfreq
-from datetime import datetime, timedelta, timezone
+from curl_cffi import requests as cfreq  # noqa: F401  (fail fast without curl_cffi; sessions: lib.curl_session)
+from datetime import datetime, timedelta
 
 # Add parent to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from lib.mcx_config import get_day_type
-try:
-    from lib.mcx_config import session_end      # seasonal close: 23:55 in US winter
-except ImportError:                             # older lib: fixed 23:30 close
-    from lib.mcx_config import SESSION_END
-
-    def session_end(d=None):
-        return SESSION_END
+from lib.mcx_config import (  # noqa: E402
+    get_day_type, FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY,
+)
+# One calendar for every job (lib/calendar.py): a local copy would silently
+# miss the 2027 dates when they are added there.
+from lib.calendar import (  # noqa: E402,F401  (is_trading_day / MCX_HOLIDAYS: module API used by tests)
+    session_end, now_ist, is_trading_day, has_session, MCX_HOLIDAYS, MCX_SPECIAL_SESSIONS,
+)
 
 # ── Config ──────────────────────────────────────────────────────────────────
-# Supabase access goes through lib.supabase (keys, headers, batching).
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-FUTURES_RATE = 210.0
-OPTIONS_RATE = 4180.0
-NONTX_DAILY = 0.00
+# Supabase access goes through lib.supabase (keys, headers, batching); fee
+# rates come from lib.mcx_config.
 MCX_TIMEOUT = 30
 MCX_MAX_RETRIES = 2
-# Preferred curl_cffi impersonation target, with fallbacks for older curl_cffi
-# builds that don't recognise the newest token (e.g. local 0.13.0 lacks chrome142).
-CHROME_IMPERSONATE = os.environ.get("MCX_IMPERSONATE", "chrome142")
-CHROME_IMPERSONATE_FALLBACKS = ["chrome136", "chrome131", "chrome"]
 
-# MCX holidays (full-day closures only — no trading at all). One calendar for
-# every year, kept in lib/mcx_config.py: a local copy here would silently miss
-# the 2027 dates when they are added there.
-from lib.mcx_config import MCX_HOLIDAYS  # noqa: E402
+from lib.curl_session import new_session  # noqa: E402
 from lib.supabase import (  # noqa: E402
     supabase_read, supabase_read_all, supabase_upsert, upsert_batches,
 )
-
-
-def now_ist():
-    return datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
-
-
-def is_trading_day(d):
-    """Check if date is a weekday and not a full-closure holiday."""
-    return d.weekday() < 5 and d.strftime("%Y-%m-%d") not in MCX_HOLIDAYS
-
-
-try:                                            # weekend Muhurat etc.: backfill these too
-    from lib.mcx_config import MCX_SPECIAL_SESSIONS
-except ImportError:
-    MCX_SPECIAL_SESSIONS = {}
-
-
-def has_session(d):
-    """A trading day or a special session (MCX's historical report covers both)."""
-    return is_trading_day(d) or d.strftime("%Y-%m-%d") in MCX_SPECIAL_SESSIONS
 
 
 def check_relay_eod(date_iso):
@@ -91,20 +61,10 @@ _hist_session = None
 def _get_hist_session(force_new=False):
     global _hist_session
     if _hist_session is None or force_new:
-        last_err = None
-        for target in [CHROME_IMPERSONATE, *CHROME_IMPERSONATE_FALLBACKS]:
-            try:
-                sess = cfreq.Session(impersonate=target)
-                sess.get("https://www.mcxindia.com/market-data/historical-data", timeout=MCX_TIMEOUT)
-                _hist_session = sess
-                return _hist_session
-            except Exception as e:
-                last_err = e
-                if "impersonat" in str(e).lower() or "not supported" in str(e).lower():
-                    continue  # token unknown to this curl_cffi build — try the next
-                raise
-        raise last_err  # all impersonation targets failed
+        _hist_session = new_session("https://www.mcxindia.com/market-data/historical-data",
+                                    timeout=MCX_TIMEOUT)
     return _hist_session
+
 
 # MCX renamed the JSON keys when it moved the endpoint (Jun-2026). Accept both
 # spellings so a rollback on their side doesn't break us again.

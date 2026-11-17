@@ -21,18 +21,18 @@ Usage:
   python3 scripts/icomdex_refresh.py --dry-run                # fetch+parse, no writes
 """
 import sys, os, json, time
-from curl_cffi import requests as cfreq
+from curl_cffi import requests as cfreq  # noqa: F401  (fail fast without curl_cffi; sessions: lib.curl_session)
 from datetime import datetime, timedelta, timezone, date
 
 # ── Config (self-contained, mirrors bhav_refresh.py) ────────────────────────
 # Supabase access goes through lib.supabase (keys, headers, batching).
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from lib.calendar import now_ist  # noqa: E402  (naive IST wall clock)
 from lib.supabase import upsert_batches  # noqa: E402
+from lib.curl_session import new_session  # noqa: E402
 
 MCX_TIMEOUT = 30
 MCX_MAX_RETRIES = 2
-CHROME_IMPERSONATE = os.environ.get("MCX_IMPERSONATE", "chrome142")
-CHROME_IMPERSONATE_FALLBACKS = ["chrome136", "chrome131", "chrome"]
 
 PAGE_URL = "https://www.mcxindia.com/market-data/mcx-icomdex-indices"
 HISTORY_URL = PAGE_URL + "/GetMCXIComdexIndicesHistoryFilter"
@@ -43,29 +43,13 @@ BLOCKED_MSG = ("blocked_on:\"scripts/sql/create_icomdex_table.sql\" — the "
                "that SQL once in the Supabase SQL editor.")
 
 
-def now_ist():
-    return datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
-
-
 # ── MCX fetch ────────────────────────────────────────────────────────────────
 _session = None
 
 def _get_session(force_new=False):
     global _session
     if _session is None or force_new:
-        last_err = None
-        for target in [CHROME_IMPERSONATE, *CHROME_IMPERSONATE_FALLBACKS]:
-            try:
-                sess = cfreq.Session(impersonate=target)
-                sess.get(PAGE_URL, timeout=MCX_TIMEOUT)  # Akamai cookie warm-up
-                _session = sess
-                return _session
-            except Exception as e:
-                last_err = e
-                if "impersonat" in str(e).lower() or "not supported" in str(e).lower():
-                    continue
-                raise
-        raise last_err
+        _session = new_session(PAGE_URL, timeout=MCX_TIMEOUT)   # Akamai cookie warm-up
     return _session
 
 

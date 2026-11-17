@@ -143,11 +143,8 @@ def sb_upsert(table, rows):
 
 def make_session():
     """curl_cffi session with Chrome TLS impersonation, warmed on the margin page."""
-    from curl_cffi import requests as cfreq
-    session = cfreq.Session(impersonate="chrome142")
-    resp = session.get(MCXCCL_URL, timeout=30)
-    resp.raise_for_status()
-    return session
+    from lib.curl_session import new_session
+    return new_session(MCXCCL_URL, timeout=30, raise_for_status=True)
 
 
 def scrape_date(session, target_date):

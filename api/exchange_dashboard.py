@@ -17,31 +17,22 @@ from lib.mcx_config import (
 
 
 # ─── Date helpers ───────────────────────────────────────────────────────────
+# FY / quarter labels come from lib.calendar (one copy for every dashboard).
+from lib.calendar import (  # noqa: E402
+    fy_label as _fy_label, quarter_label, prev_quarter as _prev_quarter,
+    yoy_quarter as _yoy_quarter,
+)
 
-def _fy_label(d):
-    """Return FY label for a date. Apr-Mar fiscal year."""
-    if d.month >= 4:
-        return f"FY{str(d.year + 1)[-2:]}"
-    return f"FY{str(d.year)[-2:]}"
+
+def _quarter_key(d):
+    """Return (quarter_label, fy_label) for a date."""
+    return quarter_label(d), _fy_label(d)
 
 
 def _fy_start(fy_label):
     """Return start date for a FY label like 'FY26'."""
     yy = int(fy_label[2:])
     return date(2000 + yy - 1, 4, 1)
-
-
-def _quarter_key(d):
-    """Return (quarter_label, fy_label) for a date."""
-    m, y = d.month, d.year
-    if m <= 3:
-        return f"Q4 FY{str(y)[-2:]}", f"FY{str(y)[-2:]}"
-    elif m <= 6:
-        return f"Q1 FY{str(y + 1)[-2:]}", f"FY{str(y + 1)[-2:]}"
-    elif m <= 9:
-        return f"Q2 FY{str(y + 1)[-2:]}", f"FY{str(y + 1)[-2:]}"
-    else:
-        return f"Q3 FY{str(y + 1)[-2:]}", f"FY{str(y + 1)[-2:]}"
 
 
 def _quarter_num(label):
@@ -53,24 +44,6 @@ def _month_key(d):
     """Return month key like 'FY 2026 March'."""
     fy = _fy_label(d)
     return f"{fy} {d.strftime('%B')}"
-
-
-def _prev_quarter(q_label):
-    """Return the previous quarter label. Q1 FY26 -> Q4 FY25."""
-    q_num = int(q_label[1])
-    fy = q_label[3:]  # e.g., "FY26"
-    if q_num == 1:
-        yy = int(fy[2:])
-        return f"Q4 FY{str(yy - 1).zfill(2)}"
-    return f"Q{q_num - 1} {fy}"
-
-
-def _yoy_quarter(q_label):
-    """Return same quarter, prior year. Q4 FY26 -> Q4 FY25."""
-    q_num = q_label[:2]
-    fy = q_label[3:]
-    yy = int(fy[2:])
-    return f"{q_num} FY{str(yy - 1).zfill(2)}"
 
 
 # ─── Aggregation helpers ────────────────────────────────────────────────────
