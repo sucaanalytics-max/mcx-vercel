@@ -386,6 +386,27 @@ def test_curves_skip_short_days():
     ra = c["rolling_average"]
     check("dashboard curve: cut-short day left out", ra["days_used"] == 1,
           str({k: ra[k] for k in ra if k != "buckets"}))
+    check("dashboard curve: cut-short day counted as incomplete", ra["incomplete_days_excluded"] == 1, str(ra))
+
+    # 17 Nov 2026 on production: the window held summer days, winter days cut at
+    # 23:30 and one part day (10 Nov), and no day that qualifies. The payload
+    # must say why, not send all-zero percentiles (drawn as "0% in every bucket").
+    ic.supabase_read_all = lambda *a, **k: (
+        _uniform_day("2026-10-29") + _uniform_day("2026-10-30")
+        + sum((_uniform_day(d, 870) for d in short), [])
+        + _uniform_day("2026-11-10", 870))
+    ic.now_ist = lambda: datetime(2026, 11, 17, 12, 0)
+    try:
+        c = ic.generate_intraday_curves(days=30, include_today=False)
+    finally:
+        ic.supabase_read_all, ic.now_ist = real_read, real_now
+    ra = c["rolling_average"]
+    check("no qualifying day: days_used 0, reasons counted",
+          (ra["days_used"], ra["incomplete_days_excluded"], ra["other_season_days_excluded"],
+           ra["part_days_excluded"]) == (0, 3, 2, 1), str({k: ra[k] for k in ra if k != "buckets"}))
+    check("no qualifying day: percentiles null, not zeros", c["percentiles"] is None, str(c["percentiles"]))
+    check("no qualifying day: no curves, no EWMA",
+          c["historical_curves"] == [] and c["adaptive_ewma"] is None and c["session_end"] == "23:55")
 
 
 # ── Part-day sessions ────────────────────────────────────────────────────────

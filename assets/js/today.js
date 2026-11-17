@@ -198,6 +198,20 @@
     return b.map((x, i) => ({ label: x.label, start: x.start_min - 540, end: x.end_min - 540, share: med[i] / tot * 100,
       p10: pc.p10 ? pc.p10[i] / tot * 100 : null, p90: pc.p90 ? pc.p90[i] / tot * 100 : null, fixed: x.weight * 100 }));
   }
+  // The profile's text when no day qualifies (days_used 0), else null. Only full sessions that
+  // reached the day's close count; 2-16 Nov 2026 stop at 23:30 (the relay ran old code).
+  function profileEmptyNote(d) {
+    const ra = (d && d.rolling_average) || {};
+    if (ra.days_used > 0) return null;
+    const close = d && d.session_end, other = close === '23:55' ? '23:30' : '23:55';
+    const pl = (k, one, many) => `${k} ${k === 1 ? one : many}`;
+    const why = [];
+    if (ra.incomplete_days_excluded > 0) why.push(`${pl(ra.incomplete_days_excluded, 'session', 'sessions')} stopped before the close`);
+    if (ra.other_season_days_excluded > 0) why.push(`${pl(ra.other_season_days_excluded, 'day', 'days')} on the ${other} hours left out`);
+    if (ra.part_days_excluded > 0) why.push(`${pl(ra.part_days_excluded, 'part-day session', 'part-day sessions')} left out`);
+    return `Not enough days yet: the profile needs full sessions that ran to ${close ? `the ${close} close` : "the day's close"}, and none in this window did`
+      + (why.length ? ` (${why.join('; ')}).` : '.');
+  }
   // Share of the day's turnover done by minute m (after 09:00), linear within each bucket
   function doneBy(buckets, m) {
     let acc = 0;
@@ -213,7 +227,7 @@
   // bar but is never "the last session" and never in the 45-day or rank comparisons.
   const typicalDays = daily => daily.filter(x => !x.special);
 
-  MCX.todayModel = { profileShares, doneBy, sessionState, gridAt, likelyRange, finalBand, rangePct, bandWords, headlineLive, bookedNote, vsAvg, ladderTakeaway,
+  MCX.todayModel = { profileShares, profileEmptyNote, doneBy, sessionState, gridAt, likelyRange, finalBand, rangePct, bandWords, headlineLive, bookedNote, vsAvg, ladderTakeaway,
                      vsPrev45, rankText, takeaway, change, spread, niceTicks, rolling, typicalDays };
   if (window.MCX_TEST) return;
 
@@ -917,6 +931,12 @@
   function renderProfile() {
     const d = PF.data;
     if (!d || !$('tdProfile').open || !$('tdProfCum').clientWidth) return;     // drawn when it is visible
+    const empty = profileEmptyNote(d);
+    if (empty) {                      // no qualifying day: say so instead of "the last —, 0%"
+      $('tdProfLede').textContent = empty;
+      $('tdProfBuckets').innerHTML = ''; $('tdProfCum').innerHTML = ''; $('tdProfLegend').innerHTML = '';
+      return;
+    }
     const bs = profileShares(d);
     if (!bs || !bs.length) {          // no buckets in the payload: say so instead of throwing on reduce()
       $('tdProfLede').textContent = 'No session profile is available for this period.';
@@ -926,9 +946,9 @@
     const evening = bs.filter(b => b.start >= 480).reduce((a, b) => a + b.share, 0);
     const top = bs.reduce((a, b) => (b.share / (b.end - b.start) > a.share / (a.end - a.start) ? b : a));
     const r = S.refresh, live = r && r.success && !r.session_closed && r.trading_date === MCX.market.ist().iso;
-    const n = (d.rolling_average && d.rolling_average.days_used) || '—';
+    const n = d.rolling_average.days_used;
     const span = bs[bs.length - 1].end, closeLab = bs[bs.length - 1].label.split('–')[1];   // 23:30, or 23:55 in US winter
-    $('tdProfLede').textContent = `On the median day of the last ${n}, ${num(evening, 0)}% of turnover came in the evening session (17:00–${closeLab}). `
+    $('tdProfLede').textContent = `On the median day of the last ${n === 1 ? 'full session' : n + ' full sessions'}, ${num(evening, 0)}% of turnover came in the evening session (17:00–${closeLab}). `
       + `The busiest stretch per hour is ${top.label}.` + (live ? ` By ${clock(r.elapsed_min)} a typical day has done ${num(doneBy(bs, r.elapsed_min), 0)}% of its turnover.` : '');
     const mx = Math.max(...bs.map(b => Math.max(b.p90 || 0, b.share, b.fixed))) * 1.08;
     const X = v => (v / mx * 100).toFixed(2);
