@@ -67,15 +67,15 @@ def test_precedence():
 def test_no_key_copies():
     print("\n[3] one source for the keys")
     hits = []
-    for d in ("api", "lib", "scripts"):
+    for d in ("api", "lib", "scripts", "research"):
         for name in os.listdir(os.path.join(ROOT, d)):
             path = os.path.join(ROOT, d, name)
-            if not name.endswith(".py") or name == "mcx_config.py" or not os.path.isfile(path):
+            if not name.endswith(".py") or name == "supabase.py" or not os.path.isfile(path):
                 continue
             src = open(path, encoding="utf-8").read()
             if "eyJhbG" + "ciOi" in src:
                 hits.append(f"{d}/{name}")
-    check("no hardcoded JWT outside lib/mcx_config.py", not hits, ", ".join(hits))
+    check("no hardcoded JWT outside lib/supabase.py", not hits, ", ".join(hits))
 
 
 if __name__ == "__main__":

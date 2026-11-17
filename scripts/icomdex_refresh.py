@@ -20,17 +20,14 @@ Usage:
   python3 scripts/icomdex_refresh.py --backfill 2015-12-31 today   # chunked range
   python3 scripts/icomdex_refresh.py --dry-run                # fetch+parse, no writes
 """
-import sys, os, json, time, urllib.request
+import sys, os, json, time
 from curl_cffi import requests as cfreq
 from datetime import datetime, timedelta, timezone, date
 
 # ── Config (self-contained, mirrors bhav_refresh.py) ────────────────────────
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supabase.co")
-# Keys come from lib.mcx_config, the single source (publishable / secret keys,
-# legacy JWT fallback) — see supabase_headers there.
+# Supabase access goes through lib.supabase (keys, headers, batching).
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from lib.mcx_config import (  # noqa: E402
-    SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY, SUPABASE_WRITE_KEY, supabase_headers)
+from lib.supabase import upsert_batches  # noqa: E402
 
 MCX_TIMEOUT = 30
 MCX_MAX_RETRIES = 2
@@ -139,31 +136,19 @@ def parse_rows(raw_rows):
 # ── Supabase upsert ──────────────────────────────────────────────────────────
 
 def upsert_batch(rows):
-    """Upsert records; PK (trading_date, index_code) makes merge-duplicates safe."""
-    for i in range(0, len(rows), 500):
-        batch = rows[i:i + 500]
-        req = urllib.request.Request(
-            f"{SUPABASE_URL}/rest/v1/{TABLE}",
-            data=json.dumps(batch).encode(), method="POST", headers={
-                **supabase_headers(SUPABASE_WRITE_KEY),
-                "Content-Type": "application/json",
-                "Prefer": "resolution=merge-duplicates",
-            })
-        try:
-            with urllib.request.urlopen(req, timeout=15):
-                pass
-        except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8", "replace")[:200] if e.fp else ""
-            if e.code in (404, 401, 403) or "42501" in body or "PGRST205" in body:
-                print(f"  ✗ upsert denied ({e.code}): {body}")
-                print(f"  {BLOCKED_MSG}")
-            else:
-                print(f"  ✗ upsert failed ({e.code}): {body}")
-            return False
-        except Exception as e:
-            print(f"  ✗ upsert failed: {e}")
-            return False
-    return True
+    """Upsert records; PK (trading_date, index_code) makes merge-duplicates safe.
+    Returns True when every batch was accepted."""
+    try:
+        errors = upsert_batches(TABLE, rows, batch=500)
+    except Exception as e:                      # network error / timeout
+        print(f"  ✗ upsert failed: {e}")
+        return False
+    for detail in errors:
+        denied = any(f"HTTP {c}" in detail for c in (401, 403, 404)) or "42501" in detail or "PGRST205" in detail
+        print(f"  ✗ upsert {'denied' if denied else 'failed'}: {detail}")
+        if denied:
+            print(f"  {BLOCKED_MSG}")
+    return not errors
 
 
 # ── Runner ───────────────────────────────────────────────────────────────────

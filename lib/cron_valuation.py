@@ -10,27 +10,27 @@ Can also be triggered manually via GET with ?secret=<CRON_SECRET>.
 Chain: 45DMA F&O Rev → Annualized Rev → PAT (55%) → EPS → Fair Value via P/E bands
 """
 from http.server import BaseHTTPRequestHandler
-import json, math, urllib.request, urllib.error
+import json, math
 from urllib.parse import urlparse, parse_qs
 
 try:
     from lib.mcx_config import (
         TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
         PE_MEAN_DEFAULT, PE_SD_DEFAULT,
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY,
-        now_ist, make_cors_headers, paginated_order,
+        now_ist, make_cors_headers,
     )
 except ImportError:
     from lib.mcx_config import (
         TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
         PE_MEAN_DEFAULT, PE_SD_DEFAULT,
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY,
-        now_ist, make_cors_headers, paginated_order,
+        now_ist, make_cors_headers,
     )
 try:
     from lib.mcx_config import MCX_SPECIAL_SESSIONS   # weekend Muhurat etc.
 except ImportError:
     MCX_SPECIAL_SESSIONS = {}
+
+from lib.supabase import fetch_all, upsert_batches  # one REST client (Phase 3)
 
 import os
 
@@ -40,53 +40,6 @@ PE_LOOKBACK = 252   # trailing trading days for dynamic PE computation (1 year)
 
 
 # ─── Supabase helpers (self-contained, no external deps) ─────────────────
-
-def sb_get(table, params=""):
-    url = f"{SUPABASE_URL}/rest/v1/{table}{params}"
-    req = urllib.request.Request(url, headers={
-        **supabase_headers(SUPABASE_ANON_KEY),
-    })
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode())
-
-
-def sb_upsert(table, rows):
-    """Batch upsert rows to Supabase (chunks of 50)."""
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-    headers = {
-        **supabase_headers(SUPABASE_WRITE_KEY),
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates",
-    }
-    errors = []
-    for i in range(0, len(rows), 50):
-        chunk = rows[i:i + 50]
-        body = json.dumps(chunk).encode()
-        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                pass
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode()[:200] if e.fp else ""
-            errors.append(f"batch {i}: HTTP {e.code} — {err_body}")
-    return errors
-
-
-def fetch_all_paginated(table, select, order_col="trading_date"):
-    # paginated_order appends the table's unique key (offset pages need a
-    # total order).
-    base = paginated_order(table, f"?select={select}&order={order_col}.asc")
-    all_rows = []
-    offset = 0
-    while True:
-        params = f"{base}&limit=1000&offset={offset}"
-        rows = sb_get(table, params)
-        all_rows.extend(rows)
-        if len(rows) < 1000:
-            break
-        offset += 1000
-    return all_rows
-
 
 # ─── Valuation computation (the only copy: scripts/valuation_refresh.py was removed in Phase 3) ──────────
 
@@ -221,7 +174,7 @@ def _refresh_recent_prices(log):
                 "adj_close": round(adj_val, 2), "volume": vol_val, "source": "yfinance",
             })
         if rows:
-            errors = sb_upsert("mcx_share_price", rows)
+            errors = upsert_batches("mcx_share_price", rows)
             log.append(f"Price refresh: {len(rows)} days upserted" + (f" ({len(errors)} errors)" if errors else ""))
         else:
             log.append("Price refresh: no valid rows from yfinance")
@@ -240,10 +193,10 @@ def run_refresh(mode="recent"):
     # Auto-refresh share prices before computing valuations
     _refresh_recent_prices(log)
 
-    rev_rows = fetch_all_paginated("mcx_daily_revenue", "trading_date,total_rev_cr,source")
+    rev_rows = fetch_all("mcx_daily_revenue", "trading_date,total_rev_cr,source")
     log.append(f"Revenue rows: {len(rev_rows)}")
 
-    price_rows = fetch_all_paginated("mcx_share_price", "trading_date,close")
+    price_rows = fetch_all("mcx_share_price", "trading_date,close")
     log.append(f"Price rows: {len(price_rows)}")
 
     valuations, err = compute_valuations(rev_rows, price_rows)
@@ -260,7 +213,7 @@ def run_refresh(mode="recent"):
     # "backfill" = all
 
     log.append(f"Upserting {len(valuations)} rows ({mode} mode)")
-    errors = sb_upsert("mcx_valuation", valuations)
+    errors = upsert_batches("mcx_valuation", valuations)
     if errors:
         log.extend([f"Upsert error: {e}" for e in errors])
 

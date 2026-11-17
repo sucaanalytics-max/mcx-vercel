@@ -206,7 +206,7 @@ def _run_loop_with_failing_close(start, fail="raise"):
 
     def flaky_snapshot():
         t = clock()
-        if t.hour * 60 + t.minute >= relay.session_end(t):
+        if t.hour * 60 + t.minute >= cfg.session_end(t):
             if fail == "raise":
                 raise RuntimeError("MCX unreachable")
             return False

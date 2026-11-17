@@ -16,7 +16,7 @@ Phase 2 (data correctness) regression tests:
 Pure: every Supabase / MCX / Dhan call is stubbed.
 Run: scripts/run_tests.sh   (needs curl_cffi: imports scripts/bhav_refresh)
 """
-import os, sys, json
+import os, sys, json, urllib.request
 from datetime import date, datetime
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -150,9 +150,9 @@ def test_oi_preserved():
         def __enter__(self): return self
         def __exit__(self, *a): return False
 
-    real = br.urllib.request.urlopen
+    real = urllib.request.urlopen
     try:
-        br.urllib.request.urlopen = lambda req, timeout=None: sent.append(json.loads(req.data)) or Resp()
+        urllib.request.urlopen = lambda req, timeout=None: sent.append(json.loads(req.data)) or Resp()
         ok = br._upsert_commodity_batch(new, read_existing_oi=lambda dates: stored)
         check("upsert payload carries the stored OI", ok and sent and sent[0][0]["open_interest"] == 12345, str(sent)[:200])
         sent.clear()
@@ -162,7 +162,7 @@ def test_oi_preserved():
         ok = br._upsert_commodity_batch(new, read_existing_oi=offline)
         check("stored OI unreadable: nothing written", ok is False and not sent)
     finally:
-        br.urllib.request.urlopen = real
+        urllib.request.urlopen = real
 
 
 # ── 3. Gap repair goes through the completeness gate ────────────────────────
@@ -235,17 +235,19 @@ def test_pagination():
                              page_size=5000, max_rows=10000, read=read)
     check("page_size above PostgREST's 1,000 cap still reads everything", len(rows) == 2500, str(len(rows)))
 
-    # The cron copies of fetch_all and api/commodities._fetch_all
+    # The one fetch_all (lib.supabase), used by every cron module since Phase 3
+    import lib.supabase as sb
+    got = []
+    real = sb.supabase_read
+    try:
+        sb.supabase_read = lambda tbl, params, timeout=10: got.append(params) or []
+        sb.fetch_all("mcx_commodity_daily", "trading_date")
+    finally:
+        sb.supabase_read = real
+    check("lib.supabase.fetch_all orders by the unique key", got and "commodity.asc,instrument_type.asc" in got[0], str(got))
     import lib.cron_commodity_signals as ccs, lib.cron_models as cm, lib.cron_momentum as cmo, lib.cron_valuation as cv
-    for mod, fn in ((ccs, "fetch_all"), (cm, "fetch_all"), (cmo, "fetch_all"), (cv, "fetch_all_paginated")):
-        got = []
-        real = mod.sb_get
-        try:
-            mod.sb_get = lambda tbl, params: got.append(params) or []
-            getattr(mod, fn)("mcx_commodity_daily", "trading_date")
-        finally:
-            mod.sb_get = real
-        check(f"{mod.__name__}.{fn} orders by the unique key", got and "commodity.asc,instrument_type.asc" in got[0], str(got))
+    check("cron modules use the shared fetch_all",
+          all(m.fetch_all is sb.fetch_all for m in (ccs, cm, cmo, cv)))
 
     import api.commodities as ac
     got = {}

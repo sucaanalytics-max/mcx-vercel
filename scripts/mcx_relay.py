@@ -15,7 +15,7 @@ Usage:
   python3 scripts/mcx_relay.py          # single snapshot, push to Supabase
   python3 scripts/mcx_relay.py --loop   # loop every 15 min until session ends
 """
-import sys, os, json, math, time, urllib.request, urllib.error
+import sys, os, time, urllib.request, urllib.error
 
 # Force UTF-8 output on Windows (cp1252 can't handle Unicode symbols)
 if sys.platform == "win32":
@@ -50,16 +50,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # ── Import shared config from single source of truth ────────────────────────
 from lib.mcx_config import (
-    SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers,
-    FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY, TRADING_DAYS,
-    SESSION_START, session_end, fmt_ist_minutes,
+    FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY, SESSION_START, fmt_ist_minutes,
     session_shape, session_clock, SESSION_FULL, SESSION_CLOSED,
-    DAY_MULTIPLIER, DAY_DESCRIPTION,
-    MCX_HOLIDAYS_2026,
-    now_ist, get_day_type, get_intraday_weight,
-    project_full_day, calc_revenue, calc_uncertainty,
+    DAY_MULTIPLIER, MCX_HOLIDAYS_2026,
+    now_ist, get_day_type, project_full_day, calc_revenue, calc_uncertainty,
     check_regime_drift, supabase_upsert, SUPABASE_WRITE_ROLE,
-    calendar_status,
+    calendar_status, supabase_read,
 )
 
 from lib.cron_margins import (
@@ -887,16 +883,9 @@ def catchup_missing(days=7):
             continue
 
         # Check if we already have data for this date
-        url = (f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue"
-               f"?trading_date=eq.{ds}&limit=1")
-        req = urllib.request.Request(url, headers={
-            **supabase_headers(SUPABASE_ANON_KEY),
-        })
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                rows = json.loads(resp.read().decode())
-                if rows:
-                    continue  # Already have data
+            if supabase_read("mcx_daily_revenue", f"?trading_date=eq.{ds}&limit=1"):
+                continue  # Already have data
         except Exception:
             continue  # Skip on error, don't block main flow
 

@@ -23,17 +23,14 @@ Usage:
 
 Requires: curl_cffi (use /opt/homebrew/bin/python3)
 """
-import sys, os, json, argparse, time, urllib.request, urllib.error
+import sys, os, argparse, time
 from datetime import datetime, date, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supabase.co")
-# Keys come from lib.mcx_config, the single source (publishable / secret keys,
-# legacy JWT fallback) — see supabase_headers there.
+# Supabase access goes through lib.supabase (keys, headers, batching).
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from lib.mcx_config import (  # noqa: E402
-    SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY, SUPABASE_WRITE_KEY, supabase_headers)
+from lib.supabase import upsert_batches  # noqa: E402
 
 MCXCCL_URL = "https://www.mcxccl.com/risk-management/daily-margin"
 
@@ -139,29 +136,9 @@ def parse_ajax_data(data, snapshot_date):
 
 
 def sb_upsert(table, rows):
-    """Upsert rows to Supabase in batches of 50."""
-    if not SUPABASE_ANON_KEY:
-        print("  WARNING: SUPABASE_ANON_KEY not set, skipping upsert")
-        return ["No API key"]
-
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-    headers = {
-        **supabase_headers(SUPABASE_WRITE_KEY),
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates",
-    }
-    errors = []
-    for i in range(0, len(rows), 50):
-        chunk = rows[i:i + 50]
-        body = json.dumps(chunk).encode()
-        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                pass
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode()[:200] if e.fp else ""
-            errors.append(f"batch {i}: HTTP {e.code} — {err_body}")
-    return errors
+    """Upsert rows in batches of 50; returns a list of error strings (a 409
+    counts as an error here, unlike lib.cron_margins.sb_upsert)."""
+    return upsert_batches(table, rows)
 
 
 def make_session():

@@ -17,7 +17,7 @@ Usage:
   python3 scripts/bhav_refresh.py --commodity 2026-11-10          # breakdown only
   python3 scripts/bhav_refresh.py --commodity-recent 4 --retry-until 06:55
 """
-import sys, os, json, time, urllib.request
+import sys, os, time
 from curl_cffi import requests as cfreq
 from datetime import datetime, timedelta, timezone
 
@@ -33,12 +33,8 @@ except ImportError:                             # older lib: fixed 23:30 close
         return SESSION_END
 
 # ── Config ──────────────────────────────────────────────────────────────────
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supabase.co")
-# Keys come from lib.mcx_config, the single source (publishable / secret keys,
-# legacy JWT fallback) — see supabase_headers there.
+# Supabase access goes through lib.supabase (keys, headers, batching).
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from lib.mcx_config import (  # noqa: E402
-    SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY, SUPABASE_WRITE_KEY, supabase_headers)
 FUTURES_RATE = 210.0
 OPTIONS_RATE = 4180.0
 NONTX_DAILY = 0.00
@@ -52,7 +48,10 @@ CHROME_IMPERSONATE_FALLBACKS = ["chrome136", "chrome131", "chrome"]
 # MCX holidays (full-day closures only — no trading at all). One calendar for
 # every year, kept in lib/mcx_config.py: a local copy here would silently miss
 # the 2027 dates when they are added there.
-from lib.mcx_config import MCX_HOLIDAYS, paginated_order  # noqa: E402
+from lib.mcx_config import MCX_HOLIDAYS  # noqa: E402
+from lib.supabase import (  # noqa: E402
+    supabase_read, supabase_read_all, supabase_upsert, upsert_batches,
+)
 
 
 def now_ist():
@@ -78,15 +77,10 @@ def has_session(d):
 def check_relay_eod(date_iso):
     """Check if relay has already captured EOD data for this date.
     Returns the row dict if found (source='mcx_relay_eod'), else None."""
-    url = (f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue"
-           f"?trading_date=eq.{date_iso}&source=eq.mcx_relay_eod&limit=1")
-    req = urllib.request.Request(url, headers={
-        **supabase_headers(SUPABASE_ANON_KEY),
-    })
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            rows = json.loads(resp.read().decode())
-            return rows[0] if rows else None
+        rows = supabase_read("mcx_daily_revenue",
+                             f"?trading_date=eq.{date_iso}&source=eq.mcx_relay_eod&limit=1")
+        return rows[0] if rows else None
     except Exception:
         return None
 
@@ -257,18 +251,17 @@ _OI_FIELDS = ("open_interest", "oi_value_cr")
 
 def _read_existing_oi(dates):
     """{(trading_date, commodity, instrument_type): {open_interest, oi_value_cr}}
-    for stored rows on `dates` that carry non-zero OI."""
+    for stored rows on `dates` that carry non-zero OI. Raises on a read error
+    (the caller then writes nothing)."""
     out = {}
     for d in sorted(set(dates)):
-        url = (f"{SUPABASE_URL}/rest/v1/mcx_commodity_daily?trading_date=eq.{d}&open_interest=gt.0"
-               f"&select=trading_date,commodity,instrument_type,open_interest,oi_value_cr"
-               f"&order=commodity.asc,instrument_type.asc&limit=1000")
-        req = urllib.request.Request(url, headers={
-            **supabase_headers(SUPABASE_ANON_KEY)})
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            for r in json.loads(resp.read().decode()):
-                out[(r["trading_date"], r["commodity"], r["instrument_type"])] = {
-                    k: r[k] for k in _OI_FIELDS}
+        for r in supabase_read(
+                "mcx_commodity_daily",
+                f"?trading_date=eq.{d}&open_interest=gt.0"
+                f"&select=trading_date,commodity,instrument_type,open_interest,oi_value_cr"
+                f"&order=commodity.asc,instrument_type.asc&limit=1000", timeout=15):
+            out[(r["trading_date"], r["commodity"], r["instrument_type"])] = {
+                k: r[k] for k in _OI_FIELDS}
     return out
 
 
@@ -304,26 +297,13 @@ def _upsert_commodity_batch(rows, read_existing_oi=None):
         print(f"  ⚠ commodity upsert skipped: could not read stored OI ({e})")
         return False
     rows = preserve_existing_oi(rows, existing)
-    url = f"{SUPABASE_URL}/rest/v1/mcx_commodity_daily"
-    body = json.dumps(rows).encode()
-    req = urllib.request.Request(url, data=body, method="POST", headers={
-        **supabase_headers(SUPABASE_WRITE_KEY),
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates",
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return True
-    except Exception as e:
-        detail = ""
-        if hasattr(e, "read"):
-            try: detail = e.read().decode()[:200]
-            except Exception: pass
-        print(f"  ⚠ commodity upsert failed: {e} {detail}".rstrip())
+    errors = upsert_batches("mcx_commodity_daily", rows, batch=max(len(rows), 1))
+    for detail in errors:
+        print(f"  ⚠ commodity upsert failed: {detail}")
         if "42501" in detail:
-            print("      RLS blocked the write: set SUPABASE_SERVICE_KEY "
+            print("      RLS blocked the write: set SUPABASE_SECRET_KEY "
                   "(worktrees have no .env — run writes from the main checkout).")
-        return False
+    return not errors
 
 
 def fetch_mcx_historical(date_iso, write_commodity=True):
@@ -394,13 +374,9 @@ def fetch_mcx_historical(date_iso, write_commodity=True):
 
 
 def get_existing_dates():
-    """Fetch all dates already in Supabase."""
-    url = f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue?select=trading_date,source&order=trading_date.desc&limit=200"
-    req = urllib.request.Request(url, headers={
-        **supabase_headers(SUPABASE_ANON_KEY),
-    })
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        rows = json.loads(resp.read().decode())
+    """Dates (and their source) of the last 200 rows of mcx_daily_revenue."""
+    rows = supabase_read("mcx_daily_revenue",
+                         "?select=trading_date,source&order=trading_date.desc&limit=200")
     return {r["trading_date"]: r.get("source", "") for r in rows}
 
 
@@ -413,21 +389,11 @@ def get_commodity_dates(since_iso):
     rows (turnover_cr = 0), often before bhav_refresh runs. Counting those as
     coverage made ensure_commodity_breakdown() skip the date for good (found
     2026-05-27/28)."""
-    dates, offset = set(), 0
-    while True:
-        q = paginated_order("mcx_commodity_daily",
-                            f"?select=trading_date&trading_date=gte.{since_iso}&turnover_cr=gt.0"
-                            f"&order=trading_date.asc")
-        url = f"{SUPABASE_URL}/rest/v1/mcx_commodity_daily{q}&limit=1000&offset={offset}"
-        req = urllib.request.Request(url, headers={
-            **supabase_headers(SUPABASE_ANON_KEY),
-        })
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            page = json.loads(resp.read().decode())
-        dates.update(r["trading_date"] for r in page)
-        if len(page) < 1000:
-            break
-        offset += 1000
+    rows = supabase_read_all(
+        "mcx_commodity_daily",
+        f"?select=trading_date&trading_date=gte.{since_iso}&turnover_cr=gt.0&order=trading_date.asc",
+        max_rows=None, timeout=15)
+    dates = {r["trading_date"] for r in rows}
     return dates
 
 
@@ -538,16 +504,9 @@ def recent_session_dates(days, today=None):
 
 
 def upsert_rows(rows):
-    """Upsert revenue rows to Supabase."""
-    url = f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue?on_conflict=trading_date"
-    body = json.dumps(rows).encode()
-    req = urllib.request.Request(url, data=body, method="POST", headers={
-        **supabase_headers(SUPABASE_WRITE_KEY),
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates,return=representation",
-    })
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode())
+    """Upsert revenue rows to mcx_daily_revenue (merge on trading_date); returns
+    the written rows. Raises on an HTTP error."""
+    return supabase_upsert("mcx_daily_revenue", rows, on_conflict="trading_date", timeout=15)
 
 
 def fetch_and_compute(date_iso, commodity_present=None):

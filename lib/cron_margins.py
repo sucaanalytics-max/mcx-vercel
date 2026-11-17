@@ -15,12 +15,10 @@ from urllib.parse import urlparse, parse_qs
 
 try:
     from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY,
         now_ist, is_trading_day, make_cors_headers,
     )
 except ImportError:
     from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY,
         now_ist, is_trading_day, make_cors_headers,
     )
 
@@ -157,35 +155,14 @@ def _parse_xls(data):
 
 
 def sb_upsert(table, rows, stats=None):
-    """Upsert rows to Supabase in batches; returns a list of error strings.
+    """Upsert rows in batches; returns a list of error strings.
 
     A 409 means the batch hit the table's unique key on rows already stored
     (there is no on_conflict, so merge-duplicates cannot update them). Those
-    rows are kept as they are, not written — counted in stats['skipped'] when a
+    rows are kept as they are, not written: counted in stats['skipped'] when a
     stats dict is passed, so callers stop reporting them as upserted."""
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-    headers = {
-        **supabase_headers(SUPABASE_WRITE_KEY),
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates",
-    }
-    errors = []
-    for i in range(0, len(rows), 50):
-        chunk = rows[i:i + 50]
-        body = json.dumps(chunk).encode()
-        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                pass
-        except urllib.error.HTTPError as e:
-            if e.code == 409:
-                if stats is not None:
-                    stats["skipped"] = stats.get("skipped", 0) + len(chunk)
-                continue  # duplicate key — data already exists, skip
-            err_body = e.read().decode()[:200] if e.fp else ""
-            errors.append(f"batch {i}: HTTP {e.code} — {err_body}")
-    return errors
-
+    from lib.supabase import upsert_batches
+    return upsert_batches(table, rows, stats=stats, on_409="skip")
 
 def get_existing_margin_dates(since=None):
     """Distinct snapshot_dates in mcx_margin_daily on or after `since` (YYYY-MM-DD;

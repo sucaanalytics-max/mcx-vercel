@@ -29,27 +29,6 @@ except (ImportError, Exception):
         supabase_read, supabase_upsert, calendar_status,
     )
 
-# ─── Inline fallback if import missed supabase helpers ──────────────────────
-if not callable(globals().get("supabase_read")):
-    _SB_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supabase.co")
-    _SB_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
-
-    def supabase_read(table, params="", timeout=10):
-        url = f"{_SB_URL}/rest/v1/{table}{params}"
-        headers = {"apikey": _SB_KEY, "Authorization": f"Bearer {_SB_KEY}", "Content-Type": "application/json", "Prefer": "return=representation"}
-        req = urllib.request.Request(url, method="GET", headers=headers)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-
-    def supabase_upsert(table, data, timeout=10):
-        url = f"{_SB_URL}/rest/v1/{table}"
-        headers = {"apikey": _SB_KEY, "Authorization": f"Bearer {_SB_KEY}", "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates,return=representation"}
-        body = json.dumps(data).encode("utf-8")
-        req = urllib.request.Request(url, data=body, method="POST", headers=headers)
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-
-
 def _auto_fetch_cookies(timeout: int = 12):
     """Attempt to obtain fresh MCX session cookie server-side."""
     try:
