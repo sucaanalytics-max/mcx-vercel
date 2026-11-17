@@ -21,3 +21,8 @@ scripts/.oi_backfill_progress.json
 
 # Local job logs
 logs/
+
+# ── Housekeeping ──
+.DS_Store
+tsconfig.tsbuildinfo
+trading/data/*.duckdb
