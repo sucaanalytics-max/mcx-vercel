@@ -13,14 +13,9 @@ from io import BytesIO
 from datetime import timedelta
 from urllib.parse import urlparse, parse_qs
 
-try:
-    from lib.mcx_config import (
-        now_ist, is_trading_day, make_cors_headers,
-    )
-except ImportError:
-    from lib.mcx_config import (
-        now_ist, is_trading_day, make_cors_headers,
-    )
+from lib.mcx_config import (
+    now_ist, is_trading_day, make_cors_headers,
+)
 
 CRON_SECRET = os.environ.get("CRON_SECRET", "")
 SHAREKHAN_URL = "https://www.sharekhan.com/MediaGalary/Commodity/McxSpan.xls"

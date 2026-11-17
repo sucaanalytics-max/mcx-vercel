@@ -13,18 +13,11 @@ from http.server import BaseHTTPRequestHandler
 import json, math
 from urllib.parse import urlparse, parse_qs
 
-try:
-    from lib.mcx_config import (
-        TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
-        PE_MEAN_DEFAULT, PE_SD_DEFAULT,
-        now_ist, make_cors_headers,
-    )
-except ImportError:
-    from lib.mcx_config import (
-        TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
-        PE_MEAN_DEFAULT, PE_SD_DEFAULT,
-        now_ist, make_cors_headers,
-    )
+from lib.mcx_config import (
+    TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
+    PE_MEAN_DEFAULT, PE_SD_DEFAULT,
+    now_ist, make_cors_headers,
+)
 try:
     from lib.mcx_config import MCX_SPECIAL_SESSIONS   # weekend Muhurat etc.
 except ImportError:

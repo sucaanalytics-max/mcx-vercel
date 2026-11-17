@@ -3,18 +3,13 @@
 Primary: yfinance (live intraday)  |  Fallback: Yahoo Finance, indianapi.in  |  Cache: Supabase
 Single-purpose: returns latest MCX Ltd share price for frontend auto-update.
 """
-from http.server import BaseHTTPRequestHandler
+from lib.api_handler import JSONHandler
 import json, os, urllib.request, urllib.error
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
-try:
-    from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY, make_cors_headers
-    )
-except ImportError:
-    from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY, make_cors_headers
-    )
+from lib.mcx_config import (
+    SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY
+)
 
 INDIANAPI_KEY = os.environ.get("INDIANAPI_KEY", "")
 INDIANAPI_URL = "https://stock.indianapi.in/stock?name=MCX"
@@ -219,31 +214,10 @@ def _get_price():
     return {"error": "All price sources failed", "details": errors}
 
 
-class handler(BaseHTTPRequestHandler):
-
-    def log_message(self, fmt, *args):
-        pass
-
-    def _cors(self):
-        origin = self.headers.get("Origin", "")
-        hdrs = make_cors_headers(origin)
-        for k, v in hdrs.items():
-            self.send_header(k, v)
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Cache-Control", "public, max-age=30, s-maxage=30")
-
-    def do_OPTIONS(self):
-        self.send_response(204)
-        self._cors()
-        self.end_headers()
+class handler(JSONHandler):
 
     def do_GET(self):
         result = _get_price()
         status = 502 if "error" in result else 200
-        body = json.dumps(result).encode("utf-8")
-        self.send_response(status)
-        self._cors()
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(body)
+        # 30 s CDN cache for a price; an error (502) is never cached.
+        self.send_json(result, status, cache="public, max-age=30, s-maxage=30")

@@ -7,15 +7,14 @@ Top 5 commodities + "OTHERS" bucket.
 
 Also serves margin data via ?view=margins (to stay within Vercel 12-function limit).
 """
-from http.server import BaseHTTPRequestHandler
-import json
+from lib.api_handler import JSONHandler
 from datetime import date, timedelta
 from collections import defaultdict
 from urllib.parse import urlparse, parse_qs
 
 from lib.mcx_config import (
-    SUPABASE_URL, SUPABASE_ANON_KEY, COMMODITY_MAP,
-    supabase_read_all, now_ist, make_cors_headers, cache_header,
+    COMMODITY_MAP,
+    supabase_read_all, now_ist, 
 )
 from lib.margin_dashboard import generate_margin_dashboard
 from lib.oi_participants_dashboard import generate_oi_participants_dashboard
@@ -307,9 +306,8 @@ def generate_commodity_dashboard(range_key=DEFAULT_RANGE):
 
 # ─── HTTP handler ────────────────────────────────────────────────────────
 
-class handler(BaseHTTPRequestHandler):
+class handler(JSONHandler):
     def do_GET(self):
-        headers = make_cors_headers()
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
         view = qs.get("view", [None])[0]
@@ -325,24 +323,9 @@ class handler(BaseHTTPRequestHandler):
                 result = generate_commodity_dashboard(range_key=qs.get("range", [DEFAULT_RANGE])[0])
                 cache = "public, max-age=120, s-maxage=120"
 
-            self.send_response(200)
-            for k, v in headers.items():
-                self.send_header(k, v)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Cache-Control", cache_header(result, cache))
-            self.end_headers()
-            self.wfile.write(json.dumps(result, default=str).encode())
+            # Origin is now reflected (make_cors_headers was called without it,
+            # so previews and localhost never matched).
+            self.send_json(result, cache=cache)
         except Exception as e:
-            self.send_response(500)
-            for k, v in headers.items():
-                self.send_header(k, v)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"success": False, "error": str(e)[:200]}).encode())
+            self.send_error_json(e)
 
-    def do_OPTIONS(self):
-        headers = make_cors_headers()
-        self.send_response(204)
-        for k, v in headers.items():
-            self.send_header(k, v)
-        self.end_headers()

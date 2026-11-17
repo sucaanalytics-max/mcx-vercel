@@ -11,16 +11,10 @@ import json
 from urllib.parse import urlparse, parse_qs
 
 # Import the actual handler classes from underscore-prefixed modules
-try:
-    from lib.cron_valuation import handler as valuation_handler
-    from lib.cron_models import handler as models_handler
-    from lib.cron_commodity_signals import handler as signals_handler
-    from lib.cron_momentum import handler as momentum_handler
-except ImportError:
-    from lib.cron_valuation import handler as valuation_handler
-    from lib.cron_models import handler as models_handler
-    from lib.cron_commodity_signals import handler as signals_handler
-    from lib.cron_momentum import handler as momentum_handler
+from lib.cron_valuation import handler as valuation_handler
+from lib.cron_models import handler as models_handler
+from lib.cron_commodity_signals import handler as signals_handler
+from lib.cron_momentum import handler as momentum_handler
 
 # Map job names to handler classes. margins and oi_participants are not here:
 # neither can work from Vercel (Sharekhan's XLS never completes from datacenter

@@ -22,7 +22,7 @@ Usage:
 """
 import sys, os, json, time
 from curl_cffi import requests as cfreq  # noqa: F401  (fail fast without curl_cffi; sessions: lib.curl_session)
-from datetime import datetime, timedelta, timezone, date
+from datetime import datetime, timedelta, date
 
 # ── Config (self-contained, mirrors bhav_refresh.py) ────────────────────────
 # Supabase access goes through lib.supabase (keys, headers, batching).

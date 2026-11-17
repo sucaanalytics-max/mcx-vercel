@@ -10,16 +10,10 @@ from http.server import BaseHTTPRequestHandler
 import json, math
 from urllib.parse import urlparse, parse_qs
 
-try:
-    from lib.mcx_config import (
-        COMMODITY_MAP, COMMODITY_HEAD,
-        now_ist, make_cors_headers,
-    )
-except ImportError:
-    from lib.mcx_config import (
-        COMMODITY_MAP, COMMODITY_HEAD,
-        now_ist, make_cors_headers,
-    )
+from lib.mcx_config import (
+    COMMODITY_MAP, COMMODITY_HEAD,
+    now_ist, make_cors_headers,
+)
 
 from lib.supabase import fetch_all, upsert_batches  # one REST client (Phase 3)
 

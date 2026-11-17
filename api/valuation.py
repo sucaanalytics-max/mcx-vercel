@@ -13,25 +13,15 @@ Returns:
   - Dynamic P/E band statistics
   - Revenue-to-EPS conversion chain (full transparency)
 """
-from http.server import BaseHTTPRequestHandler
-import json
+from lib.api_handler import JSONHandler
 
-try:
-    from lib.mcx_config import (
-        TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
-        PE_MEAN_DEFAULT, PE_SD_DEFAULT,
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_read_all,
-        now_ist, make_cors_headers,
-    )
-except ImportError:
-    from lib.mcx_config import (
-        TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
-        PE_MEAN_DEFAULT, PE_SD_DEFAULT,
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_read_all,
-        now_ist, make_cors_headers,
-    )
+from lib.mcx_config import (
+    TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
+    PE_MEAN_DEFAULT, PE_SD_DEFAULT,
+    SUPABASE_ANON_KEY, supabase_read, supabase_read_all,
+    now_ist, 
+)
 
-import math
 from lib import house_model
 
 RANGE_DAYS = {"30D": 30, "60D": 60, "Q": 63, "1Y": 252, "2Y": 504, "Max": None}
@@ -295,32 +285,7 @@ def generate_valuation(range_key=DEFAULT_RANGE):
 
 # ─── Vercel handler ─────────────────────────────────────────────────────────
 
-class handler(BaseHTTPRequestHandler):
-
-    def log_message(self, fmt, *args):
-        pass
-
-    def _cors(self):
-        origin = self.headers.get("Origin", "")
-        hdrs = make_cors_headers(origin)
-        for k, v in hdrs.items():
-            self.send_header(k, v)
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-
-    def send_json(self, data, status=200):
-        body = json.dumps(data, default=str).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self._cors()
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_OPTIONS(self):
-        self.send_response(204)
-        self._cors()
-        self.end_headers()
+class handler(JSONHandler):
 
     def do_GET(self):
         try:

@@ -5,14 +5,13 @@ Computes daily average revenue breakdown (Futures, Options, Total, O/F Ratio)
 across FY, quarterly, monthly, weekly, and day-of-week dimensions.
 Mirrors the user's Excel "Exchanges Dashboard" with YoY/QoQ/MoM/WoW metrics.
 """
-from http.server import BaseHTTPRequestHandler
-import json
-from datetime import date, timedelta
+from lib.api_handler import JSONHandler
+from datetime import date
 from collections import defaultdict
 
 from lib.mcx_config import (
-    supabase_read_all, now_ist, make_cors_headers, MCX_SPECIAL_SESSIONS,
-    int_param, cache_header,
+    supabase_read_all, now_ist, MCX_SPECIAL_SESSIONS,
+    int_param, 
 )
 
 
@@ -409,10 +408,8 @@ def generate_exchange_dashboard(today=None):
 
 # ─── Vercel handler ────────────────────────────────────────────────────────
 
-class handler(BaseHTTPRequestHandler):
+class handler(JSONHandler):
     def do_GET(self):
-        origin = self.headers.get("Origin", "")
-        cors = make_cors_headers(origin)
         try:
             from urllib.parse import urlparse, parse_qs
             qs = parse_qs(urlparse(self.path).query)
@@ -431,28 +428,7 @@ class handler(BaseHTTPRequestHandler):
             else:
                 result = generate_exchange_dashboard()
 
-            self.send_response(200)
-            for k, v in cors.items():
-                self.send_header(k, v)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Cache-Control", cache_header(result, cache))
-            self.end_headers()
-            self.wfile.write(json.dumps(result).encode())
+            self.send_json(result, cache=cache)
         except Exception as e:
-            self.send_response(500)
-            for k, v in cors.items():
-                self.send_header(k, v)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"success": False, "error": str(e)[:200]}).encode())
+            self.send_error_json(e)
 
-    def do_OPTIONS(self):
-        origin = self.headers.get("Origin", "")
-        cors = make_cors_headers(origin)
-        self.send_response(204)
-        for k, v in cors.items():
-            self.send_header(k, v)
-        self.end_headers()
-
-    def log_message(self, format, *args):
-        pass

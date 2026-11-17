@@ -4,30 +4,19 @@ Fixes: F-02 (shared config), F-07 (no hardcoded keys), F-08 (Supabase relay),
        F-09 (secure cookie), F-10 (conditional dual-call), F-12 (error differentiation),
        F-13 (restricted CORS), F-22 (no duplication)
 """
-from http.server import BaseHTTPRequestHandler
-import json, math, os, time, urllib.request, urllib.error
-from datetime import datetime, timedelta
+from lib.api_handler import JSONHandler
+import json, time, urllib.request, urllib.error
+from datetime import datetime
 from collections import defaultdict
-try:
-    from lib.mcx_config import (
-        FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY, TRADING_DAYS,
-        SESSION_START, session_shape, session_clock, traded_minutes,
-        DAY_MULTIPLIER, DAY_DESCRIPTION,
-        get_day_type, get_intraday_weight, project_full_day,
-        calc_revenue, calc_uncertainty, now_ist, is_market_open, is_trading_day,
-        make_cors_headers, SUPABASE_URL, SUPABASE_ANON_KEY,
-        supabase_read, supabase_upsert, calendar_status,
-    )
-except (ImportError, Exception):
-    from lib.mcx_config import (  # type: ignore
-        FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY, TRADING_DAYS,
-        SESSION_START, session_shape, session_clock, traded_minutes,
-        DAY_MULTIPLIER, DAY_DESCRIPTION,
-        get_day_type, get_intraday_weight, project_full_day,
-        calc_revenue, calc_uncertainty, now_ist, is_market_open, is_trading_day,
-        make_cors_headers, SUPABASE_URL, SUPABASE_ANON_KEY,
-        supabase_read, supabase_upsert, calendar_status,
-    )
+from lib.mcx_config import (
+    NONTX_DAILY, TRADING_DAYS,
+    session_shape, session_clock, traded_minutes,
+    DAY_MULTIPLIER, DAY_DESCRIPTION,
+    get_day_type, project_full_day,
+    calc_revenue, calc_uncertainty, now_ist, is_market_open, 
+    SUPABASE_ANON_KEY,
+    supabase_read, supabase_upsert, calendar_status,
+)
 
 def _auto_fetch_cookies(timeout: int = 12):
     """Attempt to obtain fresh MCX session cookie server-side."""
@@ -240,36 +229,12 @@ def process_market_data(raw_json, capture_time_ist, raw_json2=None):
     return result
 
 
-class handler(BaseHTTPRequestHandler):
-
-    def log_message(self, fmt, *args):
-        pass
-
-    def _cors(self):
-        origin = self.headers.get("Origin", "")
-        hdrs = make_cors_headers(origin)
-        for k, v in hdrs.items():
-            self.send_header(k, v)
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-
-    def send_json(self, data, status=200):
-        body = json.dumps(data, default=str).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self._cors()
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_OPTIONS(self):
-        self.send_response(204)
-        self._cors()
-        self.end_headers()
+class handler(JSONHandler):
+    allow_methods = "GET, POST, OPTIONS"
 
     def _health_check(self):
         """Return relay health: last heartbeat + last snapshot age."""
-        from datetime import datetime, timezone
+        from datetime import timezone
         try:
             t = now_ist()
             today = t.strftime("%Y-%m-%d")

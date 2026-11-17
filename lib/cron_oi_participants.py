@@ -21,14 +21,9 @@ from io import BytesIO
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs
 
-try:
-    from lib.mcx_config import (
-        now_ist, make_cors_headers,
-    )
-except ImportError:
-    from lib.mcx_config import (
-        now_ist, make_cors_headers,
-    )
+from lib.mcx_config import (
+    now_ist, make_cors_headers,
+)
 
 CRON_SECRET = os.environ.get("CRON_SECRET", "")
 MAX_RETRIES = 2
