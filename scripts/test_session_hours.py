@@ -408,6 +408,30 @@ def test_curves_skip_short_days():
     check("no qualifying day: no curves, no EWMA",
           c["historical_curves"] == [] and c["adaptive_ewma"] is None and c["session_end"] == "23:55")
 
+    # The EWMA must weight the newest day most. daily_curves is newest-first;
+    # the loop used to reverse it, so the oldest day got age 0.
+    days_full = [d for d in ((date(2026, 11, 17) + timedelta(days=i)).isoformat() for i in range(25))
+                 if cfg.session_shape(d)["type"] == cfg.SESSION_FULL][:10]
+    newest = days_full[-1]
+    def back_loaded(d):      # volume grows with the square of time: a heavy late bucket
+        return [dict(s, fut_notl_cr=s["elapsed_min"] ** 2 / 895) for s in _uniform_day(d)]
+    ic.supabase_read_all = lambda *a, **k: (sum((_uniform_day(d) for d in days_full[:-1]), [])
+                                            + back_loaded(newest))
+    ic.now_ist = lambda: datetime.combine(date.fromisoformat(newest) + timedelta(days=1), datetime.min.time())
+    try:
+        c = ic.generate_intraday_curves(days=30, include_today=False)
+    finally:
+        ic.supabase_read_all, ic.now_ist = real_read, real_now
+    late_mean = c["rolling_average"]["buckets"][-1]["weight"]
+    late_ewma = c["adaptive_ewma"]["buckets"][-1]["weight"] if c["adaptive_ewma"] else None
+    late_newest = c["historical_curves"][0]["buckets"][-1]
+    check("EWMA: 10 full winter days used", len(days_full) == 10 and c["rolling_average"]["days_used"] == 10,
+          str(days_full))
+    check("historical_curves is newest first", c["historical_curves"][0]["date"] == newest)
+    check("EWMA weights the newest day most (late bucket above the plain mean)",
+          late_ewma is not None and late_mean < late_ewma < late_newest,
+          f"mean {late_mean} ewma {late_ewma} newest {late_newest}")
+
 
 # ── Part-day sessions ────────────────────────────────────────────────────────
 # 2026-11-10 Diwali-Balipratipada: morning closed, evening 17:00–23:55 (winter).

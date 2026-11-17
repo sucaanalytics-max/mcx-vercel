@@ -270,8 +270,9 @@ def generate_intraday_curves(days=30, include_today=True):
         _lam = _math.log(2) / _halflife
         ewma_buckets = [0.0] * 7
         ewma_total_w = 0.0
-        # daily_curves is sorted most recent last; reverse for age calculation
-        for age, dc in enumerate(reversed(daily_curves)):
+        # daily_curves is newest first (hist_dates is sorted descending), so
+        # the index is the age: the newest day gets weight 1.
+        for age, dc in enumerate(daily_curves):
             w = _math.exp(-_lam * age)
             for b in range(7):
                 ewma_buckets[b] += w * dc["buckets"][b]
