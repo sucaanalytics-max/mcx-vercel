@@ -102,13 +102,16 @@ def test_pagination():
     check("baseline: newest_first keeps the newest 1,200, ascending",
           [r["i"] for r in rows] == list(range(6800, 8000)))
 
-    t = FakeTable(8000, delay=0.05)
+    # 200 ms a page: sequential is 1.6 s, concurrent ~0.4 s. The margin absorbs
+    # scheduler jitter when the whole suite runs at once (a 50 ms page with a
+    # 0.25 s limit failed intermittently under the push gate's load).
+    t = FakeTable(8000, delay=0.2)
     t0 = time.time()
     rows = read_all(t, counted=True, max_rows=None)
     dt = time.time() - t0
     check("all 8,000 rows", len(rows) == 8000 and len({r["i"] for r in rows}) == 8000)
     check("pages run concurrently", t.peak > 1, f"peak {t.peak}")
-    check("8 pages take ~2 round trips, not 8", dt < 0.05 * 5, f"{dt:.2f}s")
+    check("8 pages take ~2 round trips, not 8", dt < 0.2 * 5, f"{dt:.2f}s")
     check("with the count: exactly the 8 pages plus the one probe the loop also made",
           len(t.requests) == 9, f"{len(t.requests)} requests")
     offs = sorted(int(dict(x.split('=', 1) for x in p.lstrip('?').split('&'))["offset"]) for p in t.requests)
