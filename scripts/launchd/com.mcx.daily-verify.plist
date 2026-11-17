@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.mcx.backtest</string>
+    <string>com.mcx.daily-verify</string>
     <key>ProgramArguments</key>
     <array>
         <!-- scripts/mcx_python.sh picks the first interpreter that has the
@@ -11,7 +11,7 @@
              upgrade can't silently strand the job the way 10 Nov did. -->
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>exec "$(./scripts/mcx_python.sh)" scripts/backtest_projection.py --days 30</string>
+        <string>exec "$(./scripts/mcx_python.sh)" scripts/daily_verify.py --days 3</string>
     </array>
     <key>WorkingDirectory</key>
     <string>/Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel</string>
@@ -20,12 +20,12 @@
         <key>Hour</key>
         <integer>7</integer>
         <key>Minute</key>
-        <integer>30</integer>
+        <integer>0</integer>
     </dict>
     <key>StandardOutPath</key>
-    <string>/Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel/logs/backtest.log</string>
+    <string>/Users/pranayagarwal/Library/Logs/mcx/daily_verify.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel/logs/backtest.log</string>
+    <string>/Users/pranayagarwal/Library/Logs/mcx/daily_verify.log</string>
     <key>RunAtLoad</key>
     <false/>
 </dict>

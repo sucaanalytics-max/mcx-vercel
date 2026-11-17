@@ -4,24 +4,17 @@ Fixes: F-07 (API key from env), F-06 (remove uncalibrated vol adjustment),
        F-13 (restricted CORS), F-02/F-22 (shared config).
 Adds: Supabase caching to reduce AV calls (25/day free tier).
 """
-from http.server import BaseHTTPRequestHandler
+from lib.api_handler import JSONHandler
 import json, math, urllib.request, urllib.error
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from urllib.parse import urlparse, parse_qs
 
-try:
-    from lib.mcx_config import (
-        AV_KEY, make_cors_headers, now_ist, COMMODITY_MAP,
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_read_all, supabase_upsert,
-        cache_header,
-    )
-except ImportError:
-    from lib.mcx_config import (
-        AV_KEY, make_cors_headers, now_ist, COMMODITY_MAP,
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_read_all, supabase_upsert,
-        cache_header,
-    )
+from lib.mcx_config import (
+    AV_KEY, now_ist, COMMODITY_MAP,
+    SUPABASE_ANON_KEY, supabase_read, supabase_read_all, 
+    
+)
 
 # Legacy fragmented commodity symbols whose data is now consolidated into the
 # parent (per lib/mcx_config.COMMODITY_MAP). Old signal rows for these may
@@ -257,7 +250,7 @@ def generate_commodity_analytics(range_key=DEFAULT_RANGE):
     # Drop any legacy fragmented child rows (SILVERM, GOLDM, ...) that pre-date
     # the consolidation fix — their data is now reflected in the parent row.
     signals = [s for s in signals if s["commodity"] not in LEGACY_CHILD_SYMBOLS]
-    # Drop OI-only stub rows (from refresh_dhan_oi running ahead of bhav_refresh).
+    # Drop OI-only stub rows (from the removed refresh_dhan_oi.py, which ran ahead of bhav_refresh).
     # Without turnover/volume the lineup is meaningless and "latest_date" gets
     # polluted by partial in-progress sessions.
     signals = [s for s in signals if _f(s.get("total_turnover_cr")) and _f(s.get("total_turnover_cr")) > 0]
@@ -457,33 +450,8 @@ def generate_icomdex(range_key=DEFAULT_RANGE):
     }
 
 
-class handler(BaseHTTPRequestHandler):
-
-    def log_message(self, fmt, *args):
-        pass
-
-    def _cors(self):
-        origin = self.headers.get("Origin", "")
-        hdrs = make_cors_headers(origin)
-        for k, v in hdrs.items():
-            self.send_header(k, v)
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-
-    def send_json(self, data, status=200):
-        body = json.dumps(data, default=str).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", cache_header(data, "public, max-age=1800") if status == 200 else "no-store")
-        self._cors()
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_OPTIONS(self):
-        self.send_response(204)
-        self._cors()
-        self.end_headers()
+class handler(JSONHandler):
+    default_cache = "public, max-age=1800"
 
     def do_GET(self):
         try:

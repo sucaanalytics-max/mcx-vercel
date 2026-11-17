@@ -11,10 +11,7 @@ Served via /api/commodity_dashboard?view=oi_participants
 """
 from collections import defaultdict
 
-try:
-    from lib.mcx_config import supabase_read_all, now_ist
-except ImportError:
-    from lib.mcx_config import supabase_read_all, now_ist
+from lib.mcx_config import supabase_read_all, now_ist
 
 
 # Category column prefixes for iteration

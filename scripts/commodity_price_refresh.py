@@ -22,15 +22,12 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supa
 # Keys come from lib.mcx_config, the single source (publishable / secret keys,
 # legacy JWT fallback) — see supabase_headers there.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from lib.calendar import now_ist  # noqa: E402  (naive IST wall clock)
 from lib.mcx_config import (  # noqa: E402
     SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY, SUPABASE_WRITE_KEY, supabase_headers)
 TABLE = "mcx_commodity_prices"
 
 TICKERS = {"CL=F": "WTI", "NG=F": "NATGAS", "INR=X": "USDINR"}
-
-
-def now_ist():
-    return datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
 
 
 def _headers(write=False):

@@ -7,21 +7,15 @@ Reads mcx_commodity_daily, aggregates by (date, commodity), computes rolling
 Schedule: 19:50 IST (after cron_models at 19:45).
 """
 from http.server import BaseHTTPRequestHandler
-import json, math, urllib.request, urllib.error
+import json, math
 from urllib.parse import urlparse, parse_qs
 
-try:
-    from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY,
-        COMMODITY_MAP, COMMODITY_HEAD,
-        now_ist, make_cors_headers, paginated_order,
-    )
-except ImportError:
-    from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY,
-        COMMODITY_MAP, COMMODITY_HEAD,
-        now_ist, make_cors_headers, paginated_order,
-    )
+from lib.mcx_config import (
+    COMMODITY_MAP, COMMODITY_HEAD,
+    now_ist, make_cors_headers,
+)
+
+from lib.supabase import fetch_all, upsert_batches  # one REST client (Phase 3)
 
 import os
 
@@ -36,54 +30,6 @@ MIN_AVG_TURNOVER_CR = 50  # minimum avg daily turnover to process
 # ~35-39% of signals, and part of that is an expiry-cycle effect (monthly
 # contracts shed OI in expiry week) rather than information.
 OI_IN_COMPOSITE = False
-
-
-def sb_get(table, params=""):
-    url = f"{SUPABASE_URL}/rest/v1/{table}{params}"
-    req = urllib.request.Request(url, headers={
-        **supabase_headers(SUPABASE_ANON_KEY),
-    })
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode())
-
-
-def sb_upsert(table, rows, on_conflict=None):
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-    if on_conflict:
-        # Merge on the natural key so re-runs UPDATE existing rows instead of
-        # colliding with the unique constraint (the surrogate id PK can't merge).
-        url += f"?on_conflict={on_conflict}"
-    headers = {
-        **supabase_headers(SUPABASE_WRITE_KEY),
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates",
-    }
-    errors = []
-    for i in range(0, len(rows), 50):
-        chunk = rows[i:i + 50]
-        body = json.dumps(chunk).encode()
-        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                pass
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode()[:200] if e.fp else ""
-            errors.append(f"batch {i}: HTTP {e.code} — {err_body}")
-    return errors
-
-
-def fetch_all(table, select, order="trading_date"):
-    # paginated_order appends the table's unique key: offset pages over a
-    # non-unique order can skip or repeat rows.
-    base = paginated_order(table, f"?select={select}&order={order}.asc")
-    all_rows, offset = [], 0
-    while True:
-        rows = sb_get(table, f"{base}&limit=1000&offset={offset}")
-        all_rows.extend(rows)
-        if len(rows) < 1000:
-            break
-        offset += 1000
-    return all_rows
 
 
 def _f(v):
@@ -260,7 +206,7 @@ def compute_commodity_signals(mode="recent"):
             })
 
     log.append(f"Upserting {len(results)} rows ({mode})")
-    errors = sb_upsert("mcx_commodity_signals", results, on_conflict="trading_date,commodity")
+    errors = upsert_batches("mcx_commodity_signals", results, on_conflict="trading_date,commodity")
     if errors:
         log.extend([f"Error: {e}" for e in errors])
 

@@ -8,10 +8,7 @@ Data source: mcx_margin_daily (populated by cron_margins from Sharekhan SPAN fil
 
 Served via /api/commodity_dashboard?view=margins
 """
-try:
-    from lib.mcx_config import supabase_read_all, now_ist
-except ImportError:
-    from lib.mcx_config import supabase_read_all, now_ist
+from lib.mcx_config import supabase_read_all, now_ist
 
 
 # Normalize mini/micro variants to parent commodity for display grouping

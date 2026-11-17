@@ -12,7 +12,7 @@ Models:
 Reports: P(target), P(stop), P(timeout), expectancy in % and R-multiples from
 the *current* price, plus sensitivity to vol and drift.
 
-Usage: python3 scripts/silver_mc.py
+Usage: python3 research/silver_mc.py
 """
 from __future__ import annotations
 import math, json, os, sys

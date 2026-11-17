@@ -6,36 +6,10 @@ and projection logic. Imported by all API endpoints.
 import os, math, time as _time
 from datetime import datetime, timedelta
 from collections import defaultdict
-from pathlib import Path
+
+from lib.supabase import _load_project_env  # noqa: F401  (loads .env.local keys on import)
 
 
-_PROJECT_ENV_KEYS = ("SUPABASE_SERVICE_KEY", "SUPABASE_SECRET_KEY", "SUPABASE_PUBLISHABLE_KEY")
-
-
-def _load_project_env():
-    """SUPABASE_SERVICE_KEY for the scripts that run on the relay Mac, which
-    launchd starts with no environment: read from .env.local then .env (both
-    gitignored), never overriding a shell var. Only the keys in
-    _PROJECT_ENV_KEYS are taken, so nothing else in those files changes how
-    this module behaves. No such files exist on Vercel."""
-    root = Path(__file__).resolve().parents[1]
-    for name in (".env.local", ".env"):
-        env = root / name
-        if not env.exists():
-            continue
-        for line in env.read_text().splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            k = k.strip()
-            if k.startswith("export "):
-                k = k[len("export "):].strip()
-            if k in _PROJECT_ENV_KEYS:
-                os.environ.setdefault(k, v.strip().strip('"').strip("'"))
-
-
-_load_project_env()
 
 # ─── FEE SCHEDULE (SEBI Oct 2024 flat rate) ──────────────────────────────────
 FUTURES_RATE = 210.0        # ₹ per crore, both sides
@@ -46,55 +20,15 @@ TRADING_DAYS = int(os.environ.get("MCX_TRADING_DAYS", "256"))      # FY27 MCX se
 # ─── Alpha Vantage (F-07: from env var, not hardcoded) ───────────────────────
 AV_KEY = os.environ.get("ALPHA_VANTAGE_KEY", "")
 
-# ─── Supabase (F-08: data relay) ─────────────────────────────────────────────
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supabase.co")
-# Supabase API keys. Supabase is retiring the legacy JWT keys (anon /
-# service_role) by the end of 2026 in favour of non-JWT keys:
-#   SUPABASE_PUBLISHABLE_KEY  sb_publishable_...  replaces anon (reads, RLS applies)
-#   SUPABASE_SECRET_KEY       sb_secret_...       replaces service_role (writes)
-# Set the new ones in .env.local (relay Mac) and Vercel env; until then the
-# legacy names keep working. Send every request's headers through
-# supabase_headers(key): the new keys go only in `apikey` (they are not JWTs, so
-# an `Authorization: Bearer` copy can be rejected); legacy JWTs keep both.
-_LEGACY_ANON_KEY = (
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2cXdwZWJ2ZXFldHd3emttdHV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDkwMzMsImV4cCI6MjA4Njk4NTAzM30.U_Ug61Fp1NSCesXBkYU7GJGTbuATFtXsz6GTi5948Rw")
-# The read key (name kept for the ~40 modules that import it): publishable first.
-SUPABASE_ANON_KEY = (os.environ.get("SUPABASE_PUBLISHABLE_KEY")
-                     or os.environ.get("SUPABASE_ANON_KEY") or _LEGACY_ANON_KEY)
-# Server-side WRITE key. Bypasses RLS, so tables can keep anon read-only
-# policies. Falls back to the read key when unset, which only works while RLS
-# still lets anon INSERT/UPDATE (scripts/sql/lock_*.sql removes that).
-SUPABASE_SERVICE_KEY = (os.environ.get("SUPABASE_SECRET_KEY")
-                        or os.environ.get("SUPABASE_SERVICE_KEY", ""))
-SUPABASE_WRITE_KEY = SUPABASE_SERVICE_KEY or SUPABASE_ANON_KEY
-# Logged by the relay at start-up. mcx_daily_revenue accepts writes only from
-# service_role once scripts/sql/lock_mcx_daily_revenue.sql has been applied.
-SUPABASE_WRITE_ROLE = "service_role" if SUPABASE_SERVICE_KEY else "anon"
-
-
-def _is_jwt(key: str) -> bool:
-    return isinstance(key, str) and key.startswith("eyJ") and key.count(".") == 2
-
-
-def supabase_key_kind(key: str) -> str:
-    """'publishable' | 'secret' | 'legacy-jwt' | 'unknown' (never the key itself)."""
-    if not key:
-        return "unknown"
-    if key.startswith("sb_publishable_"):
-        return "publishable"
-    if key.startswith("sb_secret_"):
-        return "secret"
-    return "legacy-jwt" if _is_jwt(key) else "unknown"
-
-
-def supabase_headers(key: str) -> dict:
-    """Auth headers for a Supabase REST call with this key. New sb_ keys go only
-    in `apikey`; a legacy JWT key also goes in `Authorization: Bearer`, exactly
-    as before, so nothing changes until the new keys are configured."""
-    h = {"apikey": key}
-    if _is_jwt(key):
-        h["Authorization"] = f"Bearer {key}"
-    return h
+# ─── Supabase ────────────────────────────────────────────────────────────────
+# The REST client, keys and pagination live in lib/supabase.py. Re-exported
+# here because ~40 modules import them from lib.mcx_config.
+from lib.supabase import (  # noqa: E402,F401
+    SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_KEY, SUPABASE_WRITE_KEY,
+    SUPABASE_WRITE_ROLE, _LEGACY_ANON_KEY, _is_jwt, supabase_key_kind, supabase_headers,
+    _supabase_request, supabase_read, PAGINATION_KEYS, paginated_order,
+    supabase_read_all, supabase_upsert, upsert_batches, fetch_all,
+)
 
 # ─── Commodity normalization ─────────────────────────────────────────────────
 # Groups MCX mini/micro/petal variants under their parent commodity so all
@@ -145,68 +79,20 @@ ALLOWED_ORIGINS = os.environ.get(
     "https://mcx-vercel.vercel.app,http://localhost:8765,http://localhost:3000"
 ).split(",")
 
-# ─── SESSION TIMING ──────────────────────────────────────────────────────────
-# Non-agri commodities (bullion, energy, base metals — ~all of MCX turnover)
-# open at 09:00 IST year-round but close with the US clock:
-#   23:30 IST while the US is on daylight time
-#   23:55 IST while the US is on standard time
-# MCX announces each switch by circular. It takes effect on the first trading
-# day after the US change and the old hours run to the Friday before it:
-#   MCX/TRD/643/2024  23:55 from 2024-11-04 to 2025-03-07
-#   MCX/TRD/071/2025  23:30 from 2025-03-10
-#   MCX/TRD/491/2025  23:55 from 2025-11-03 to 2026-03-06
-#   MCX/TRD/068/2026  23:30 from 2026-03-09
-# The US rule (DST from the 2nd Sunday of March to the 1st Sunday of November)
-# reproduces every date above, so it is computed rather than listed. If a
-# circular ever departs from it, put the exception in SESSION_END_OVERRIDES.
-# Agri contracts close at 17:00 or 21:00 all year; their turnover is too small
-# to move the exchange total, so the session model ignores them.
-SESSION_START      = 540    # 09:00 IST in minutes since midnight
-SESSION_END_US_DST = 1410   # 23:30 IST, US on daylight time (Mar–Nov)
-SESSION_END_US_STD = 1435   # 23:55 IST, US on standard time (Nov–Mar)
-SESSION_END_OVERRIDES = {}  # {"YYYY-MM-DD": close in minutes since midnight IST}
-
-
-def _as_date(d=None):
-    """Coerce None (today, IST) / date / datetime / 'YYYY-MM-DD' to a date."""
-    if d is None:
-        return now_ist().date()
-    if isinstance(d, str):
-        return datetime.strptime(d[:10], "%Y-%m-%d").date()
-    if isinstance(d, datetime):
-        return d.date()
-    return d
-
-
-def _nth_sunday(year, month, n):
-    first = datetime(year, month, 1).date()
-    return first + timedelta(days=(6 - first.weekday()) % 7 + 7 * (n - 1))
-
-
-def us_on_standard_time(d=None) -> bool:
-    """True if US clocks are on standard time on trading date d."""
-    d = _as_date(d)
-    return not (_nth_sunday(d.year, 3, 2) <= d < _nth_sunday(d.year, 11, 1))
-
-
-def session_end(d=None) -> int:
-    """MCX close for trading date d, in minutes since midnight IST."""
-    d = _as_date(d)
-    override = SESSION_END_OVERRIDES.get(d.strftime("%Y-%m-%d"))
-    if override is not None:
-        return override
-    return SESSION_END_US_STD if us_on_standard_time(d) else SESSION_END_US_DST
-
-
-def session_total(d=None) -> int:
-    """Session length for trading date d in minutes (870 summer, 895 winter)."""
-    return session_end(d) - SESSION_START
-
-
-def fmt_ist_minutes(m: int) -> str:
-    """1435 -> '23:55'."""
-    return f"{m // 60:02d}:{m % 60:02d}"
-
+# ─── Calendar ────────────────────────────────────────────────────────────────
+# Session hours, holidays, part-day and special sessions, now_ist and the
+# FY / quarter labels live in lib/calendar.py; re-exported for existing importers.
+from lib.calendar import (  # noqa: E402,F401
+    SESSION_START, SESSION_END_US_DST, SESSION_END_US_STD, SESSION_END_OVERRIDES,
+    _as_date, _nth_sunday, us_on_standard_time, session_end, session_total, fmt_ist_minutes,
+    MCX_HOLIDAYS, MCX_MORNING_CLOSE, MCX_EVENING_CLOSE, MCX_SPECIAL_SESSIONS,
+    MCX_CALENDAR_YEARS, CALENDAR_LEAD_DAYS, calendar_status,
+    MCX_HOLIDAYS_2026, MCX_MORNING_CLOSE_2026, MCX_EVENING_CLOSE_2026,
+    EVENING_SESSION_START, SESSION_FULL, SESSION_EVENING_ONLY, SESSION_MORNING_ONLY,
+    SESSION_CLOSED, session_shape, PART_DAY_REVENUE_WEIGHT, session_weight, session_clock,
+    traded_minutes, now_ist, is_trading_day, has_session, is_market_open,
+    fy_label, fy_start, quarter_label, quarter_start, prev_quarter, yoy_quarter,
+)
 
 # ─── INTRADAY VOLUME CURVE (calibrated MCX energy-heavy session) ─────────────
 # MCX evening session (17:00–close) = ~67% of daily turnover.
@@ -247,180 +133,8 @@ def bucket_labels(d=None):
     """['09:00–10:30', ..., '22:00–23:55'] for trading date d."""
     return [f"{fmt_ist_minutes(s)}–{fmt_ist_minutes(e)}" for s, e, _ in intraday_buckets(d)]
 
-# ─── MCX HOLIDAYS — Official calendar (2026 verified Feb 25, 2026) ────────────
-# Source: mcxindia.com / 5paisa.com / ICICI Direct
-# FULL-DAY = both sessions closed (zero revenue)
-# MORNING-ONLY = morning closed, evening session OPEN (~67% revenue)
-# EVENING-ONLY = morning open, evening closed (~33% revenue)
-# Dates are fully-qualified (YYYY-MM-DD), so each set spans MULTIPLE years.
-# ⚠ When MCX publishes a new year's calendar, ADD its dates here AND to
-#   _MACRO_EVENTS_BY_YEAR below. _warn_if_calendar_stale() prints a startup
-#   warning if the current year has no holiday data, so a year rollover never
-#   silently turns a holiday into a normal trading day.
-MCX_HOLIDAYS = {
-    # ── 2025 tail (within 45-day lookback) ──
-    "2025-12-25",  # Christmas (full day)
-    # ── 2026 FULL-DAY closures ──
-    "2026-01-26",  # Republic Day
-    "2026-04-03",  # Good Friday
-    "2026-10-02",  # Gandhi Jayanti
-    "2026-12-25",  # Christmas
-    # ── 2027 FULL-DAY closures: ADD when MCX publishes the 2027 calendar ──
-}
-# Morning-only closures (evening session trades — partial revenue day)
-MCX_MORNING_CLOSE = {
-    "2026-03-03",  # Holi (2nd day)
-    "2026-03-26",  # Shri Ram Navmi
-    "2026-03-31",  # Mahavir Jayanti
-    "2026-04-14",  # Ambedkar Jayanti
-    "2026-05-01",  # Maharashtra Day
-    "2026-05-28",  # Bakri Id
-    "2026-06-26",  # Moharram
-    "2026-09-14",  # Ganesh Chaturthi
-    "2026-10-20",  # Dassera
-    "2026-11-10",  # Diwali-Balipratipada
-    "2026-11-24",  # Guru Nanak Jayanti
-    # ── 2027: ADD when published ──
-}
-# Evening-only closure
-MCX_EVENING_CLOSE = {
-    "2025-01-01",  # New Year Day (MCX revenue Rs 0.426 Cr, morning only)
-    "2026-01-01",  # New Year Day
-    # ── 2027: ADD when published ──
-}
-# Special sessions on days that are otherwise closed (Muhurat trading on a
-# weekend). Capture-only: daily_verify and bhav_refresh backfill the day's row
-# from MCX's historical report, api/quarterly.py counts its revenue but keeps it
-# out of the run-rate, and is_trading_day() stays False so the day is never
-# projected as a full session. MCX's historical report covers these sessions
-# (2025-10-21 Muhurat reproduces the stored Rs 1.2612 Cr exactly).
-MCX_SPECIAL_SESSIONS = {
-    # Past Muhurat sessions fell on weekdays with the morning session closed;
-    # listed so they stay out of averages like the 2026 one (MCX's historical
-    # report: 2024 Rs 0.4964 Cr, 2025 Rs 1.2612 Cr).
-    "2024-11-01": "Muhurat trading (Diwali, Friday; morning closed)",
-    "2025-10-21": "Muhurat trading (Diwali, Tuesday; morning closed)",
-    "2026-11-08": "Muhurat trading (Diwali, Sunday) — timings not yet notified",
-}
-# Years whose MCX holiday circular has been entered IN FULL above (full-day,
-# morning-closed and evening-closed dates). A year that is missing here is
-# "uncovered": its holidays would be treated as normal trading days. Add the
-# year here in the same commit that adds its dates. The 2027 circular was not
-# published as of 17 Nov 2026 (MCX issued the 2026 one on 15 Dec 2025).
-MCX_CALENDAR_YEARS = {2026}
-# Days before 1 January from which a missing next-year calendar is reported as
-# DUE (MCX normally publishes in mid-December).
-CALENDAR_LEAD_DAYS = 21
-
-
-def calendar_status(today=None) -> dict:
-    """Is the MCX holiday calendar loaded for the year we are trading in?
-
-    status: "OK"    — current year covered (and next year too, or not yet due)
-            "DUE"   — current year covered, but 1 Jan is within
-                      CALENDAR_LEAD_DAYS and next year's calendar is missing
-            "STALE" — the current year is not covered: every holiday is being
-                      treated as a trading day right now
-    Callers surface this loudly (freshness scan, daily_verify exit code, relay
-    heartbeat, /api/refresh?health=1) instead of only printing to stderr."""
-    if today is None:
-        from datetime import timezone   # now_ist() is defined further down
-        today = (datetime.now(timezone.utc).replace(tzinfo=None)
-                 + timedelta(hours=5, minutes=30)).date()
-    elif isinstance(today, datetime):
-        today = today.date()
-    yr = today.year
-    days_to_rollover = (type(today)(yr + 1, 1, 1) - today).days
-    if yr not in MCX_CALENDAR_YEARS:
-        status, msg = "STALE", (f"MCX holiday calendar for {yr} is not loaded: holidays are "
-                                f"being treated as trading days. Add {yr} to MCX_HOLIDAYS / "
-                                f"MCX_MORNING_CLOSE / MCX_EVENING_CLOSE and MCX_CALENDAR_YEARS "
-                                f"in lib/mcx_config.py.")
-    elif yr + 1 not in MCX_CALENDAR_YEARS and days_to_rollover <= CALENDAR_LEAD_DAYS:
-        status, msg = "DUE", (f"MCX holiday calendar for {yr + 1} is not loaded and the year "
-                              f"rolls over in {days_to_rollover} day(s). Add it from MCX's "
-                              f"circular before 1 Jan.")
-    else:
-        status, msg = "OK", None
-    return {"status": status, "year": yr, "covered_years": sorted(MCX_CALENDAR_YEARS),
-            "days_to_rollover": days_to_rollover, "message": msg}
-
-
-# Backward-compat aliases — several modules import the *_2026 names.
-MCX_HOLIDAYS_2026 = MCX_HOLIDAYS
-MCX_MORNING_CLOSE_2026 = MCX_MORNING_CLOSE
-MCX_EVENING_CLOSE_2026 = MCX_EVENING_CLOSE
-
-# ─── SESSION SHAPE (part-day sessions) ───────────────────────────────────────
-# On a morning-closed holiday MCX trades only the evening session, 17:00 to the
-# day's seasonal close; on an evening-closed one only the morning, 09:00–17:00.
-# session_shape() gives the hours actually traded on a date. The close of a
-# full or evening-only day is always session_end(d), so the 23:30 / 23:55 rule
-# and SESSION_END_OVERRIDES keep applying.
-#
-# Stored elapsed_min stays "minutes since 09:00, capped at the day's close" on
-# every day, because the frontend clock, the curves and the range statistics all
-# read it that way. session_clock() also returns traded_min, the minutes the
-# market has actually been open, which is what the projection and the share of
-# the session gone are based on.
-EVENING_SESSION_START = 1020   # 17:00 IST
-SESSION_FULL = "full"
-SESSION_EVENING_ONLY = "evening_only"   # morning closed
-SESSION_MORNING_ONLY = "morning_only"   # evening closed
-SESSION_CLOSED = "closed"
-
-
-def session_shape(d=None) -> dict:
-    """Trading hours on date d: {"start", "end", "total", "type"}, in minutes
-    since midnight IST. "closed" (total 0) for weekends, full-day holidays and
-    special sessions such as Muhurat, which are never projected live."""
-    d = _as_date(d)
-    ds = d.strftime("%Y-%m-%d")
-    if d.weekday() >= 5 or ds in MCX_HOLIDAYS:
-        return {"start": SESSION_START, "end": SESSION_START, "total": 0, "type": SESSION_CLOSED}
-    if ds in MCX_EVENING_CLOSE:
-        start, end, kind = SESSION_START, EVENING_SESSION_START, SESSION_MORNING_ONLY
-    elif ds in MCX_MORNING_CLOSE:
-        start, end, kind = EVENING_SESSION_START, session_end(d), SESSION_EVENING_ONLY
-    else:
-        start, end, kind = SESSION_START, session_end(d), SESSION_FULL
-    return {"start": start, "end": end, "total": end - start, "type": kind}
-
-
-# Revenue of a part-day session relative to a normal day, for counting the
-# quarter's remaining days. Measured on 2026's part days against the median of
-# the ten nearest full days: morning-closed (evening-only) median 0.82, mean
-# 0.85, n=10, range 0.62-1.34; evening-closed (morning-only) 0.14, n=1
-# (1 Jan 2026). Re-measure as more part days accumulate.
-PART_DAY_REVENUE_WEIGHT = {"evening_only": 0.82, "morning_only": 0.15}
-
-
-def session_weight(d) -> float:
-    """Expected revenue on date d as a share of a full session (0 when closed)."""
-    shape = session_shape(d)
-    if shape["type"] == SESSION_CLOSED:
-        return 0.0
-    return PART_DAY_REVENUE_WEIGHT.get(shape["type"], 1.0)
-
-
-def session_clock(t, d=None):
-    """(elapsed_min, traded_min, shape) at IST time t on trading date d
-    (default: t's date). elapsed_min counts from 09:00, capped at the day's
-    close; traded_min counts from the day's real open, capped at its length."""
-    shape = session_shape(t if d is None else d)
-    now = t.hour * 60 + t.minute
-    elapsed = max(0, min(now, shape["end"]) - SESSION_START)
-    traded = max(0, min(now, shape["end"]) - shape["start"])
-    return elapsed, traded, shape
-
-
-def traded_minutes(elapsed_min, d) -> int:
-    """Minutes traded on date d by a stored elapsed_min (minutes since 09:00)."""
-    shape = session_shape(d)
-    return max(0, min(SESSION_START + elapsed_min, shape["end"]) - shape["start"])
-
 # ─── DAY-TYPE CLASSIFICATION (F-21: algorithmic + manual overrides) ──────────
-# Volume multipliers — calibrated by scripts/calibrate_day_types.py against 400
+# Volume multipliers — calibrated by research/calibrate_day_types.py against 400
 # trading days (2024-10-01 → 2026-04-24), month-normalized to LOW baseline:
 #   LOW    n=371  mean 1.000 (baseline)
 #   MEDIUM n=14   mean 1.016 ± 0.089 (95% CI [0.93, 1.10] — not significant)
@@ -1051,31 +765,6 @@ def calc_uncertainty(time_pct, day_type, dual_call=False):
     return math.sqrt(base_unc**2 + intraday_unc**2 + day_unc**2 + snapshot_unc**2)
 
 
-def now_ist() -> datetime:
-    """Return current time in IST."""
-    from datetime import timezone
-    return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=5, minutes=30)
-
-
-def is_trading_day(d) -> bool:
-    """Check if date is a weekday and not a full-closure MCX holiday."""
-    return d.weekday() < 5 and d.strftime("%Y-%m-%d") not in MCX_HOLIDAYS_2026
-
-
-def has_session(d) -> bool:
-    """True if MCX trades at all on d: a regular trading day or a special session."""
-    return is_trading_day(d) or d.strftime("%Y-%m-%d") in MCX_SPECIAL_SESSIONS
-
-
-def is_market_open(dt=None) -> bool:
-    """Check if MCX is currently in trading hours (part-day sessions aware)."""
-    if dt is None:
-        dt = now_ist()
-    mins = dt.hour * 60 + dt.minute
-    shape = session_shape(dt)
-    return shape["type"] != SESSION_CLOSED and shape["start"] <= mins <= shape["end"]
-
-
 def make_cors_headers(origin: str = "") -> dict:
     """Generate CORS headers, restricting to allowed origins (F-13)."""
     if origin in ALLOWED_ORIGINS:
@@ -1116,159 +805,6 @@ def cache_header(result, ok_value: str) -> str:
     if isinstance(result, dict) and result.get("success") is False:
         return "no-store"
     return ok_value
-
-
-# ─── SUPABASE HELPERS ────────────────────────────────────────────────────────
-
-def _supabase_request(method, table, data=None, params="", timeout=10):
-    """Make a direct REST request to Supabase (no SDK needed)."""
-    import urllib.request, urllib.error, json
-    url = f"{SUPABASE_URL}/rest/v1/{table}{params}"
-    headers = {
-        **supabase_headers(SUPABASE_ANON_KEY),
-        "Content-Type": "application/json",
-        "Prefer": "return=representation",
-    }
-    body = json.dumps(data).encode("utf-8") if data else None
-    req = urllib.request.Request(url, data=body, method=method, headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode("utf-8") if e.fp else ""
-        raise Exception(f"Supabase {e.code}: {error_body[:200]}")
-
-
-def supabase_read(table, params="", timeout=10):
-    """Read from Supabase table."""
-    return _supabase_request("GET", table, params=params, timeout=timeout)
-
-
-# Unique key of every table read with offset pagination. PostgREST pages with
-# LIMIT/OFFSET, so the ORDER BY must be total: ordering mcx_commodity_daily by
-# trading_date alone (42 rows share each date) lets the database return a
-# shared-date row on two pages, or on none. paginated_order() appends these
-# columns to every order= it is given.
-PAGINATION_KEYS = {
-    "mcx_snapshots": ("id",),
-    "mcx_daily_revenue": ("trading_date",),
-    "mcx_commodity_daily": ("trading_date", "commodity", "instrument_type"),
-    "mcx_margin_daily": ("id",),
-    "mcx_icomdex_daily": ("trading_date", "index_code"),
-    "mcx_commodity_signals": ("id",),
-    "mcx_model_signals": ("trading_date",),
-    "mcx_momentum_signals": ("trading_date",),
-    "mcx_valuation": ("trading_date",),
-    "mcx_share_price": ("trading_date",),
-    "mcx_oi_participants": ("report_date", "commodity", "instrument"),
-    "mcx_options_paper": ("id",),
-    "mcx_commodity_prices": ("id",),
-}
-_FLIP = {"asc": "desc", "desc": "asc"}
-
-
-def _order_terms(order):
-    """'a.asc,b' -> [['a', 'asc'], ['b', None]] (nulls modifiers kept as extra parts)."""
-    out = []
-    for term in filter(None, order.split(",")):
-        parts = term.split(".")
-        col = parts[0]
-        dirn = parts[1] if len(parts) > 1 and parts[1] in _FLIP else None
-        rest = [x for x in parts[1:] if x not in _FLIP]
-        out.append([col, dirn, rest])
-    return out
-
-
-def paginated_order(table, params="", newest_first=False):
-    """params with a total ORDER BY for offset pagination of `table`.
-
-    Appends the table's PAGINATION_KEYS columns not already ordered on (or
-    adds order=<keys> when params has none). newest_first flips every term, so
-    a row cap keeps the NEWEST rows; the caller reverses the result to get the
-    original ascending order back (supabase_read_all does this)."""
-    keys = PAGINATION_KEYS.get(table, ())
-    q = params[1:] if params.startswith("?") else params
-    parts = [x for x in q.split("&") if x] if q else []
-    idx = next((i for i, x in enumerate(parts) if x.startswith("order=")), None)
-    terms = _order_terms(parts[idx][6:]) if idx is not None else []
-    have = {t[0] for t in terms}
-    terms += [[k, "asc", []] for k in keys if k not in have]
-    if newest_first:
-        for t in terms:
-            t[1] = _FLIP.get(t[1] or "asc")
-    if terms:
-        order = "order=" + ",".join(".".join([c] + ([d] if d else []) + r) for c, d, r in terms)
-        if idx is None:
-            parts.append(order)
-        else:
-            parts[idx] = order
-    return "?" + "&".join(parts) if parts else ""
-
-
-def supabase_read_all(table, params="", page_size=1000, max_rows=10000, timeout=10,
-                      newest_first=False, read=None):
-    """Paginated read — fetches all rows beyond the 1000-row default limit.
-
-    Offset pagination over a total order (paginated_order adds the table's
-    unique key). Stops when a page is short or max_rows is reached.
-
-    newest_first=True: when the table holds more than max_rows matching rows,
-    keep the newest max_rows instead of the oldest. The rows are fetched in the
-    reverse of the requested order and returned in the requested order, so
-    callers that ask for order=trading_date.asc still get ascending rows.
-
-    PostgREST caps every response at 1000 rows server-side whatever limit= says,
-    so page_size above 1000 would end the loop early on a "short" page."""
-    read = read or supabase_read
-    page_size = min(page_size, 1000)
-    params = paginated_order(table, params, newest_first)
-    all_rows = []
-    offset = 0
-    separator = "&" if "?" in params else "?"
-    while True:
-        page = read(
-            table,
-            f"{params}{separator}limit={page_size}&offset={offset}",
-            timeout=timeout,
-        )
-        all_rows.extend(page)
-        if len(page) < page_size:
-            break
-        if len(all_rows) >= max_rows:
-            import sys as _sys
-            print(f"⚠ supabase_read_all({table}): hit max_rows={max_rows}; "
-                  f"{'oldest' if newest_first else 'NEWEST'} rows beyond it were dropped",
-                  file=_sys.stderr)
-            break
-        offset += page_size
-    all_rows = all_rows[:max_rows]
-    return all_rows[::-1] if newest_first else all_rows
-
-
-def supabase_upsert(table, data, timeout=10, on_conflict=None):
-    """Upsert data into Supabase table (uses the service-role write key when set).
-
-    on_conflict names the unique column(s) to merge on. Without it PostgREST
-    merges on the primary key, so rows that carry a surrogate id (e.g.
-    mcx_daily_revenue, unique on trading_date) insert and fail on the unique
-    column instead of updating."""
-    import urllib.request, urllib.error, json
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-    if on_conflict:
-        url += f"?on_conflict={on_conflict}"
-    headers = {
-        **supabase_headers(SUPABASE_WRITE_KEY),
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates,return=representation",
-    }
-    body = json.dumps(data).encode("utf-8") if data else None
-    req = urllib.request.Request(url, data=body, method="POST", headers=headers)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        error_body = e.read().decode("utf-8") if e.fp else ""
-        raise Exception(f"Supabase upsert {e.code}: {error_body[:200]}")
 
 
 # ─── EPS-PATH VALUATION MODEL (Model A) ────────────────────────────────────

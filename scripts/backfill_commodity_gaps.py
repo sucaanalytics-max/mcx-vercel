@@ -18,35 +18,26 @@ Usage:
   python3 scripts/backfill_commodity_gaps.py 2026-06-04 ...  # repair specific dates
   python3 scripts/backfill_commodity_gaps.py --since 2026-01-01
 """
-import sys, os, json, time, urllib.request
+import sys, os, time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from lib.mcx_config import paginated_order
+from lib.supabase import supabase_read, supabase_read_all
 from scripts.bhav_refresh import (
-    SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers,
     commodity_breakdown, BREAKDOWN_WRITTEN,
 )
 
-FUT_RATE, OPT_RATE, BOTH = 210.0, 4180.0, 2.0
 
 
 def _get(path):
-    req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/{path}", headers={
-        **supabase_headers(SUPABASE_ANON_KEY)})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read().decode())
-
-
-def _paged(path, page=1000):
+    """GET 'table?params' (one page)."""
     table, _, params = path.partition("?")
-    path = table + paginated_order(table, "?" + params)   # total order: offset pages
-    out, off = [], 0
-    while True:
-        chunk = _get(f"{path}&limit={page}&offset={off}")
-        out += chunk
-        if len(chunk) < page:
-            return out
-        off += page
+    return supabase_read(table, "?" + params, timeout=30)
+
+
+def _paged(path):
+    """Every row for 'table?params', paged over a total order."""
+    table, _, params = path.partition("?")
+    return supabase_read_all(table, "?" + params, max_rows=None, timeout=30)
 
 
 def find_gaps(since="2022-01-01"):

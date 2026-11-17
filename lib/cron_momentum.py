@@ -15,19 +15,14 @@ reconciled by daily_verify at 07:00 IST; the price comes from the 19:30 IST valu
 Running in the evening (as before, 19:40 IST) always left the page a trading day behind.
 """
 from http.server import BaseHTTPRequestHandler
-import json, urllib.request, urllib.error
+import json
 from urllib.parse import urlparse, parse_qs
 
-try:
-    from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY,
-        now_ist, make_cors_headers, paginated_order,
-    )
-except ImportError:
-    from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY,
-        now_ist, make_cors_headers, paginated_order,
-    )
+from lib.mcx_config import (
+    now_ist, make_cors_headers,
+)
+
+from lib.supabase import fetch_all, upsert_batches  # one REST client (Phase 3)
 
 import os
 
@@ -56,50 +51,6 @@ OVERSOLD_ADR   = 1.30    # ADR ratio > 1.30
 
 
 # ─── Supabase helpers (self-contained, matching cron_models.py) ───────────
-
-def sb_get(table, params=""):
-    url = f"{SUPABASE_URL}/rest/v1/{table}{params}"
-    req = urllib.request.Request(url, headers={
-        **supabase_headers(SUPABASE_ANON_KEY),
-    })
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode())
-
-
-def sb_upsert(table, rows):
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-    headers = {
-        **supabase_headers(SUPABASE_WRITE_KEY),
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates",
-    }
-    errors = []
-    for i in range(0, len(rows), 50):
-        chunk = rows[i:i + 50]
-        body = json.dumps(chunk).encode()
-        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                pass
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode()[:200] if e.fp else ""
-            errors.append(f"batch {i}: HTTP {e.code} — {err_body}")
-    return errors
-
-
-def fetch_all(table, select, order="trading_date"):
-    # paginated_order appends the table's unique key: offset pages over a
-    # non-unique order can skip or repeat rows.
-    base = paginated_order(table, f"?select={select}&order={order}.asc")
-    all_rows, offset = [], 0
-    while True:
-        rows = sb_get(table, f"{base}&limit=1000&offset={offset}")
-        all_rows.extend(rows)
-        if len(rows) < 1000:
-            break
-        offset += 1000
-    return all_rows
-
 
 def _f(v):
     try:
@@ -271,7 +222,7 @@ def compute_momentum(mode="recent"):
     # "backfill" = all
 
     log.append(f"Upserting {len(results)} rows ({mode})")
-    errors = sb_upsert("mcx_momentum_signals", results)
+    errors = upsert_batches("mcx_momentum_signals", results)
     if errors:
         log.extend([f"Error: {e}" for e in errors])
 

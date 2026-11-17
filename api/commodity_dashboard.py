@@ -7,59 +7,32 @@ Top 5 commodities + "OTHERS" bucket.
 
 Also serves margin data via ?view=margins (to stay within Vercel 12-function limit).
 """
-from http.server import BaseHTTPRequestHandler
-import json
+from lib.api_handler import JSONHandler
 from datetime import date, timedelta
 from collections import defaultdict
 from urllib.parse import urlparse, parse_qs
 
 from lib.mcx_config import (
-    SUPABASE_URL, SUPABASE_ANON_KEY, COMMODITY_MAP,
-    supabase_read_all, now_ist, make_cors_headers, cache_header,
+    COMMODITY_MAP,
+    supabase_read_all, now_ist, 
 )
 from lib.margin_dashboard import generate_margin_dashboard
 from lib.oi_participants_dashboard import generate_oi_participants_dashboard
 
 # Fee rates (SEBI Oct 2024)
-FUTURES_RATE = 210.0      # ₹ per crore notional (both sides)
-OPTIONS_RATE = 4180.0     # ₹ per crore premium (both sides)
 TOP_N = 5                 # Number of top commodities to show individually
 
 
-# ─── Date helpers (same as exchange_dashboard) ────────────────────────────
-
-def _fy_label(d):
-    if d.month >= 4:
-        return f"FY{str(d.year + 1)[-2:]}"
-    return f"FY{str(d.year)[-2:]}"
-
-def _quarter_key(d):
-    m, y = d.month, d.year
-    if m <= 3:
-        return f"Q4 FY{str(y)[-2:]}"
-    elif m <= 6:
-        return f"Q1 FY{str(y + 1)[-2:]}"
-    elif m <= 9:
-        return f"Q2 FY{str(y + 1)[-2:]}"
-    else:
-        return f"Q3 FY{str(y + 1)[-2:]}"
+# ─── Date helpers (lib.calendar: one copy for every dashboard) ─────────────
+from lib.mcx_config import FUTURES_RATE, OPTIONS_RATE  # noqa: E402  (fee schedule: one copy)
+from lib.calendar import (  # noqa: E402
+    fy_label as _fy_label, quarter_label as _quarter_key,
+    prev_quarter as _prev_quarter, yoy_quarter as _yoy_quarter,
+)
 
 def _month_key(d):
     fy = _fy_label(d)
     return f"{fy} {d.strftime('%B')}"
-
-def _prev_quarter(q):
-    q_num = int(q[1])
-    fy = q[3:]
-    if q_num == 1:
-        yy = int(fy[2:])
-        return f"Q4 FY{str(yy - 1).zfill(2)}"
-    return f"Q{q_num - 1} {fy}"
-
-def _yoy_quarter(q):
-    q_num = q[:2]
-    yy = int(q[5:])
-    return f"{q_num} FY{str(yy - 1).zfill(2)}"
 
 def _avg(vals):
     return sum(vals) / len(vals) if vals else 0
@@ -333,9 +306,8 @@ def generate_commodity_dashboard(range_key=DEFAULT_RANGE):
 
 # ─── HTTP handler ────────────────────────────────────────────────────────
 
-class handler(BaseHTTPRequestHandler):
+class handler(JSONHandler):
     def do_GET(self):
-        headers = make_cors_headers()
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
         view = qs.get("view", [None])[0]
@@ -351,24 +323,9 @@ class handler(BaseHTTPRequestHandler):
                 result = generate_commodity_dashboard(range_key=qs.get("range", [DEFAULT_RANGE])[0])
                 cache = "public, max-age=120, s-maxage=120"
 
-            self.send_response(200)
-            for k, v in headers.items():
-                self.send_header(k, v)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Cache-Control", cache_header(result, cache))
-            self.end_headers()
-            self.wfile.write(json.dumps(result, default=str).encode())
+            # Origin is now reflected (make_cors_headers was called without it,
+            # so previews and localhost never matched).
+            self.send_json(result, cache=cache)
         except Exception as e:
-            self.send_response(500)
-            for k, v in headers.items():
-                self.send_header(k, v)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"success": False, "error": str(e)[:200]}).encode())
+            self.send_error_json(e)
 
-    def do_OPTIONS(self):
-        headers = make_cors_headers()
-        self.send_response(204)
-        for k, v in headers.items():
-            self.send_header(k, v)
-        self.end_headers()

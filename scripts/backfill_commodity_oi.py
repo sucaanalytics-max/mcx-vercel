@@ -12,20 +12,20 @@ already exist with turnover_cr > 0, so it never creates OI-only stub rows.
 Glitch days (one-day spikes/dips that revert) are written as 0 = missing,
 which cron_commodity_signals skips.
 
-Usage (needs pandas; dhanhq for the scrip-master URL):
-  uv run --no-project --with pandas --with "dhanhq<2.1" python scripts/backfill_commodity_oi.py --dry-run
-  uv run --no-project --with pandas --with "dhanhq<2.1" python scripts/backfill_commodity_oi.py            # 2022 → today
-  uv run --no-project --with pandas --with "dhanhq<2.1" python scripts/backfill_commodity_oi.py --nightly  # last 30 days
+Usage (deps from pyproject.toml + uv.lock via scripts/mcx_uv.sh):
+  scripts/mcx_uv.sh python scripts/backfill_commodity_oi.py --dry-run
+  scripts/mcx_uv.sh python scripts/backfill_commodity_oi.py            # 2022 → today
+  scripts/mcx_uv.sh python scripts/backfill_commodity_oi.py --nightly  # last 30 days
 """
 from __future__ import annotations
-import argparse, json, sys, datetime as dt, urllib.request, urllib.error
+import argparse, sys, datetime as dt
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from lib.dhan_client import fetch_commodity_oi_history, list_front_futures
-from lib.mcx_config import SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_KEY, paginated_order
+from lib.supabase import supabase_read_all, upsert_batches
 
 TABLE = "mcx_commodity_daily"
 HISTORY_START = "2022-01-01"   # first mcx_commodity_daily row is 2022-01-03
@@ -33,18 +33,8 @@ NIGHTLY_DAYS = 30              # re-fetch window: lets yesterday's last day be g
 
 
 def _get(params: str) -> list[dict]:
-    q = paginated_order(TABLE, "?" + params)      # total order: offset pages
-    rows, offset = [], 0
-    while True:
-        req = urllib.request.Request(
-            f"{SUPABASE_URL}/rest/v1/{TABLE}{q}&limit=1000&offset={offset}",
-            headers={**supabase_headers(SUPABASE_ANON_KEY)})
-        with urllib.request.urlopen(req, timeout=30) as r:
-            page = json.loads(r.read().decode())
-        rows += page
-        if len(page) < 1000:
-            return rows
-        offset += 1000
+    """Every matching row of the table, paged over a total order."""
+    return supabase_read_all(TABLE, "?" + params, max_rows=None, timeout=30)
 
 
 def existing_futcom_rows(frm: str, to: str) -> dict[str, set[str]]:
@@ -58,17 +48,12 @@ def existing_futcom_rows(frm: str, to: str) -> dict[str, set[str]]:
 
 
 def upsert(payload: list[dict]) -> None:
-    url = f"{SUPABASE_URL}/rest/v1/{TABLE}?on_conflict=trading_date,commodity,instrument_type"
-    for i in range(0, len(payload), 500):
-        req = urllib.request.Request(
-            url, data=json.dumps(payload[i:i + 500]).encode(), method="POST",
-            headers={**supabase_headers(SUPABASE_WRITE_KEY),
-                     "Content-Type": "application/json",
-                     "Prefer": "resolution=merge-duplicates,return=minimal"})
-        try:
-            urllib.request.urlopen(req, timeout=60).close()
-        except urllib.error.HTTPError as e:
-            raise RuntimeError(f"upsert batch {i}: HTTP {e.code} {e.read()[:300]!r}") from None
+    """Write OI onto existing rows (merge on the table's unique key). Raises if
+    any batch fails."""
+    errors = upsert_batches(TABLE, payload, on_conflict="trading_date,commodity,instrument_type",
+                            batch=500, timeout=60)
+    if errors:
+        raise RuntimeError(f"upsert: {len(errors)} batch(es) failed; first: {errors[0][:300]}")
 
 
 def main() -> int:

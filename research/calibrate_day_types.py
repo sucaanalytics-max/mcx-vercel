@@ -8,8 +8,8 @@ and computes month-normalized mean revenue per day type with confidence
 intervals. Outputs a calibration report and proposed DAY_MULTIPLIER values.
 
 Usage:
-  python3 scripts/calibrate_day_types.py
-  python3 scripts/calibrate_day_types.py --min-date 2025-01-01
+  python3 research/calibrate_day_types.py
+  python3 research/calibrate_day_types.py --min-date 2025-01-01
 """
 import sys, os, csv, math, statistics
 from datetime import datetime

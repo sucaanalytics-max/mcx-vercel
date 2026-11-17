@@ -5,10 +5,10 @@ median at the same elapsed minute) -> stock return from the T bar open to the cl
 Daily: last night's revenue surprise (vs trailing 20-day mean) -> next NSE session returns.
 No look-ahead: snapshot must be captured >= 5 min before T; daily signal enters next session.
 
-Run: uv run --no-project --with scipy --with yfinance --with pandas --with numpy python -I scripts/options_edge_test.py
+Run: scripts/mcx_uv.sh --extra research python -I research/options_edge_test.py
 """
-import sys, json, math, urllib.request
-sys.path.insert(0, "/Users/tusk-jvb/Claude Projects/mcx-vercel")
+import os, sys, json, math, urllib.request
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np, pandas as pd, yfinance as yf
 from scipy import stats
 from lib.mcx_config import SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers

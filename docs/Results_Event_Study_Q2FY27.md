@@ -1,6 +1,6 @@
 # MCX Ltd Q2 FY27 Results: Options Study (H3)
 
-Run 28 Oct 2026, ~12:15 IST, following `Docs/Results_Event_Study_Preregistration.md` (4 deviations logged there). Code: `scripts/results_event_study.py`.
+Run 28 Oct 2026, ~12:15 IST, following `Docs/Results_Event_Study_Preregistration.md` (4 deviations logged there). Code: `research/results_event_study.py`.
 
 ## Verdict
 

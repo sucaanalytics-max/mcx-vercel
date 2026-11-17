@@ -54,25 +54,7 @@ ACCURACY_MIN_N = 20         # fewer days than this at a time: no figure
 
 
 # ─── Calendar helpers ──────────────────────────────────────────────────────
-
-def fy_label(d):
-    """MCX's year runs April to March: 29 Sep 2026 is in FY27."""
-    return f"FY{(d.year + 1 if d.month >= 4 else d.year) % 100:02d}"
-
-
-def fy_start(d):
-    return date(d.year if d.month >= 4 else d.year - 1, 4, 1)
-
-
-def quarter_start(d):
-    start = fy_start(d)
-    q = ((d.month - 4) % 12) // 3
-    m = start.month - 1 + 3 * q
-    return date(start.year + m // 12, m % 12 + 1, 1)
-
-
-def quarter_label(d):
-    return f"Q{((d.month - 4) % 12) // 3 + 1} {fy_label(d)}"
+from lib.calendar import fy_label, fy_start, quarter_start, quarter_label  # noqa: E402,F401
 
 
 def add_months(d, k):

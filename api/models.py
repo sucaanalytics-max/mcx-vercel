@@ -8,19 +8,13 @@ Returns:
 
 Data: pre-computed in mcx_model_signals table (refreshed by cron_models.py).
 """
-from http.server import BaseHTTPRequestHandler
-import json, math
+from lib.api_handler import JSONHandler
+import math
 
-try:
-    from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_read_all,
-        now_ist, make_cors_headers,
-    )
-except ImportError:
-    from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_read_all,
-        now_ist, make_cors_headers,
-    )
+from lib.mcx_config import (
+    SUPABASE_ANON_KEY, supabase_read, supabase_read_all,
+    now_ist, 
+)
 
 
 # ─── Model metadata ─────────────────────────────────────────────────────
@@ -448,32 +442,7 @@ def generate_options_response():
     }
 
 
-class handler(BaseHTTPRequestHandler):
-
-    def log_message(self, fmt, *args):
-        pass
-
-    def _cors(self):
-        origin = self.headers.get("Origin", "")
-        hdrs = make_cors_headers(origin)
-        for k, v in hdrs.items():
-            self.send_header(k, v)
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-
-    def send_json(self, data, status=200):
-        body = json.dumps(data, default=str).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self._cors()
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_OPTIONS(self):
-        self.send_response(204)
-        self._cors()
-        self.end_headers()
+class handler(JSONHandler):
 
     def do_GET(self):
         from urllib.parse import urlparse, parse_qs

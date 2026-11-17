@@ -6,15 +6,9 @@
     <string>com.mcx.options-paper</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/opt/homebrew/bin/uv</string>
-        <string>run</string>
-        <string>--no-project</string>
-        <string>--with</string>
-        <string>dhanhq&lt;2.1</string>
-        <string>--with</string>
-        <string>pandas</string>
-        <string>--with</string>
-        <string>python-dotenv</string>
+        <!-- Dependencies from pyproject.toml + uv.lock (scripts/mcx_uv.sh). -->
+        <string>/bin/bash</string>
+        <string>/Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel/scripts/mcx_uv.sh</string>
         <string>python</string>
         <string>-I</string>
         <string>scripts/options_paper.py</string>
@@ -40,9 +34,9 @@
         <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>15</integer><key>Minute</key><integer>10</integer></dict>
     </array>
     <key>StandardOutPath</key>
-    <string>/Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel/logs/options_paper_launchd.log</string>
+    <string>/Users/pranayagarwal/Library/Logs/mcx/options_paper.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel/logs/options_paper_launchd.log</string>
+    <string>/Users/pranayagarwal/Library/Logs/mcx/options_paper.log</string>
     <key>RunAtLoad</key>
     <false/>
     <key>ProcessType</key>

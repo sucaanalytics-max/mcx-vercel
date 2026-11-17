@@ -4,7 +4,7 @@
 For each reported quarter, the expense model, tax rate and non-F&O share come only from the
 quarters before it, and the quarter's full F&O daily sum is projected to PAT (= EPS error, since
 the share count is fixed). Reads mcx_daily_revenue from Supabase.
-Run:  python3 scripts/quarterly_walkforward.py
+Run:  python3 research/quarterly_walkforward.py
 """
 import os
 import sys

@@ -2,11 +2,11 @@
 """ADR-trend edge stress test — implements Docs/ADR_Edge_StressTest_Preregistration.md.
 
 Parts: B = walk-forward on the stock, E = feature screen of other MCX data,
-C = option pricing from NSE bhavcopy (needs scripts/fetch_nse_fo_bhav.py output).
+C = option pricing from NSE bhavcopy (needs research/fetch_nse_fo_bhav.py output).
 
 Run:
-  uv run --no-project --with scipy --with yfinance --with pandas --with numpy \
-    python -I scripts/adr_stress_test.py B|E|C [BHAV_DIR]
+  scripts/mcx_uv.sh --extra research \
+    python -I research/adr_stress_test.py B|E|C [BHAV_DIR]
 """
 from __future__ import annotations
 import sys, json, math, urllib.request

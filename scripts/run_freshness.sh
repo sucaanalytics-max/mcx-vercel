@@ -15,8 +15,10 @@
 cd "$(dirname "$0")/.." || exit 1
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
 
-LOG="logs/freshness-$(date +%Y-%m-%d).log"
-mkdir -p logs
+# Logs live outside the Dropbox checkout (synced, unbounded); see scripts/launchd/install.sh.
+LOGDIR="$HOME/Library/Logs/mcx"
+LOG="$LOGDIR/freshness-$(date +%Y-%m-%d).log"
+mkdir -p "$LOGDIR"
 
 # --permission-mode acceptEdits lets quarterly-updater stage its api/quarterly.py
 # edit non-interactively; all other actions are gated by .claude/settings.local.json.

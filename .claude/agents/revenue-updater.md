@@ -12,7 +12,7 @@ Fix ONLY the revenue/snapshots domain. Do NOT edit code. Levers, in order:
    ensures the per-commodity breakdown. Capture exit code + stdout tail.
 2. If snapshots (not just revenue) are missing: snapshots are only produced
    LIVE during a session. Check relay health:
-   `launchctl list | grep com.mcx.relay` and tail `/tmp/mcx_relay_stderr.log`.
+   `launchctl list | grep com.mcx.relay` and tail `~/Library/Logs/mcx/relay_stderr.log`.
    A past session's missing snapshots are UNRECOVERABLE (do not fabricate) —
    revenue can still be backfilled by step 1; report snapshots as unrecoverable.
 

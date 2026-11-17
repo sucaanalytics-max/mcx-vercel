@@ -6,19 +6,18 @@ Each run logs the near-month bid/ask spread, opens positions on the Schedule B e
 (10 NSE trading days before expiry) and closes them on the exit day (2 days before).
 No orders are ever sent — fills are paper fills at the live Dhan bid/ask.
 
-Usage (needs dhanhq<2.1 and pandas):
-  uv run --no-project --with "dhanhq<2.1" --with pandas --with python-dotenv \
-      python -I scripts/options_paper.py run|status|dry-run
+Usage (deps from pyproject.toml + uv.lock):
+  scripts/mcx_uv.sh python -I scripts/options_paper.py run|status|dry-run
 """
 from __future__ import annotations
-import sys, json, math, time, statistics, urllib.request, datetime as dt
+import sys, json, math, time, statistics, datetime as dt
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import pandas as pd
 from lib import dhan_client as dc
-from lib.mcx_config import SUPABASE_URL, SUPABASE_ANON_KEY, supabase_headers, SUPABASE_WRITE_ROLE, supabase_upsert, now_ist
+from lib.mcx_config import SUPABASE_WRITE_ROLE, supabase_upsert, supabase_read_all, now_ist
 from lib.options_costs import leg_fees
 
 UNDERLYING_ID, SEG = 31181, "NSE_EQ"   # MCX Ltd equity on Dhan
@@ -50,16 +49,8 @@ def shift_trading_days(d: dt.date, n: int) -> dt.date:
 
 # ---------------------------------------------------------------- data
 def revenue() -> pd.Series:
-    H = {**supabase_headers(SUPABASE_ANON_KEY)}
-    rows, off = [], 0
-    while True:
-        url = (f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue?select=trading_date,total_rev_cr"
-               f"&order=trading_date.asc&offset={off}&limit=1000")
-        batch = json.loads(urllib.request.urlopen(urllib.request.Request(url, headers=H)).read())
-        rows += batch
-        if len(batch) < 1000:
-            break
-        off += 1000
+    rows = supabase_read_all("mcx_daily_revenue", "?select=trading_date,total_rev_cr&order=trading_date.asc",
+                             max_rows=None, timeout=30)
     s = pd.DataFrame(rows)
     s["trading_date"] = pd.to_datetime(s["trading_date"]).dt.date
     s = s[s["total_rev_cr"] > 0].set_index("trading_date")["total_rev_cr"].sort_index()

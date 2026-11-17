@@ -18,15 +18,14 @@ Returns:
   - Full-year projection: reported quarters + the current quarter including non-F&O
   - Expense regression model parameters and the walk-forward backtest of both bases
 """
-from http.server import BaseHTTPRequestHandler
-import json
+from lib.api_handler import JSONHandler
 from datetime import date, datetime, timedelta
 
 from lib.mcx_config import (
-    SUPABASE_URL, SUPABASE_ANON_KEY, DILUTED_SHARES_CR, SESSION_START,
-    MCX_HOLIDAYS_2026, MCX_SPECIAL_SESSIONS, supabase_read, supabase_read_all, now_ist,
+    DILUTED_SHARES_CR, SESSION_START,
+    is_trading_day, MCX_SPECIAL_SESSIONS, supabase_read, supabase_read_all, now_ist,
     session_shape, session_weight, SESSION_FULL, SESSION_CLOSED,
-    make_cors_headers, cache_header,
+    
 )
 try:
     from lib.mcx_config import session_end      # seasonal close: 23:55 in US winter
@@ -107,8 +106,7 @@ BACKTEST_QUARTERS = 5
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
-def _is_trading_day(d):
-    return d.weekday() < 5 and d.strftime("%Y-%m-%d") not in MCX_HOLIDAYS_2026
+_is_trading_day = is_trading_day     # lib.calendar (was a local copy)
 
 
 def _classify_days(q_start, q_end, now, rows):
@@ -527,34 +525,10 @@ def generate_quarterly(today=None, now=None):
 
 # ─── Vercel handler ──────────────────────────────────────────────────────────
 
-class handler(BaseHTTPRequestHandler):
+class handler(JSONHandler):
     def do_GET(self):
-        origin = self.headers.get("Origin", "")
-        cors = make_cors_headers(origin)
         try:
-            result = generate_quarterly()
-            self.send_response(200)
-            for k, v in cors.items():
-                self.send_header(k, v)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Cache-Control", cache_header(result, "public, max-age=60, s-maxage=60"))
-            self.end_headers()
-            self.wfile.write(json.dumps(result).encode())
+            self.send_json(generate_quarterly(), cache="public, max-age=60, s-maxage=60")
         except Exception as e:
-            self.send_response(500)
-            for k, v in cors.items():
-                self.send_header(k, v)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"success": False, "error": str(e)[:200]}).encode())
+            self.send_error_json(e)
 
-    def do_OPTIONS(self):
-        origin = self.headers.get("Origin", "")
-        cors = make_cors_headers(origin)
-        self.send_response(204)
-        for k, v in cors.items():
-            self.send_header(k, v)
-        self.end_headers()
-
-    def log_message(self, format, *args):
-        pass

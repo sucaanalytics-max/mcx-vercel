@@ -2,7 +2,7 @@
 
 Written 28 Oct 2026, **before** any of the results below were computed. The rules here are fixed: results are reported for every variant listed, and nothing is added or dropped after seeing outcomes. Any later deviation is listed in a "Deviations" section with the reason.
 
-**What has already been seen (disclosure).** The 28 Oct edge test (`scripts/options_edge_test.py`) reported the full-sample stock-level IC of the primary variant (45-day ADR, 20-day lookback) at 5/10/20-day horizons. The primary variant was therefore chosen *after* seeing its full-sample IC, so its full-sample stock result is not independent evidence. The walk-forward, the eight other variants, the option pricing and the feature screen have not been seen.
+**What has already been seen (disclosure).** The 28 Oct edge test (`research/options_edge_test.py`) reported the full-sample stock-level IC of the primary variant (45-day ADR, 20-day lookback) at 5/10/20-day horizons. The primary variant was therefore chosen *after* seeing its full-sample IC, so its full-sample stock result is not independent evidence. The walk-forward, the eight other variants, the option pricing and the feature screen have not been seen.
 
 ---
 
