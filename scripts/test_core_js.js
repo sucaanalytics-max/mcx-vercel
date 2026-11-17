@@ -173,6 +173,32 @@ check('valid dates unchanged', [MCX.fmt.dayMonth('2026-09-28'), MCX.fmt.day('202
   queue.push(res({ success: true, v: 20 }));
   check('a daily view older than 30 minutes is refetched', (await fetchRanged('/api/commodity_dashboard?view=margins')).v, 20);
   Date.now = realNow;
+
+  // A request that never answers is aborted after the timeout and rejects, so the
+  // page shows Retry instead of "Loading…" for good.
+  const abortable = () => (url, init) => new Promise((resolve, reject) => {
+    const sig = init && init.signal;
+    if (sig) sig.addEventListener('abort', () => { const e = new Error('aborted'); e.name = 'AbortError'; reject(e); });
+  });
+  global.fetch = abortable();
+  let tmsg = null, t0 = Date.now();
+  try { await MCX.getJSON('/api/hang', { timeout: 50 }); } catch (e) { tmsg = e.message; }
+  check('a stalled request rejects after the timeout', [tmsg, Date.now() - t0 < 2000], ['The server took too long to answer (over 0 s)', true]);
+  check('the default timeout is 45 s', MCX.FETCH_TIMEOUT_MS, 45000);
+  let sawSignal = null;
+  global.fetch = (url, init) => { sawSignal = !!(init && init.signal); return Promise.resolve(res({ success: true })); };
+  check('a normal answer is unaffected', (await MCX.getJSON('/api/ok', { timeout: 50 })).success, true);
+  check('the request carries an abort signal', sawSignal, true);
+  await new Promise(r => setTimeout(r, 80));          // the cleared timer must not fire late
+  check('no stray abort after a normal answer', true, true);
+  global.fetch = abortable();
+  clearRangedCache();
+  const realT = MCX.FETCH_TIMEOUT_MS; MCX.FETCH_TIMEOUT_MS = 30;
+  let rthrew = false; try { await fetchRanged('/api/hang2'); } catch (e) { rthrew = /too long/.test(e.message); }
+  global.fetch = () => Promise.resolve(res({ success: true, v: 9 }));
+  check('a timed-out view is not cached: Retry refetches', [rthrew, (await fetchRanged('/api/hang2')).v], [true, 9]);
+  MCX.FETCH_TIMEOUT_MS = realT;
+  global.fetch = () => { calls++; return Promise.resolve(queue.shift()); };   // back to the queue for the tests below
   clearRangedCache();
   queue.push(res({ success: true, v: 30 }));
   check('a manual refresh (no options) drops everything', (await fetchRanged('/api/analytics?fields=page')).v, 30);
