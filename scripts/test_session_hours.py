@@ -34,6 +34,8 @@ def check(name, cond, detail=""):
 
 
 # Keep the projection offline: no adaptive curve, so the static one is used.
+# test_curves_skip_short_days needs the real one, so keep a reference.
+_REAL_ADAPTIVE = cfg._compute_adaptive_weights
 cfg._compute_adaptive_weights = lambda vol_fn=None, close_min=None: None
 
 
@@ -329,6 +331,58 @@ def test_curves_and_freshness():
           expected_trading_day(datetime(2026, 9, 29, 23, 31)) == date(2026, 9, 29))
 
 
+def _uniform_day(d, last=None):
+    """Snapshots at 1 Cr per minute from 09:00, every 15 min, ending at `last`
+    (default: the day's own close)."""
+    last = cfg.session_total(d) if last is None else last
+    snaps = [{"trading_date": d, "elapsed_min": m, "fut_notl_cr": float(m), "opt_prem_cr": 0.0}
+             for m in range(15, last, 15)]
+    snaps.append({"trading_date": d, "elapsed_min": last, "fut_notl_cr": float(last), "opt_prem_cr": 0.0})
+    return snaps
+
+
+def test_curves_skip_short_days():
+    """2-16 Nov 2026: the relay ran pre-23:55 code, so each winter day's last
+    snapshot was at 23:30 (870 of 895 min). Such a day is missing ~3% of its
+    volume, all in the late bucket, and must not train either curve."""
+    print("\n[10] Curves skip winter days cut short at 23:30")
+    full = ["2026-11-17", "2026-11-18", "2026-11-19"]
+    short = ["2026-11-02", "2026-11-03", "2026-11-04"]
+    late_uniform = 115 / 895
+    check("reached_close: 23:55 day at 895", cfg.reached_close(895, "2026-11-02"))
+    check("reached_close: 23:55 day stopped at 870 is not full", not cfg.reached_close(870, "2026-11-02"))
+    check("reached_close: 23:30 day at 870", cfg.reached_close(870, "2026-10-30"))
+    check("reached_close: 23:30 day at 865 (5 min short) still full", cfg.reached_close(865, "2026-10-30"))
+    check("reached_close: 23:30 day at 800 is not full", not cfg.reached_close(800, "2026-10-30"))
+
+    real_read, real_now = cfg.supabase_read_all, cfg.now_ist
+    cfg.now_ist = lambda: datetime(2026, 11, 20, 12, 0)
+    try:
+        cfg.supabase_read_all = lambda *a, **k: sum((_uniform_day(d, 870) for d in short), [])
+        check("adaptive: only cut-short winter days -> None (static fallback)",
+              _REAL_ADAPTIVE(close_min=1435) is None)
+        cfg.supabase_read_all = lambda *a, **k: (sum((_uniform_day(d, 870) for d in short), [])
+                                                 + sum((_uniform_day(d) for d in full), []))
+        w = _REAL_ADAPTIVE(close_min=1435)
+        check("adaptive: late bucket from full winter days only",
+              w is not None and abs(w[-1] - late_uniform) < 1e-6,
+              f"{w[-1]:.4f} vs {late_uniform:.4f}" if w else "None")
+    finally:
+        cfg.supabase_read_all, cfg.now_ist = real_read, real_now
+
+    import lib.intraday_curves as ic
+    real_read, real_now = ic.supabase_read_all, ic.now_ist
+    ic.supabase_read_all = lambda *a, **k: _uniform_day("2026-11-02", 870) + _uniform_day("2026-11-17")
+    ic.now_ist = lambda: datetime(2026, 11, 18, 12, 0)
+    try:
+        c = ic.generate_intraday_curves(days=30, include_today=False)
+    finally:
+        ic.supabase_read_all, ic.now_ist = real_read, real_now
+    ra = c["rolling_average"]
+    check("dashboard curve: cut-short day left out", ra["days_used"] == 1,
+          str({k: ra[k] for k in ra if k != "buckets"}))
+
+
 def test_network_relay_matches_historical():
     """Read-only: recent relay EOD rows agree with MCX's report within 1%, so
     the reconciliation won't churn normal summer days."""
@@ -365,6 +419,7 @@ if __name__ == "__main__":
     test_reconcile_decision()
     test_replace_confirms_write()
     test_curves_and_freshness()
+    test_curves_skip_short_days()
     if "--network" in sys.argv:
         test_network_relay_matches_historical()
     print("\n" + "=" * 72)
