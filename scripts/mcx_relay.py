@@ -667,6 +667,63 @@ def _start_stall_watchdog():
     threading.Thread(target=_watch, daemon=True, name="stall-watchdog").start()
 
 
+# ── Per-commodity breakdown after the close ─────────────────────────────────
+# capture_eod() writes only the exchange totals. The per-commodity rows come
+# from MCX's Historical Detailed Report, which was NOT out at the close when
+# probed (10 Nov 2026: empty at 23:48, contracts at 04:31, premium by 06:31),
+# so this one attempt usually reports "not ready"; scripts/launchd/
+# com.mcx.commodity-eod.plist retries 05:30-06:55 and daily_verify (07:00) is
+# the backstop. It runs bhav_refresh in a subprocess so a wedged libcurl call
+# can't touch this process's pool, and it is bounded well inside STALL_LIMIT.
+COMMODITY_EOD_TIMEOUT = 90
+
+
+def capture_commodity_breakdown(session_date, timeout=COMMODITY_EOD_TIMEOUT, run=None):
+    """One non-fatal attempt at the day's per-commodity breakdown. Never
+    raises; returns the bhav_refresh exit code, or None if it didn't finish."""
+    import subprocess
+    run = run or subprocess.run
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bhav_refresh.py")
+    print(f"\n  ── Commodity breakdown for {session_date} ──")
+    _mark_progress()
+    try:
+        res = run([sys.executable, script, "--commodity", session_date],
+                  capture_output=True, text=True, timeout=timeout,
+                  cwd=os.path.dirname(os.path.dirname(script)))
+    except subprocess.TimeoutExpired:
+        print(f"  ⓘ breakdown fetch exceeded {timeout}s — left to the 05:30 job / daily_verify")
+        return None
+    except Exception as e:
+        print(f"  ⓘ breakdown fetch failed to run ({type(e).__name__}: {e}) — left to daily_verify")
+        return None
+    finally:
+        _mark_progress()
+    for line in (res.stdout or "").strip().splitlines()[-3:]:
+        print(f"  {line.strip()}")
+    if res.returncode == 0:
+        print(f"  ✓ {session_date}: per-commodity breakdown stored")
+    elif res.returncode == 3:
+        print(f"  ⓘ {session_date}: MCX report not complete yet — the 05:30 job / daily_verify will retry")
+    else:
+        print(f"  ⓘ {session_date}: breakdown fetch exit {res.returncode}: "
+              f"{(res.stderr or '').strip()[-160:]}")
+    return res.returncode
+
+
+def close_session(session_date, clock_fallback=False):
+    """Everything after the close, in priority order. Revenue first and always:
+    nothing after it can fail or delay it."""
+    capture_eod(session_date)
+    refresh_margins_local()
+    refresh_oi_participants_local()
+    if not clock_fallback:
+        send_heartbeat("eod_done")
+    try:
+        capture_commodity_breakdown(session_date)
+    except Exception as e:  # belt and braces: the function already never raises
+        print(f"  ⓘ commodity breakdown skipped: {e}")
+
+
 def next_sleep_seconds(t, base_s):
     """Sleep before the next snapshot: base_s, cut short so the loop wakes
     EOD_DELAY_MIN after today's close. Without the cut, a 15-min cadence can
@@ -735,10 +792,7 @@ def run_loop():
         # Trigger EOD immediately when session closes (no timing race)
         if result == "closed":
             print("\nSession closed. Capturing EOD record...")
-            capture_eod(session_date)
-            refresh_margins_local()
-            refresh_oi_participants_local()
-            send_heartbeat("eod_done")
+            close_session(session_date)
             break
 
         # Fallback: past the close but the snapshot hasn't reported it (fetches
@@ -749,9 +803,7 @@ def run_loop():
         fallback_min = min(close + EOD_FALLBACK_MIN, LATEST_EOD_MIN)
         if t2.strftime("%Y-%m-%d") == session_date and current_min2 >= fallback_min:
             print("\nSession ended (clock fallback). Capturing EOD record...")
-            capture_eod(session_date)
-            refresh_margins_local()
-            refresh_oi_participants_local()
+            close_session(session_date, clock_fallback=True)
             break
 
         # After a failure, retry in 2 min (not 15) so a transient stall recovers
