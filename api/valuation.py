@@ -4,8 +4,7 @@
 Economic chain:
   45DMA F&O Rev → Annualized Total Rev → PAT (55% margin) → EPS → Fair Value via P/E bands
 
-Primary: reads pre-computed valuations from mcx_valuation table (refreshed by valuation_refresh.py).
-Fallback: computes live from mcx_daily_revenue + mcx_share_price.
+Primary: reads pre-computed valuations from mcx_valuation table (written by lib/cron_valuation.py: the Vercel cron, and scripts/run_cron.py valuation locally).
 
 Returns:
   - Current valuation snapshot (EPS, fair value bear/base/bull, signal)
@@ -13,29 +12,17 @@ Returns:
   - Dynamic P/E band statistics
   - Revenue-to-EPS conversion chain (full transparency)
 """
-from http.server import BaseHTTPRequestHandler
-import json
+from lib.api_handler import JSONHandler, CACHE_DAILY
 
-try:
-    from lib.mcx_config import (
-        TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
-        PE_MEAN_DEFAULT, PE_SD_DEFAULT,
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_read_all,
-        now_ist, make_cors_headers,
-    )
-except ImportError:
-    from lib.mcx_config import (
-        TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
-        PE_MEAN_DEFAULT, PE_SD_DEFAULT,
-        SUPABASE_URL, SUPABASE_ANON_KEY, supabase_read, supabase_read_all,
-        now_ist, make_cors_headers,
-    )
+from lib.mcx_config import (
+    TRADING_DAYS, PAT_MARGIN, NON_FO_REV_ANNUAL_CR, DILUTED_SHARES_CR,
+    PE_MEAN_DEFAULT, PE_SD_DEFAULT,
+    SUPABASE_ANON_KEY, supabase_read, supabase_read_all, now_ist,
+    RANGE_DAYS, DEFAULT_RANGE,
+)
 
-import math
 from lib import house_model
 
-RANGE_DAYS = {"30D": 30, "60D": 60, "Q": 63, "1Y": 252, "2Y": 504, "Max": None}
-DEFAULT_RANGE = "60D"
 
 # ─── Core valuation engine ─────────────────────────────────────────────────
 
@@ -120,20 +107,6 @@ def _fetch_regression_pairs():
         return []
 
 
-def _fetch_revenue_for_live(days=60):
-    """Fetch revenue for live fallback computation."""
-    if not SUPABASE_ANON_KEY:
-        return []
-    try:
-        rows = supabase_read(
-            "mcx_daily_revenue",
-            f"?select=trading_date,total_rev_cr&order=trading_date.desc&limit={days}"
-        )
-        return sorted(rows, key=lambda r: r["trading_date"])
-    except Exception:
-        return []
-
-
 def _fetch_latest_price():
     """Fetch the most recent share price."""
     if not SUPABASE_ANON_KEY:
@@ -148,6 +121,47 @@ def _fetch_latest_price():
         return None, None
     except Exception:
         return None, None
+
+
+# ─── History on the snapshot's basis ───────────────────────────────────────
+
+def history_point(row, pe_mean_default=PE_MEAN_DEFAULT, pe_sd_default=PE_SD_DEFAULT):
+    """One chart point from a stored mcx_valuation row, on the SAME basis as the
+    snapshot: EPS from the row's 45-day MA through today's compute_eps_chain
+    constants (trading days, non-F&O revenue, PAT margin, shares), fair values
+    from the row's own P/E bands.
+
+    Stored eps / fair_value_* depend on whoever wrote the row and with which
+    constants. Since mid-Oct 2026 an outside writer (20:27 UTC daily) has been
+    writing rows with the pre-29-Sep constants (252 days, Rs 527 Cr non-F&O),
+    so stored fair values sat ~2.6% above the snapshot on the same day, and the
+    chart stepped up ~3% where its rows began. Recomputing here removes both
+    steps; the P/E bands are kept per row, so the band history is unchanged."""
+    ma45 = float(row["ma45_rev_cr"]) if row.get("ma45_rev_cr") else None
+    price = float(row["close_price"]) if row.get("close_price") else None
+    pe_mean = float(row.get("pe_mean_used") or pe_mean_default)
+    pe_sd = float(row.get("pe_sd_used") or pe_sd_default)
+    eps = compute_eps_chain(ma45)["eps"] if ma45 is not None else None
+    if eps is None:
+        bear = base = bull = implied_pe = None
+        signal = row.get("signal")
+    else:
+        bear = round(eps * max(pe_mean - pe_sd, 5.0), 2)
+        base = round(eps * pe_mean, 2)
+        bull = round(eps * (pe_mean + pe_sd), 2)
+        implied_pe = round(price / eps, 2) if price and eps > 0 else None
+        signal = classify_signal(price, bear, base, bull) if price else "NO_PRICE"
+    return {
+        "date": row["trading_date"],
+        "price": price,
+        "eps": eps,
+        "implied_pe": implied_pe,
+        "fair_bear": bear,
+        "fair_base": base,
+        "fair_bull": bull,
+        "signal": signal,
+        "ma45_rev": ma45,
+    }
 
 
 # ─── Main valuation generator ──────────────────────────────────────────────
@@ -167,7 +181,7 @@ def generate_valuation(range_key=DEFAULT_RANGE):
     precomputed = _fetch_precomputed_valuations(limit=fetch_limit)
 
     if not precomputed:
-        return {"error": "No valuation data available. Run valuation_refresh.py --backfill first.", "success": False}
+        return {"error": "No valuation data available. Run scripts/run_cron.py valuation backfill first.", "success": False}
 
     latest = precomputed[-1]
 
@@ -202,21 +216,8 @@ def generate_valuation(range_key=DEFAULT_RANGE):
         upside_to_base = round((fair_base - latest_price) / latest_price * 100, 2)
 
     # ── Build history for charting (range-based window) ────────────────
-    history = []
     display_rows = precomputed if window is None else precomputed[-window:]
-    for row in display_rows:
-        price = float(row["close_price"]) if row.get("close_price") else None
-        history.append({
-            "date": row["trading_date"],
-            "price": price,
-            "eps": float(row["eps"]) if row.get("eps") else None,
-            "implied_pe": float(row["implied_pe"]) if row.get("implied_pe") else None,
-            "fair_bear": float(row["fair_value_bear"]) if row.get("fair_value_bear") else None,
-            "fair_base": float(row["fair_value_base"]) if row.get("fair_value_base") else None,
-            "fair_bull": float(row["fair_value_bull"]) if row.get("fair_value_bull") else None,
-            "signal": row.get("signal"),
-            "ma45_rev": float(row["ma45_rev_cr"]) if row.get("ma45_rev_cr") else None,
-        })
+    history = [history_point(row, pe_mean, pe_sd) for row in display_rows]
 
     # ── Tusk house model (forward multiple, hurdle, regression, analysts) ──
     house, house_error = None, None
@@ -257,6 +258,9 @@ def generate_valuation(range_key=DEFAULT_RANGE):
             "history_returned": len(history),
             "revenue_window": 45,
             "latest_valuation_date": latest["trading_date"],
+            # history eps / fair values are recomputed from each row's 45-day MA
+            # with the snapshot's constants (see history_point), not read as stored
+            "history_basis": "current_constants",
             "range": range_key,
         },
     }
@@ -264,32 +268,8 @@ def generate_valuation(range_key=DEFAULT_RANGE):
 
 # ─── Vercel handler ─────────────────────────────────────────────────────────
 
-class handler(BaseHTTPRequestHandler):
-
-    def log_message(self, fmt, *args):
-        pass
-
-    def _cors(self):
-        origin = self.headers.get("Origin", "")
-        hdrs = make_cors_headers(origin)
-        for k, v in hdrs.items():
-            self.send_header(k, v)
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-
-    def send_json(self, data, status=200):
-        body = json.dumps(data, default=str).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self._cors()
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_OPTIONS(self):
-        self.send_response(204)
-        self._cors()
-        self.end_headers()
+class handler(JSONHandler):
+    default_cache = CACHE_DAILY
 
     def do_GET(self):
         try:

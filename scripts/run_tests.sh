@@ -4,10 +4,10 @@
 # the .claude/settings.json test-gate hook (blocks `gh pr create` / `git push`
 # while anything is red).
 #
-# Python tests run under `uv run --with-requirements requirements.txt` so they
-# see the same deps on every Mac (homebrew python here lacks curl_cffi, the
-# system one has it; Pranay's Mac is the other way round). Falls back to
-# python3 when uv is absent.
+# Python tests run under scripts/mcx_uv.sh (`uv run --frozen --extra local`): the deps come from
+# pyproject.toml + uv.lock (the only manifest), the same on every Mac. The venv
+# lives outside the repo (UV_PROJECT_ENVIRONMENT), so it never lands in Dropbox.
+# Falls back to python3 when uv is absent.
 #
 # Usage: scripts/run_tests.sh [-q]     (-q: print only failures + the summary)
 
@@ -16,7 +16,7 @@ QUIET=0; [ "$1" = "-q" ] && QUIET=1
 
 UV="$(command -v uv || echo "$HOME/.local/bin/uv")"
 if [ -x "$UV" ]; then
-  PY=("$UV" run --no-project --quiet --with-requirements requirements.txt python)
+  PY=(bash scripts/mcx_uv.sh python)
 else
   PY=(python3)
 fi

@@ -8,18 +8,12 @@ Usage:
   python3 scripts/price_refresh.py --backfill 400 # backfill N calendar days
   python3 scripts/price_refresh.py 2026-02-20     # refresh specific date
 """
-import sys, os, json, urllib.request, time
-from datetime import datetime, timedelta, timezone
+import sys, os, time, urllib.error
+from datetime import datetime, timedelta
 
-# ── Config ──────────────────────────────────────────────────────────────────
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supabase.co")
-SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2cXdwZWJ2ZXFldHd3emttdHV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDkwMzMsImV4cCI6MjA4Njk4NTAzM30.U_Ug61Fp1NSCesXBkYU7GJGTbuATFtXsz6GTi5948Rw")
-try:  # write key: SUPABASE_SERVICE_KEY (env or .env.local, via lib.mcx_config) else anon
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from lib.mcx_config import SUPABASE_WRITE_KEY
-except ImportError:
-    SUPABASE_WRITE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "") or SUPABASE_ANON_KEY
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from lib.calendar import now_ist  # noqa: E402  (naive IST wall clock)
+from lib.supabase import get_rows, post_rows, patch_rows  # noqa: E402
 TICKER = "MCX.NS"
 TABLE = "mcx_share_price"
 
@@ -28,50 +22,26 @@ PRICE_MIN = 500   # MCX dipped to ~904 in Mar 2025
 PRICE_MAX = 20000
 
 
-def now_ist():
-    return datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
-
-
 # ── Supabase helpers ────────────────────────────────────────────────────────
 def supabase_get(date_iso):
-    """Check if we already have price data for this date."""
-    url = (f"{SUPABASE_URL}/rest/v1/{TABLE}"
-           f"?trading_date=eq.{date_iso}&limit=1")
-    req = urllib.request.Request(url, headers={
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
-    })
+    """The stored price row for this date, or None (also on a read error)."""
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            rows = json.loads(resp.read().decode())
-            return rows[0] if rows else None
+        rows = get_rows(TABLE, f"?trading_date=eq.{date_iso}&limit=1", timeout=10)
+        return rows[0] if rows else None
     except Exception:
         return None
 
 
 def supabase_upsert(row):
-    """Upsert a single price row to Supabase."""
-    date_iso = row["trading_date"]
-    body = json.dumps(row).encode()
-    headers = {
-        "apikey": SUPABASE_WRITE_KEY,
-        "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates",
-    }
-    # Try POST with upsert
-    url = f"{SUPABASE_URL}/rest/v1/{TABLE}"
-    req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    """Upsert one price row: POST merge-duplicates, PATCH when it already exists (409)."""
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return True
+        post_rows(TABLE, row, timeout=10)
+        return True
     except urllib.error.HTTPError as e:
         if e.code == 409:
-            # Already exists — PATCH instead
-            patch_url = f"{url}?trading_date=eq.{date_iso}"
-            req2 = urllib.request.Request(patch_url, data=body, headers=headers, method="PATCH")
-            with urllib.request.urlopen(req2, timeout=10) as resp2:
-                return True
+            patch_rows(TABLE, f"?trading_date=eq.{row['trading_date']}", row, timeout=10,
+                       prefer="resolution=merge-duplicates")
+            return True
         raise
 
 

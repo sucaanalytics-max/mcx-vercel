@@ -13,16 +13,9 @@ from io import BytesIO
 from datetime import timedelta
 from urllib.parse import urlparse, parse_qs
 
-try:
-    from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
-        now_ist, is_trading_day, make_cors_headers,
-    )
-except ImportError:
-    from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
-        now_ist, is_trading_day, make_cors_headers,
-    )
+from lib.mcx_config import (
+    now_ist, is_trading_day, make_cors_headers,
+)
 
 CRON_SECRET = os.environ.get("CRON_SECRET", "")
 SHAREKHAN_URL = "https://www.sharekhan.com/MediaGalary/Commodity/McxSpan.xls"
@@ -156,52 +149,42 @@ def _parse_xls(data):
     return rows
 
 
-def sb_upsert(table, rows):
-    """Upsert rows to Supabase in batches. Treats 409 (duplicate) as success."""
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-    headers = {
-        "apikey": SUPABASE_WRITE_KEY,
-        "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates",
-    }
-    errors = []
-    for i in range(0, len(rows), 50):
-        chunk = rows[i:i + 50]
-        body = json.dumps(chunk).encode()
-        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                pass
-        except urllib.error.HTTPError as e:
-            if e.code == 409:
-                continue  # duplicate key — data already exists, skip
-            err_body = e.read().decode()[:200] if e.fp else ""
-            errors.append(f"batch {i}: HTTP {e.code} — {err_body}")
-    return errors
+def sb_upsert(table, rows, stats=None):
+    """Upsert rows in batches; returns a list of error strings.
 
+    A 409 means the batch hit the table's unique key on rows already stored
+    (there is no on_conflict, so merge-duplicates cannot update them). Those
+    rows are kept as they are, not written: counted in stats['skipped'] when a
+    stats dict is passed, so callers stop reporting them as upserted."""
+    from lib.supabase import upsert_batches
+    return upsert_batches(table, rows, stats=stats, on_409="skip")
 
-def get_existing_margin_dates():
-    """Fetch distinct snapshot_dates from mcx_margin_daily."""
-    url = (f"{SUPABASE_URL}/rest/v1/mcx_margin_daily"
-           f"?select=snapshot_date&order=snapshot_date.desc&limit=500")
-    headers = {
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
-    }
-    req = urllib.request.Request(url, headers=headers)
+def get_existing_margin_dates(since=None):
+    """Distinct snapshot_dates in mcx_margin_daily on or after `since` (YYYY-MM-DD;
+    default: 60 days back).
+
+    Pages through the rows: a single limit=500 read covered only ~3 dates at
+    ~176 rows a day, so --gaps / --backfill N>3 reported false gaps and
+    re-scraped. Returns None on a read error (callers treat that as "unknown",
+    not as "every date is missing")."""
+    from lib.mcx_config import supabase_read_all
+    if since is None:
+        since = (now_ist().date() - timedelta(days=60)).strftime("%Y-%m-%d")
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            rows = json.loads(resp.read().decode())
-            return set(r["snapshot_date"] for r in rows)
+        rows = supabase_read_all(
+            "mcx_margin_daily",
+            f"?select=snapshot_date&snapshot_date=gte.{since}&order=snapshot_date.desc,id.desc",
+            max_rows=200000)
     except Exception:
-        return set()
+        return None
+    return set(r["snapshot_date"] for r in rows)
 
 
 def detect_gaps(lookback_days=7):
     """Find missing trading days in last N days that have no margin data."""
-    existing = get_existing_margin_dates()
     today = now_ist().date()
+    existing = get_existing_margin_dates(
+        since=(today - timedelta(days=lookback_days)).strftime("%Y-%m-%d")) or set()
     missing = []
     for i in range(1, lookback_days + 1):  # skip today (may not be captured yet)
         d = today - timedelta(days=i)

@@ -1,8 +1,20 @@
 _disabled/
 scripts/
+research/
 logs/
 trading/
 .claude/
 .superpowers/
 .DS_Store
 tasks/
+# Internal research, notes and reports: none of it is part of the site, and
+# everything uploaded is publicly fetchable (audit 2026-11-17: /docs/*.md and
+# /MCX_CIO_Report.docx were served from production).
+docs/
+Docs/
+data/
+*.md
+*.docx
+*.xlsx
+*.pdf
+*.duckdb

@@ -14,7 +14,7 @@ Investigate by domain type:
   reads is itself stale (dependency inversion — a signal can't compute from stale
   inputs); check for RLS 42501 write errors (a table missing its anon-write grant).
 - Local-fetch domains (revenue/commodity/oi/margins/share_price): tail
-  `/tmp/mcx_relay_stderr.log`, `logs/daily_verify.log`; check the external source
+  `~/Library/Logs/mcx/relay_stderr.log`, `~/Library/Logs/mcx/daily_verify.log`; check the external source
   directly (is the MCX/Sharekhan/Yahoo URL returning HTML/404/429 instead of data?
   use curl_cffi impersonate='chrome124' to probe). If MCX moved a URL again,
   re-derive the current pattern and report it (the OI/margins downloaders are the

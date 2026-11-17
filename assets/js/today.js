@@ -198,6 +198,20 @@
     return b.map((x, i) => ({ label: x.label, start: x.start_min - 540, end: x.end_min - 540, share: med[i] / tot * 100,
       p10: pc.p10 ? pc.p10[i] / tot * 100 : null, p90: pc.p90 ? pc.p90[i] / tot * 100 : null, fixed: x.weight * 100 }));
   }
+  // The profile's text when no day qualifies (days_used 0), else null. Only full sessions that
+  // reached the day's close count; 2-16 Nov 2026 stop at 23:30 (the relay ran old code).
+  function profileEmptyNote(d) {
+    const ra = (d && d.rolling_average) || {};
+    if (ra.days_used > 0) return null;
+    const close = d && d.session_end, other = close === '23:55' ? '23:30' : '23:55';
+    const pl = (k, one, many) => `${k} ${k === 1 ? one : many}`;
+    const why = [];
+    if (ra.incomplete_days_excluded > 0) why.push(`${pl(ra.incomplete_days_excluded, 'session', 'sessions')} stopped before the close`);
+    if (ra.other_season_days_excluded > 0) why.push(`${pl(ra.other_season_days_excluded, 'day', 'days')} on the ${other} hours left out`);
+    if (ra.part_days_excluded > 0) why.push(`${pl(ra.part_days_excluded, 'part-day session', 'part-day sessions')} left out`);
+    return `Not enough days yet: the profile needs full sessions that ran to ${close ? `the ${close} close` : "the day's close"}, and none in this window did`
+      + (why.length ? ` (${why.join('; ')}).` : '.');
+  }
   // Share of the day's turnover done by minute m (after 09:00), linear within each bucket
   function doneBy(buckets, m) {
     let acc = 0;
@@ -213,7 +227,7 @@
   // bar but is never "the last session" and never in the 45-day or rank comparisons.
   const typicalDays = daily => daily.filter(x => !x.special);
 
-  MCX.todayModel = { profileShares, doneBy, sessionState, gridAt, likelyRange, finalBand, rangePct, bandWords, headlineLive, bookedNote, vsAvg, ladderTakeaway,
+  MCX.todayModel = { profileShares, profileEmptyNote, doneBy, sessionState, gridAt, likelyRange, finalBand, rangePct, bandWords, headlineLive, bookedNote, vsAvg, ladderTakeaway,
                      vsPrev45, rankText, takeaway, change, spread, niceTicks, rolling, typicalDays };
   if (window.MCX_TEST) return;
 
@@ -238,7 +252,7 @@
   function loadHome(force) {
     if (!force && S.home && Date.now() - S.homeAt < HOME_TTL) return Promise.resolve();
     if (loadingHome) return loadingHome;
-    loadingHome = fetch('/api/exchange_dashboard?view=home').then(r => r.json()).then(d => {
+    loadingHome = MCX.getJSON('/api/exchange_dashboard?view=home').then(d => {
       if (!d.success) throw new Error(d.error || 'No data');
       S.home = d; S.homeAt = Date.now(); S.homeErr = null;
     }).catch(e => { S.homeErr = e.message || String(e); }).finally(() => { loadingHome = null; render(); });
@@ -247,7 +261,7 @@
   function loadQuarter() {
     if (S.qtr && Date.now() - S.qtrAt < QTR_TTL) return;
     if (loadingQtr) return;
-    loadingQtr = fetch('/api/quarterly').then(r => r.json()).then(d => {
+    loadingQtr = MCX.getJSON('/api/quarterly').then(d => {
       if (d.success && d.current_quarter) { S.qtr = d.current_quarter; S.qtrAt = Date.now(); }
     }).catch(() => {}).finally(() => { loadingQtr = null; renderQuarter(); });
   }
@@ -267,10 +281,13 @@
     d.bandAt = key => { const g = grid.find(x => x.min === key); return g && g.q10_pct !== null ? finalBand(g.q10_pct, g.q90_pct) : null; };
     if (state === 'live') {
       d.P = r.proj_rev_cr; d.B = r.booked_rev_cr; d.min = r.elapsed_min;
-      const early = d.min < FIRST_RANGE_MIN;
-      d.pending = !early && !(h && h.accuracy);                   // the measured error hasn't loaded yet
-      d.q10 = early ? null : gridAt(grid, d.min, 'q10_pct');
-      d.q90 = early ? null : gridAt(grid, d.min, 'q90_pct');
+      // range_min = minutes traded: on a part-day session the range is read there, not at the clock
+      const rmin = r.range_min != null ? r.range_min : d.min;
+      const early = rmin < FIRST_RANGE_MIN;
+      d.pending = !early && !(h && h.accuracy) && !S.homeErr;     // the measured error hasn't loaded yet
+      d.rangeErr = !early && !(h && h.accuracy) && !!S.homeErr;   // ...and its request failed or timed out
+      d.q10 = early ? null : gridAt(grid, rmin, 'q10_pct');
+      d.q90 = early ? null : gridAt(grid, rmin, 'q90_pct');
       d.range = likelyRange(d.P, d.q10, d.q90);
       d.nowBand = d.range ? finalBand(d.q10, d.q90) : null;
       d.clock = clock(d.min);
@@ -304,7 +321,7 @@
     const notes = [];
     if (d.state === 'live') {
       kicker = `${date} · live session, ${Math.round(d.r.elapsed_pct)}% of trading hours gone`;
-      head = headlineLive(d.P, d.range, d.avgs, d.r.elapsed_pct, d.pending);
+      head = headlineLive(d.P, d.range, d.avgs, d.r.elapsed_pct, d.pending || d.rangeErr);
       if (d.h && d.h.today_us_holiday) notes.push('US markets are closed today; evenings are usually quieter on such days, so the projection may run high.');
       if (d.r.opening_artifact) notes.push('The first snapshot of the day looks stale, so treat this projection with care until the next update.');
     } else if (d.last) {
@@ -336,7 +353,9 @@
   function daysBetween(a, b) { return Math.round((Date.parse(b) - Date.parse(a)) / 86400000); }
   const lastWhen = d => daysBetween(d.last.date, d.ist.iso) <= 6 ? fmt.weekdayLong(d.last.date) : fmt.dayMonth(d.last.date);
 
-  const rangeText = (rg, pending) => pending ? 'Loading the measured range…' : !rg ? 'Too early for a measured range: the first check is at 09:30'
+  const rangeText = (rg, pending, err) => pending ? 'Loading the measured range…'
+    : err ? 'Measured range unavailable (the past days did not load; Retry is below)'
+    : !rg ? 'Too early for a measured range: the first check is at 09:30'
     : rg.hi !== null ? `Likely range ${nb(`${cr(rg.lo, 1)} to ${cr(rg.hi, 1)} Cr`)} (held on 8&nbsp;in&nbsp;10 past&nbsp;days)`
     : `Likely ${cr(rg.lo, 1)} Cr or more (held on 8&nbsp;in&nbsp;10 past&nbsp;days)`;
   const arrow = c => c.dir === 'up' ? '▲' : c.dir === 'down' ? '▼' : '';
@@ -357,7 +376,7 @@
     if (d.state === 'live') {
       const c = vsAvg(d.P, ma, d.range);
       return `<div class="stat stat--lead"><div class="stat-label">Projected revenue today</div><div class="stat-value">${cr(d.P)}<small>Cr</small></div>`
-        + `<div class="stat-sub">${rangeText(d.range, d.pending)}</div></div>`
+        + `<div class="stat-sub">${rangeText(d.range, d.pending, d.rangeErr)}</div></div>`
         + `<div class="td-booked">${splitBar(d.r.booked_fut_rev_cr, d.r.booked_opt_rev_cr, d.P, `₹${num(d.B, 2)} crore booked of ₹${num(d.P, 2)} crore projected`)}`
         + `<div class="td-booked-cap"><strong>${cr(d.B)} Cr booked</strong> by ${d.clock}</div>`
         + `<div class="td-booked-note">${esc(bookedNote(d.P, d.B, d.min))}</div></div>`
@@ -806,6 +825,9 @@
     const label = d.state === 'live' ? 'Live' : d.state === 'closed' ? 'Session closed'
       : !d.h ? 'Loading' : !d.h.today_is_session ? 'No trading today' : d.ist.min < 540 ? 'Opens 09:00 IST' : 'Waiting for data';
     MCX.store.set('session', { state: d.state, label });
+    // Off the Today page the completed days load only when the header needs them:
+    // before the session opens, to say whether there is one today.
+    if (d.state === 'pre' && !d.h && !S.homeErr) loadHome();
     if (d.state === 'pre' && d.h) {
       const meta = $('refreshMeta');
       if (meta) meta.textContent = `data through ${fmt.dayMonth(d.h.sessions_through)}`;
@@ -816,13 +838,18 @@
     if (S.refresh === undefined && !S.home) return;        // nothing to show yet
     const d = derive();
     if (S.refresh === undefined && d.state === 'pre' && d.ist.min >= 540) return;   // wait for the first refresh during the day
-    const l = lede(d);
-    $('tdStats').innerHTML = panelStats(d);
-    renderSessions(d); renderAverages(d); renderTrust(d); renderDaily(d);
-    renderDrivers(d); renderContracts(d); renderQuarter(); renderFoot(d);
-    publishStatus(d);
-    if (S.present) renderPresent(d, l);
-    if (PF.data) renderProfile();
+    // Each section on its own: one that throws on odd data is logged and keeps
+    // its last content, instead of stopping every section after it.
+    const safe = (name, fn) => { try { return fn(); } catch (e) { console.error('[today] ' + name, e); } };
+    const l = safe('lede', () => lede(d));
+    safe('stats', () => { $('tdStats').innerHTML = panelStats(d); });
+    safe('sessions', () => renderSessions(d)); safe('averages', () => renderAverages(d));
+    safe('trust', () => renderTrust(d)); safe('daily', () => renderDaily(d));
+    safe('drivers', () => renderDrivers(d)); safe('contracts', () => renderContracts(d));
+    safe('quarter', () => renderQuarter()); safe('foot', () => renderFoot(d));
+    safe('status', () => publishStatus(d));
+    if (S.present) safe('present', () => renderPresent(d, l));
+    if (PF.data) safe('profile', () => renderProfile());
     S.width = $('today').clientWidth;
   }
 
@@ -877,7 +904,8 @@
   MCX.store.on('refresh', r => {
     const was = S.refresh && S.refresh.session_closed;
     S.refresh = r;
-    if (r && r.session_closed && !was) loadHome(true);      // the day just closed: pick up its final row when it lands
+    // The day just closed: pick up its final row when it lands (if the completed days are shown or loaded)
+    if (r && r.session_closed && !was && (S.home || MCX.router.current() === 'today')) loadHome(true);
     render();
   });
   makeRangeToggle({
@@ -910,13 +938,24 @@
   function renderProfile() {
     const d = PF.data;
     if (!d || !$('tdProfile').open || !$('tdProfCum').clientWidth) return;     // drawn when it is visible
+    const empty = profileEmptyNote(d);
+    if (empty) {                      // no qualifying day: say so instead of "the last —, 0%"
+      $('tdProfLede').textContent = empty;
+      $('tdProfBuckets').innerHTML = ''; $('tdProfCum').innerHTML = ''; $('tdProfLegend').innerHTML = '';
+      return;
+    }
     const bs = profileShares(d);
+    if (!bs || !bs.length) {          // no buckets in the payload: say so instead of throwing on reduce()
+      $('tdProfLede').textContent = 'No session profile is available for this period.';
+      $('tdProfBuckets').innerHTML = ''; $('tdProfCum').innerHTML = '';
+      return;
+    }
     const evening = bs.filter(b => b.start >= 480).reduce((a, b) => a + b.share, 0);
     const top = bs.reduce((a, b) => (b.share / (b.end - b.start) > a.share / (a.end - a.start) ? b : a));
     const r = S.refresh, live = r && r.success && !r.session_closed && r.trading_date === MCX.market.ist().iso;
     const n = d.rolling_average.days_used;
     const span = bs[bs.length - 1].end, closeLab = bs[bs.length - 1].label.split('–')[1];   // 23:30, or 23:55 in US winter
-    $('tdProfLede').textContent = `On the median day of the last ${n}, ${num(evening, 0)}% of turnover came in the evening session (17:00–${closeLab}). `
+    $('tdProfLede').textContent = `On the median day of the last ${n === 1 ? 'full session' : n + ' full sessions'}, ${num(evening, 0)}% of turnover came in the evening session (17:00–${closeLab}). `
       + `The busiest stretch per hour is ${top.label}.` + (live ? ` By ${clock(r.elapsed_min)} a typical day has done ${num(doneBy(bs, r.elapsed_min), 0)}% of its turnover.` : '');
     const mx = Math.max(...bs.map(b => Math.max(b.p90 || 0, b.share, b.fixed))) * 1.08;
     const X = v => (v / mx * 100).toFixed(2);
@@ -983,5 +1022,7 @@
     mount() { loadHome(); loadQuarter(); render(); },
     trustSvg,                          // reused by Lab › Diagnostics
   };
-  loadHome();      // start at page load, whatever page opens first: Today is one click away and the header status needs it
+  // No load here: Today's mount() loads the completed days, and publishStatus() loads them off
+  // Today only before the open, when the header status needs them (Phase 4: this used to run on
+  // every page load, a ~2-6 s cold request most pages never used).
 })();

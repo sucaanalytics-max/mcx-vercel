@@ -6,10 +6,12 @@
     <string>com.mcx.daily-verify</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/bin/python3</string>
-        <string>/Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel/scripts/daily_verify.py</string>
-        <string>--days</string>
-        <string>3</string>
+        <!-- scripts/mcx_python.sh picks the first interpreter that has the
+             packages (MCX_PYTHON, .venv, python3.14, python3), so a Homebrew
+             upgrade can't silently strand the job the way 10 Nov did. -->
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>exec "$(./scripts/mcx_python.sh)" scripts/daily_verify.py --days 3</string>
     </array>
     <key>WorkingDirectory</key>
     <string>/Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel</string>
@@ -21,9 +23,9 @@
         <integer>0</integer>
     </dict>
     <key>StandardOutPath</key>
-    <string>/Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel/logs/daily_verify.log</string>
+    <string>/Users/pranayagarwal/Library/Logs/mcx/daily_verify.log</string>
     <key>StandardErrorPath</key>
-    <string>/Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel/logs/daily_verify.log</string>
+    <string>/Users/pranayagarwal/Library/Logs/mcx/daily_verify.log</string>
     <key>RunAtLoad</key>
     <false/>
 </dict>

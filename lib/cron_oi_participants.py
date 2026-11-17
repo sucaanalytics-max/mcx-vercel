@@ -18,19 +18,12 @@ Source: https://www.mcxindia.com/docs/default-source/market-operations/
 from http.server import BaseHTTPRequestHandler
 import json, urllib.request, urllib.error, os, re, time
 from io import BytesIO
-from datetime import datetime, timedelta
+from datetime import datetime
 from urllib.parse import urlparse, parse_qs
 
-try:
-    from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
-        now_ist, is_trading_day, make_cors_headers,
-    )
-except ImportError:
-    from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
-        now_ist, is_trading_day, make_cors_headers,
-    )
+from lib.mcx_config import (
+    now_ist, make_cors_headers,
+)
 
 CRON_SECRET = os.environ.get("CRON_SECRET", "")
 MAX_RETRIES = 2
@@ -171,30 +164,15 @@ def _parse_participants(xlsx_bytes):
     return report_date, rows
 
 
-def sb_upsert(table, rows):
-    """Upsert rows to Supabase in batches. Treats 409 as success."""
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-    headers = {
-        "apikey": SUPABASE_WRITE_KEY,
-        "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates",
-    }
-    errors = []
-    for i in range(0, len(rows), 50):
-        chunk = rows[i:i + 50]
-        body = json.dumps(chunk).encode()
-        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                pass
-        except urllib.error.HTTPError as e:
-            if e.code == 409:
-                continue
-            err_body = e.read().decode()[:200] if e.fp else ""
-            errors.append(f"batch {i}: HTTP {e.code} — {err_body}")
-    return errors
+def sb_upsert(table, rows, stats=None):
+    """Upsert rows in batches; returns a list of error strings.
 
+    A 409 means the batch hit the table's unique key on rows already stored
+    (there is no on_conflict, so merge-duplicates cannot update them). Those
+    rows are kept as they are, not written: counted in stats['skipped'] when a
+    stats dict is passed, so callers stop reporting them as upserted."""
+    from lib.supabase import upsert_batches
+    return upsert_batches(table, rows, stats=stats, on_409="skip")
 
 def refresh_oi_participants(dt=None):
     """Download, parse, and upsert OI participant data. Returns summary dict."""

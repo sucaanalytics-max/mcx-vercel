@@ -7,21 +7,15 @@ Reads mcx_commodity_daily, aggregates by (date, commodity), computes rolling
 Schedule: 19:50 IST (after cron_models at 19:45).
 """
 from http.server import BaseHTTPRequestHandler
-import json, math, urllib.request, urllib.error
+import json, math
 from urllib.parse import urlparse, parse_qs
 
-try:
-    from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
-        COMMODITY_MAP, COMMODITY_HEAD,
-        now_ist, make_cors_headers,
-    )
-except ImportError:
-    from lib.mcx_config import (
-        SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_WRITE_KEY,
-        COMMODITY_MAP, COMMODITY_HEAD,
-        now_ist, make_cors_headers,
-    )
+from lib.mcx_config import (
+    COMMODITY_MAP, COMMODITY_HEAD,
+    now_ist, make_cors_headers,
+)
+
+from lib.supabase import fetch_all, upsert_batches  # one REST client (Phase 3)
 
 import os
 
@@ -36,60 +30,6 @@ MIN_AVG_TURNOVER_CR = 50  # minimum avg daily turnover to process
 # ~35-39% of signals, and part of that is an expiry-cycle effect (monthly
 # contracts shed OI in expiry week) rather than information.
 OI_IN_COMPOSITE = False
-
-
-def sb_get(table, params=""):
-    url = f"{SUPABASE_URL}/rest/v1/{table}{params}"
-    req = urllib.request.Request(url, headers={
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
-    })
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode())
-
-
-def sb_upsert(table, rows, on_conflict=None):
-    url = f"{SUPABASE_URL}/rest/v1/{table}"
-    if on_conflict:
-        # Merge on the natural key so re-runs UPDATE existing rows instead of
-        # colliding with the unique constraint (the surrogate id PK can't merge).
-        url += f"?on_conflict={on_conflict}"
-    headers = {
-        "apikey": SUPABASE_WRITE_KEY,
-        "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates",
-    }
-    errors = []
-    for i in range(0, len(rows), 50):
-        chunk = rows[i:i + 50]
-        body = json.dumps(chunk).encode()
-        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                pass
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode()[:200] if e.fp else ""
-            errors.append(f"batch {i}: HTTP {e.code} — {err_body}")
-    return errors
-
-
-def fetch_all(table, select, order="trading_date"):
-    all_rows, offset = [], 0
-    while True:
-        rows = sb_get(table, f"?select={select}&order={order}.asc&limit=1000&offset={offset}")
-        all_rows.extend(rows)
-        if len(rows) < 1000:
-            break
-        offset += 1000
-    return all_rows
-
-
-def _f(v):
-    try:
-        return float(v) if v is not None else None
-    except (TypeError, ValueError):
-        return None
 
 
 def _zscore(values, idx, window):
@@ -156,8 +96,9 @@ def compute_commodity_signals(mode="recent"):
         a["total_premium_cr"] += float(r.get("premium_turnover_cr") or 0)
         a["total_open_interest"] += int(r.get("open_interest") or 0)
         a["total_oi_value_cr"] += float(r.get("oi_value_cr") or 0)
-        # OI comes from Dhan (scripts/backfill_commodity_oi.py) and 0 means
-        # missing: a Dhan gap or a filtered glitch day. If any futures leg of
+        # OI comes from MCX's Bhavcopy (scripts/backfill_commodity_oi.py; Dhan
+        # before Nov 2026) and 0 means missing: no Bhavcopy yet, or an old
+        # Dhan gap / glitch day. If any futures leg of
         # the complex lacks it, the parent total would be a partial sum, so
         # the whole day is excluded from the OI z-score.
         if r.get("instrument_type") == "FUTCOM" and not r.get("open_interest"):
@@ -259,7 +200,7 @@ def compute_commodity_signals(mode="recent"):
             })
 
     log.append(f"Upserting {len(results)} rows ({mode})")
-    errors = sb_upsert("mcx_commodity_signals", results, on_conflict="trading_date,commodity")
+    errors = upsert_batches("mcx_commodity_signals", results, on_conflict="trading_date,commodity")
     if errors:
         log.extend([f"Error: {e}" for e in errors])
 

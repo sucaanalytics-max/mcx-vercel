@@ -13,7 +13,7 @@ Draft, 28 Oct 2026. Status: **plan only, nothing built.**
 
 ### Edge test (28 Oct 2026): where is our edge?
 
-Script: `scripts/options_edge_test.py`. Stock: MCX.NS (yfinance hourly and daily). Signals come from `mcx_snapshots` (23 Feb–28 Oct 2026) and `mcx_daily_revenue` (Jan 2022–Oct 2026). No look-ahead: an intraday snapshot must be captured at least 5 minutes before entry, and the daily signal enters at the **next** session's open. IC is the Spearman rank correlation. Multi-day horizons use non-overlapping samples (mean IC over the h offsets; t is approximate).
+Script: `research/options_edge_test.py`. Stock: MCX.NS (yfinance hourly and daily). Signals come from `mcx_snapshots` (23 Feb–28 Oct 2026) and `mcx_daily_revenue` (Jan 2022–Oct 2026). No look-ahead: an intraday snapshot must be captured at least 5 minutes before entry, and the daily signal enters at the **next** session's open. IC is the Spearman rank correlation. Multi-day horizons use non-overlapping samples (mean IC over the h offsets; t is approximate).
 
 **Intraday: no edge.** Signal: revenue pace (cumulative revenue so far vs the trailing 20-day median at the same minute). Return: from the bar open at T to the 15:30 close.
 

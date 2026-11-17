@@ -12,6 +12,7 @@ from collections import defaultdict
 
 from lib.mcx_config import (
     SESSION_START, intraday_buckets, bucket_labels, session_end, session_total,
+    reached_close, session_shape, SESSION_FULL,
     fmt_ist_minutes, supabase_read_all, now_ist, get_day_type, calc_revenue,
 )
 
@@ -112,7 +113,10 @@ def generate_intraday_curves(days=30, include_today=True):
         f"?select=trading_date,elapsed_min,fut_notl_cr,opt_prem_cr"
         f"&trading_date=gte.{start_date}"
         f"&order=trading_date.asc,elapsed_min.asc",
-        max_rows=5000,
+        # days<=90 (+10) is ~70 sessions x ~60 snapshots = ~4.2k rows: close to
+        # the old 5k cap. newest_first: an overflow drops the oldest days.
+        max_rows=8000,
+        newest_first=True,
     )
 
     # Group by trading_date
@@ -130,15 +134,28 @@ def generate_intraday_curves(days=30, include_today=True):
     other_season = [d for d in by_date if session_end(d) != close_today]
     for d in other_season:
         del by_date[d]
+    # Part-day sessions (morning- or evening-closed) have no volume in the
+    # closed half, so their bucket shares describe a different day; same rule
+    # as the adaptive curve in mcx_config._compute_adaptive_weights.
+    part_days = [d for d in by_date if session_shape(d)["type"] != SESSION_FULL]
+    for d in part_days:
+        del by_date[d]
     hist_dates = sorted(by_date.keys(), reverse=True)[:days]
 
     # ── Historical bucket weights per day ──
     daily_curves = []
     all_weights = [[] for _ in range(7)]  # 7 buckets
+    incomplete_days = 0   # same-season full days whose snapshots stop before the close
 
     for dt_str in hist_dates:
         snaps = by_date[dt_str]
         if len(snaps) < 4:
+            continue
+        # A day cut short (relay stopped before the close) reads its missing
+        # tail as zero volume; see mcx_config.reached_close.
+        # 2-16 Nov 2026 all end at 23:30: the relay ran pre-23:55 code.
+        if not reached_close(max(s["elapsed_min"] for s in snaps), dt_str):
+            incomplete_days += 1
             continue
         w, total_vol = _derive_bucket_weights(snaps, dt_str)
         if w is None:
@@ -170,13 +187,13 @@ def generate_intraday_curves(days=30, include_today=True):
     evening_pct = round(sum(avg_weights[4:]) * 100, 1) if n_days > 0 else 67.0
 
     # ── Percentiles (per bucket) ──
-    pct_keys = [10, 25, 50, 75, 90]
-    percentiles = {}
-    for p in pct_keys:
-        percentiles[f"p{p}"] = [
-            round(_percentiles(all_weights[i], [p])[p], 4)
-            for i in range(7)
-        ]
+    # None with no qualifying day: all-zero lists read as "0% in every bucket".
+    percentiles = None
+    if n_days:
+        percentiles = {
+            f"p{p}": [round(_percentiles(all_weights[i], [p])[p], 4) for i in range(7)]
+            for p in (10, 25, 50, 75, 90)
+        }
 
     # ── Today's developing curve ──
     today_data = None
@@ -253,8 +270,9 @@ def generate_intraday_curves(days=30, include_today=True):
         _lam = _math.log(2) / _halflife
         ewma_buckets = [0.0] * 7
         ewma_total_w = 0.0
-        # daily_curves is sorted most recent last; reverse for age calculation
-        for age, dc in enumerate(reversed(daily_curves)):
+        # daily_curves is newest first (hist_dates is sorted descending), so
+        # the index is the age: the newest day gets weight 1.
+        for age, dc in enumerate(daily_curves):
             w = _math.exp(-_lam * age)
             for b in range(7):
                 ewma_buckets[b] += w * dc["buckets"][b]
@@ -293,6 +311,8 @@ def generate_intraday_curves(days=30, include_today=True):
         "rolling_average": {
             "days_used": n_days,
             "other_season_days_excluded": len(other_season),
+            "part_days_excluded": len(part_days),
+            "incomplete_days_excluded": incomplete_days,
             "buckets": [
                 {"label": labels[i], "weight": avg_weights[i], "std": std_weights[i]}
                 for i in range(7)

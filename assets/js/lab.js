@@ -1,7 +1,8 @@
 /* MCX Revenue Monitor: the Lab pages — Diagnostics, Positioning, Margins.
    Data: /api/exchange_dashboard?view=home (the live projection's measured error, as on Today),
-   /api/analytics (the ensemble score against later share prices) and its hourly_accuracy section,
-   /api/commodity_dashboard?view=oi_participants and ?view=margins.
+   /api/analytics?fields=page (the ensemble score against later share prices) and its hourly_accuracy
+   section, /api/commodity_dashboard?view=oi_participants&fields=page and ?view=margins. fields=page
+   is the part of each payload these pages read (scripts/test_performance.py checks it).
    Charts are SVG coloured by CSS variables, so they follow the theme without redrawing. */
 (function () {
   'use strict';
@@ -58,8 +59,10 @@
   // Positioning: participation against a year ago, futures and options
   function posLede(g, asOf) {
     const o = g.Overall, f = g.Futures, p = g.Options;
+    // The leader's growth first, then the other side's, named: "led by options (+99% against +41% for futures)"
+    const [lead, other] = f.yoy_pct >= p.yoy_pct ? [['futures', f], ['options', p]] : [['options', p], ['futures', f]];
     const head = `Participation in MCX contracts is ${Math.round(Math.abs(o.yoy_pct))}% ${o.yoy_pct >= 0 ? 'higher' : 'lower'} than a year ago, `
-      + `${f.yoy_pct >= p.yoy_pct ? 'led by futures' : 'led by options'} (${signed(f.yoy_pct, 0)}% against ${signed(p.yoy_pct, 0)}% for ${f.yoy_pct >= p.yoy_pct ? 'options' : 'futures'}).`;
+      + `led by ${lead[0]} (${signed(lead[1].yoy_pct, 0)}% against ${signed(other[1].yoy_pct, 0)}% for ${other[0]}).`;
     const parts = [`${num(o.current)} participants counted across contracts on ${fmt.dayMonth(asOf)}: ${signed(o.wow_pct)}% on the week and ${signed(o.mom_pct)}% on the month.`];
     const big = [['Futures', f], ['Options', p]].filter(([, x]) => Math.abs(x.wow_pct) >= 10);
     big.forEach(([k, x]) => parts.push(`${k} participation ${x.wow_pct > 0 ? 'rose' : 'fell'} ${Math.round(Math.abs(x.wow_pct))}% in the week.`));
@@ -107,7 +110,14 @@
     return { head, deck: parts.join(' '), tender: tender.length };
   }
 
-  MCX.labModel = { diagLede, corr, posLede, mix, marginLede, pretty, signed };
+  // The projections use the adaptive intraday curve, fitted on the latest days of
+  // snapshots: on those days the check is in-sample and reads better than it should.
+  function hourlyInSampleNote(m) {
+    if (!m || !m.curve_fitted_in_sample) return '';
+    return `${num(m.in_sample_days)} of the ${num(m.evaluated_days)} days are inside the ${num(m.curve_training_days)}-day window the intraday curve is fitted on, so on those days the projections are in-sample and flatter the result.`;
+  }
+
+  MCX.labModel = { diagLede, corr, posLede, mix, marginLede, pretty, signed, hourlyInSampleNote };
   if (window.MCX_TEST) return;
 
   // ════════════════════════════════════════════════════════════════════════
@@ -156,7 +166,7 @@
 
   function loadDiagnostics() {
     const a = fetchRanged('/api/exchange_dashboard?view=home').then(d => { if (d.success) DG.home = d; });
-    const b = fetchRanged('/api/analytics').then(d => { if (!d.success) throw new Error(d.error || 'No data'); DG.an = d; });
+    const b = fetchRanged('/api/analytics?fields=page').then(d => { if (!d.success) throw new Error(d.error || 'No data'); DG.an = d; });
     return Promise.allSettled([a, b]).then(rs => {
       DG.err = rs.map(r => r.status === 'rejected' ? (r.reason && r.reason.message) || String(r.reason) : null).filter(Boolean).join('; ');
       renderDiagnostics();
@@ -274,7 +284,8 @@
     const cv = d.convergence || {};
     $('dgHourlyBasis').innerHTML = INFO + `<span>Re-runs the ensemble at each hour of the last ${(d.data_quality || {}).lookback_days || 90} days, feeding it that hour’s projected revenue instead of the final. `
       + (cv.signal_90pct ? `The intraday signal first matches the close on 9 days in 10 at ${esc(cv.signal_90pct.label)}. ` : '')
-      + 'Direction right compares the signal’s sign with the share price over the next day and 5 days, from that day’s close; readings after 15:30, when the NSE has shut, could only be acted on a day later.</span>';
+      + `Direction right compares the signal’s sign with the share price over the next day and 5 days, entering at the next session’s close (${(d.methodology || {}).entry_lag_days || 1} day later), since most readings come after the NSE shuts at 15:30. `
+      + hourlyInSampleNote(d.methodology) + '</span>';
   }
 
   makeRangeToggle({ key: 'icChart', containerId: 'dgIcRange', ranges: ['Q', '1Y', '2Y', 'Max'], defaultRange: '1Y', labelIds: ['dgIcRangeLabel'], onChange: () => DG.an && renderIc(DG.an) });
@@ -284,7 +295,7 @@
     let started = false;
     const go = () => {
       if (started) return; started = true;
-      box.innerHTML = '<span class="skel"></span> <span class="note">Re-running 90 days of snapshots, about 15 seconds…</span>';
+      box.innerHTML = '<span class="skel"></span> <span class="note">Re-running 90 days of snapshots…</span>';
       fetchRanged('/api/analytics?section=hourly_accuracy').then(d => { if (!d.success) throw new Error(d.error || 'No data'); renderHourly(d); })
         .catch(e => MCX.ui.error(box, 'Could not load the intraday check: ' + (e.message || e), () => { started = false; go(); }));
     };
@@ -300,7 +311,7 @@
   // ════════════════════════════════════════════════════════════════════════
   const PS = { data: null, inst: 'Futures', width: 0 };
   function loadPositioning() {
-    return fetchRanged('/api/commodity_dashboard?view=oi_participants').then(d => {
+    return fetchRanged('/api/commodity_dashboard?view=oi_participants&fields=page').then(d => {
       if (!d.success) throw new Error(d.error || 'No data');
       PS.data = d; renderPositioning();
     }).catch(e => MCX.ui.error($('psChart'), 'Could not load participation: ' + (e.message || e), loadPositioning));

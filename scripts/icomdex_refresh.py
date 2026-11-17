@@ -20,24 +20,19 @@ Usage:
   python3 scripts/icomdex_refresh.py --backfill 2015-12-31 today   # chunked range
   python3 scripts/icomdex_refresh.py --dry-run                # fetch+parse, no writes
 """
-import sys, os, json, time, urllib.request
-from curl_cffi import requests as cfreq
-from datetime import datetime, timedelta, timezone, date
+import sys, os, json, time
+from curl_cffi import requests as cfreq  # noqa: F401  (fail fast without curl_cffi; sessions: lib.curl_session)
+from datetime import datetime, timedelta, date
 
 # ── Config (self-contained, mirrors bhav_refresh.py) ────────────────────────
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supabase.co")
-SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2cXdwZWJ2ZXFldHd3emttdHV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDkwMzMsImV4cCI6MjA4Njk4NTAzM30.U_Ug61Fp1NSCesXBkYU7GJGTbuATFtXsz6GTi5948Rw")
-try:  # write key: SUPABASE_SERVICE_KEY (env or .env.local, via lib.mcx_config) else anon
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from lib.mcx_config import SUPABASE_WRITE_KEY
-except ImportError:
-    SUPABASE_WRITE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "") or SUPABASE_ANON_KEY
+# Supabase access goes through lib.supabase (keys, headers, batching).
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from lib.calendar import now_ist  # noqa: E402  (naive IST wall clock)
+from lib.supabase import upsert_batches  # noqa: E402
+from lib.curl_session import new_session  # noqa: E402
 
 MCX_TIMEOUT = 30
 MCX_MAX_RETRIES = 2
-CHROME_IMPERSONATE = os.environ.get("MCX_IMPERSONATE", "chrome142")
-CHROME_IMPERSONATE_FALLBACKS = ["chrome136", "chrome131", "chrome"]
 
 PAGE_URL = "https://www.mcxindia.com/market-data/mcx-icomdex-indices"
 HISTORY_URL = PAGE_URL + "/GetMCXIComdexIndicesHistoryFilter"
@@ -48,29 +43,13 @@ BLOCKED_MSG = ("blocked_on:\"scripts/sql/create_icomdex_table.sql\" — the "
                "that SQL once in the Supabase SQL editor.")
 
 
-def now_ist():
-    return datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
-
-
 # ── MCX fetch ────────────────────────────────────────────────────────────────
 _session = None
 
 def _get_session(force_new=False):
     global _session
     if _session is None or force_new:
-        last_err = None
-        for target in [CHROME_IMPERSONATE, *CHROME_IMPERSONATE_FALLBACKS]:
-            try:
-                sess = cfreq.Session(impersonate=target)
-                sess.get(PAGE_URL, timeout=MCX_TIMEOUT)  # Akamai cookie warm-up
-                _session = sess
-                return _session
-            except Exception as e:
-                last_err = e
-                if "impersonat" in str(e).lower() or "not supported" in str(e).lower():
-                    continue
-                raise
-        raise last_err
+        _session = new_session(PAGE_URL, timeout=MCX_TIMEOUT)   # Akamai cookie warm-up
     return _session
 
 
@@ -141,32 +120,19 @@ def parse_rows(raw_rows):
 # ── Supabase upsert ──────────────────────────────────────────────────────────
 
 def upsert_batch(rows):
-    """Upsert records; PK (trading_date, index_code) makes merge-duplicates safe."""
-    for i in range(0, len(rows), 500):
-        batch = rows[i:i + 500]
-        req = urllib.request.Request(
-            f"{SUPABASE_URL}/rest/v1/{TABLE}",
-            data=json.dumps(batch).encode(), method="POST", headers={
-                "apikey": SUPABASE_WRITE_KEY,
-                "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
-                "Content-Type": "application/json",
-                "Prefer": "resolution=merge-duplicates",
-            })
-        try:
-            with urllib.request.urlopen(req, timeout=15):
-                pass
-        except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8", "replace")[:200] if e.fp else ""
-            if e.code in (404, 401, 403) or "42501" in body or "PGRST205" in body:
-                print(f"  ✗ upsert denied ({e.code}): {body}")
-                print(f"  {BLOCKED_MSG}")
-            else:
-                print(f"  ✗ upsert failed ({e.code}): {body}")
-            return False
-        except Exception as e:
-            print(f"  ✗ upsert failed: {e}")
-            return False
-    return True
+    """Upsert records; PK (trading_date, index_code) makes merge-duplicates safe.
+    Returns True when every batch was accepted."""
+    try:
+        errors = upsert_batches(TABLE, rows, batch=500)
+    except Exception as e:                      # network error / timeout
+        print(f"  ✗ upsert failed: {e}")
+        return False
+    for detail in errors:
+        denied = any(f"HTTP {c}" in detail for c in (401, 403, 404)) or "42501" in detail or "PGRST205" in detail
+        print(f"  ✗ upsert {'denied' if denied else 'failed'}: {detail}")
+        if denied:
+            print(f"  {BLOCKED_MSG}")
+    return not errors
 
 
 # ── Runner ───────────────────────────────────────────────────────────────────

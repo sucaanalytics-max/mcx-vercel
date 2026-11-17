@@ -10,7 +10,7 @@ events to find the structure with the highest robust win rate.
 Outputs JSON for downstream MC and Qwen analysis.
 
 Usage:
-  python3 scripts/silver_backtest.py
+  python3 research/silver_backtest.py
 """
 from __future__ import annotations
 import os, sys, json, datetime as dt

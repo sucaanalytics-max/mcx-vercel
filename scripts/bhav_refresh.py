@@ -14,78 +14,43 @@ Usage:
   python3 scripts/bhav_refresh.py              # refresh today + missing last 5 days
   python3 scripts/bhav_refresh.py 2026-02-20   # refresh specific date
   python3 scripts/bhav_refresh.py --backfill 30 # backfill last 30 days
+  python3 scripts/bhav_refresh.py --commodity 2026-11-10          # breakdown only
+  python3 scripts/bhav_refresh.py --commodity-recent 4 --retry-until 06:55
 """
-import sys, os, json, time, urllib.request
-from curl_cffi import requests as cfreq
-from datetime import datetime, timedelta, timezone
+import sys, os, time
+from curl_cffi import requests as cfreq  # noqa: F401  (fail fast without curl_cffi; sessions: lib.curl_session)
+from datetime import datetime, timedelta
 
 # Add parent to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from lib.mcx_config import get_day_type
-try:
-    from lib.mcx_config import session_end      # seasonal close: 23:55 in US winter
-except ImportError:                             # older lib: fixed 23:30 close
-    from lib.mcx_config import SESSION_END
-
-    def session_end(d=None):
-        return SESSION_END
+from lib.mcx_config import (  # noqa: E402
+    get_day_type, FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY,
+)
+# One calendar for every job (lib/calendar.py): a local copy would silently
+# miss the 2027 dates when they are added there.
+from lib.calendar import (  # noqa: E402,F401  (is_trading_day / MCX_HOLIDAYS: module API used by tests)
+    session_end, now_ist, is_trading_day, has_session, MCX_HOLIDAYS, MCX_SPECIAL_SESSIONS,
+)
 
 # ── Config ──────────────────────────────────────────────────────────────────
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://avqwpebveqetwwzkmtux.supabase.co")
-SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF2cXdwZWJ2ZXFldHd3emttdHV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0MDkwMzMsImV4cCI6MjA4Njk4NTAzM30.U_Ug61Fp1NSCesXBkYU7GJGTbuATFtXsz6GTi5948Rw")
-# Service-role key for writes (bypasses RLS); falls back to anon when unset.
-SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
-SUPABASE_WRITE_KEY = SUPABASE_SERVICE_KEY or SUPABASE_ANON_KEY
-FUTURES_RATE = 210.0
-OPTIONS_RATE = 4180.0
-NONTX_DAILY = 0.00
+# Supabase access goes through lib.supabase (keys, headers, batching); fee
+# rates come from lib.mcx_config.
 MCX_TIMEOUT = 30
 MCX_MAX_RETRIES = 2
-# Preferred curl_cffi impersonation target, with fallbacks for older curl_cffi
-# builds that don't recognise the newest token (e.g. local 0.13.0 lacks chrome142).
-CHROME_IMPERSONATE = os.environ.get("MCX_IMPERSONATE", "chrome142")
-CHROME_IMPERSONATE_FALLBACKS = ["chrome136", "chrome131", "chrome"]
 
-# MCX holidays (full-day closures only — no trading at all)
-MCX_HOLIDAYS = {
-    "2025-12-25", "2026-01-26", "2026-04-03", "2026-10-02", "2026-12-25",
-}
-
-
-def now_ist():
-    return datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
-
-
-def is_trading_day(d):
-    """Check if date is a weekday and not a full-closure holiday."""
-    return d.weekday() < 5 and d.strftime("%Y-%m-%d") not in MCX_HOLIDAYS
-
-
-try:                                            # weekend Muhurat etc.: backfill these too
-    from lib.mcx_config import MCX_SPECIAL_SESSIONS
-except ImportError:
-    MCX_SPECIAL_SESSIONS = {}
-
-
-def has_session(d):
-    """A trading day or a special session (MCX's historical report covers both)."""
-    return is_trading_day(d) or d.strftime("%Y-%m-%d") in MCX_SPECIAL_SESSIONS
+from lib.curl_session import new_session  # noqa: E402
+from lib.supabase import (  # noqa: E402
+    supabase_read, supabase_read_all, supabase_upsert, upsert_batches,
+)
 
 
 def check_relay_eod(date_iso):
     """Check if relay has already captured EOD data for this date.
     Returns the row dict if found (source='mcx_relay_eod'), else None."""
-    url = (f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue"
-           f"?trading_date=eq.{date_iso}&source=eq.mcx_relay_eod&limit=1")
-    req = urllib.request.Request(url, headers={
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
-    })
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            rows = json.loads(resp.read().decode())
-            return rows[0] if rows else None
+        rows = supabase_read("mcx_daily_revenue",
+                             f"?trading_date=eq.{date_iso}&source=eq.mcx_relay_eod&limit=1")
+        return rows[0] if rows else None
     except Exception:
         return None
 
@@ -96,20 +61,10 @@ _hist_session = None
 def _get_hist_session(force_new=False):
     global _hist_session
     if _hist_session is None or force_new:
-        last_err = None
-        for target in [CHROME_IMPERSONATE, *CHROME_IMPERSONATE_FALLBACKS]:
-            try:
-                sess = cfreq.Session(impersonate=target)
-                sess.get("https://www.mcxindia.com/market-data/historical-data", timeout=MCX_TIMEOUT)
-                _hist_session = sess
-                return _hist_session
-            except Exception as e:
-                last_err = e
-                if "impersonat" in str(e).lower() or "not supported" in str(e).lower():
-                    continue  # token unknown to this curl_cffi build — try the next
-                raise
-        raise last_err  # all impersonation targets failed
+        _hist_session = new_session("https://www.mcxindia.com/market-data/historical-data",
+                                    timeout=MCX_TIMEOUT)
     return _hist_session
+
 
 # MCX renamed the JSON keys when it moved the endpoint (Jun-2026). Accept both
 # spellings so a rollback on their side doesn't break us again.
@@ -189,7 +144,11 @@ def _aggregate_commodity_rows(date_iso, raw_rows):
         g["volume_lots"] += int(_field(r, "Volume", 0) or 0)
         g["turnover_lacs"] += float(r.get("TotalValue", 0) or 0)
         prem_str = str(r.get("PremiumTurnover", "-")).strip()
-        if prem_str not in ("-", "", "0"):
+        # Futures have no premium. Since ~21 Sep 2026 MCX sometimes copies
+        # TotalValue into PremiumTurnover on futures rows (10 Nov 06:31: all 22
+        # traded FUTCOM rows, Rs 40,289 Cr = their notional); 610 FUT rows over
+        # 25 dates were stored with that value before this guard.
+        if inst.upper().startswith("OPT") and prem_str not in ("-", "", "0"):
             try: g["premium_turnover_lacs"] += float(prem_str)
             except ValueError: pass
         g["open_interest"] += int(r.get("OpenInterest", 0) or 0)
@@ -217,33 +176,130 @@ def _aggregate_commodity_rows(date_iso, raw_rows):
     return rows_out
 
 
-def _upsert_commodity_batch(rows):
+# ── Completeness gate ─────────────────────────────────────────────────────────
+# MCX publishes a day's Historical Detailed Report in pieces. Probed for
+# 10 Nov 2026 (close 23:30): 23:48 no rows; 00:35 and 02:00 the endpoint
+# returned zero rows for EVERY date (9 Nov too); 04:31 all 42 rows and
+# contracts, but no option premium; 06:31 complete. The anon key can INSERT
+# but not UPDATE mcx_commodity_daily, so a partial write is permanent unless
+# SUPABASE_SERVICE_KEY is set. Write only complete breakdowns.
+MIN_BREAKDOWN_ROWS = 20
+MIN_OPT_PREMIUM_SHARE = 0.9   # traded option rows that must carry premium
+
+
+def breakdown_completeness(rows):
+    """(ok, reason) for aggregated commodity rows from _aggregate_commodity_rows.
+
+    Complete = enough rows, futures turnover present, and (if any options
+    traded) nearly every traded option row carries premium."""
+    if not rows or len(rows) < MIN_BREAKDOWN_ROWS:
+        return False, f"only {len(rows or [])} commodity rows"
+    fut = [r for r in rows if str(r["instrument_type"]).upper().startswith("FUT")]
+    if sum(r["turnover_cr"] or 0 for r in fut) <= 0:
+        return False, "futures turnover missing"
+    opt = [r for r in rows if str(r["instrument_type"]).upper().startswith("OPT")
+           and (r["contracts"] or 0) > 0]
+    if opt:
+        with_prem = sum(1 for r in opt if r["premium_turnover_cr"])
+        if with_prem < MIN_OPT_PREMIUM_SHARE * len(opt):
+            return False, f"options premium missing ({with_prem}/{len(opt)} traded option rows)"
+    return True, ""
+
+
+_OI_FIELDS = ("open_interest", "oi_value_cr")
+
+
+def _read_existing_oi(dates):
+    """{(trading_date, commodity, instrument_type): {open_interest, oi_value_cr}}
+    for stored rows on `dates` that carry non-zero OI. Raises on a read error
+    (the caller then writes nothing)."""
+    out = {}
+    for d in sorted(set(dates)):
+        for r in supabase_read(
+                "mcx_commodity_daily",
+                f"?trading_date=eq.{d}&open_interest=gt.0"
+                f"&select=trading_date,commodity,instrument_type,open_interest,oi_value_cr"
+                f"&order=commodity.asc,instrument_type.asc&limit=1000", timeout=15):
+            out[(r["trading_date"], r["commodity"], r["instrument_type"])] = {
+                k: r[k] for k in _OI_FIELDS}
+    return out
+
+
+_bhav_session = None
+
+
+def fill_futures_oi(rows, date_iso, fetch=None):
+    """Put MCX Bhavcopy open interest on the futures rows (FUTCOM / FUTIDX) of
+    a freshly aggregated breakdown. The historical report has none, so without
+    this every new row starts at OI = 0 until backfill_commodity_oi runs.
+
+    fetch(date_iso) -> {(symbol, instrument): {open_interest, oi_value_cr}}
+    (default: lib.mcx_bhavcopy over a shared session). Soft: on any error, or
+    when MCX has no Bhavcopy for the date yet, the rows are returned unchanged
+    and preserve_existing_oi / the nightly backfill cover them."""
+    global _bhav_session
+    try:
+        if fetch is None:
+            from lib.mcx_bhavcopy import new_bhavcopy_session, fetch_futures_oi
+            if _bhav_session is None:
+                _bhav_session = new_bhavcopy_session(timeout=MCX_TIMEOUT)
+            fetch = lambda d: fetch_futures_oi(_bhav_session, d)[0]   # noqa: E731
+        oi = fetch(date_iso)
+    except Exception as e:   # noqa: BLE001
+        print(f"  ⓘ {date_iso}: Bhavcopy OI unavailable ({type(e).__name__}); OI left for the nightly backfill")
+        return rows
+    if not oi:
+        return rows
+    out = []
+    for r in rows:
+        new = oi.get((r["commodity"], r["instrument_type"]))
+        if new and new["open_interest"]:
+            r = {**r, "open_interest": new["open_interest"],
+                 "oi_value_cr": new["oi_value_cr"] if new["oi_value_cr"] is not None else 0}
+        out.append(r)
+    return out
+
+
+def preserve_existing_oi(rows, existing):
+    """MCX's historical report carries no open interest, so freshly aggregated
+    rows have open_interest = 0 unless fill_futures_oi found the Bhavcopy. The
+    nightly OI backfill (backfill_commodity_oi, MCX Bhavcopy) writes the real
+    figure onto those rows afterwards. A later re-write of the
+    breakdown (merge-duplicates, which can UPDATE once SUPABASE_SERVICE_KEY is
+    set) must not reset it to zero: keep the stored OI wherever the new row has
+    none. Returns new row dicts; a row with its own non-zero OI is unchanged."""
+    out = []
+    for r in rows:
+        key = (r["trading_date"], r["commodity"], r["instrument_type"])
+        if not r.get("open_interest") and key in existing:
+            r = {**r, **existing[key]}
+        out.append(r)
+    return out
+
+
+def _upsert_commodity_batch(rows, read_existing_oi=None):
     """Upsert commodity rows to mcx_commodity_daily.
 
     merge-duplicates needs UPDATE rights. With the anon key the RLS USING
     clause rejects it (42501) and a plain PATCH silently matches zero rows, so
-    existing dates can only be corrected with SUPABASE_SERVICE_KEY set."""
-    url = f"{SUPABASE_URL}/rest/v1/mcx_commodity_daily"
-    body = json.dumps(rows).encode()
-    req = urllib.request.Request(url, data=body, method="POST", headers={
-        "apikey": SUPABASE_WRITE_KEY,
-        "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates",
-    })
+    existing dates can only be corrected with SUPABASE_SERVICE_KEY set.
+
+    Stored non-zero open interest is carried into the payload (see
+    preserve_existing_oi). If it can't be read, nothing is written: a write
+    without it could zero the day's OI."""
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return True
+        existing = (read_existing_oi or _read_existing_oi)(r["trading_date"] for r in rows)
     except Exception as e:
-        detail = ""
-        if hasattr(e, "read"):
-            try: detail = e.read().decode()[:200]
-            except Exception: pass
-        print(f"  ⚠ commodity upsert failed: {e} {detail}".rstrip())
-        if "42501" in detail:
-            print("      RLS blocked the write: set SUPABASE_SERVICE_KEY "
-                  "(worktrees have no .env — run writes from the main checkout).")
+        print(f"  ⚠ commodity upsert skipped: could not read stored OI ({e})")
         return False
+    rows = preserve_existing_oi(rows, existing)
+    errors = upsert_batches("mcx_commodity_daily", rows, batch=max(len(rows), 1))
+    for detail in errors:
+        print(f"  ⚠ commodity upsert failed: {detail}")
+        if "42501" in detail:
+            print("      RLS blocked the write: set SUPABASE_SECRET_KEY "
+                  "(worktrees have no .env — run writes from the main checkout).")
+    return not errors
 
 
 def fetch_mcx_historical(date_iso, write_commodity=True):
@@ -257,11 +313,13 @@ def fetch_mcx_historical(date_iso, write_commodity=True):
             print(f"  ⓘ Historical API unavailable: {err}")
         return None
 
-    # ── Commodity-level upsert (new) ──
+    # ── Commodity-level upsert (complete breakdowns only) ──
     commodity_rows = _aggregate_commodity_rows(date_iso, raw_rows)
     if commodity_rows and write_commodity:
-        ok = _upsert_commodity_batch(commodity_rows)
-        if ok:
+        complete, why = breakdown_completeness(commodity_rows)
+        if not complete:
+            print(f"  ⓘ {date_iso}: commodity breakdown not written — {why}")
+        elif _upsert_commodity_batch(fill_futures_oi(commodity_rows, date_iso)):
             print(f"  ✓ {len(commodity_rows)} commodity rows → mcx_commodity_daily")
 
     # ── Exchange-wide aggregate (existing logic) ──
@@ -312,14 +370,9 @@ def fetch_mcx_historical(date_iso, write_commodity=True):
 
 
 def get_existing_dates():
-    """Fetch all dates already in Supabase."""
-    url = f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue?select=trading_date,source&order=trading_date.desc&limit=200"
-    req = urllib.request.Request(url, headers={
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
-    })
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        rows = json.loads(resp.read().decode())
+    """Dates (and their source) of the last 200 rows of mcx_daily_revenue."""
+    rows = supabase_read("mcx_daily_revenue",
+                         "?select=trading_date,source&order=trading_date.desc&limit=200")
     return {r["trading_date"]: r.get("source", "") for r in rows}
 
 
@@ -332,22 +385,50 @@ def get_commodity_dates(since_iso):
     rows (turnover_cr = 0), often before bhav_refresh runs. Counting those as
     coverage made ensure_commodity_breakdown() skip the date for good (found
     2026-05-27/28)."""
-    dates, offset = set(), 0
-    while True:
-        url = (f"{SUPABASE_URL}/rest/v1/mcx_commodity_daily"
-               f"?select=trading_date&trading_date=gte.{since_iso}&turnover_cr=gt.0"
-               f"&order=trading_date.asc&limit=1000&offset={offset}")
-        req = urllib.request.Request(url, headers={
-            "apikey": SUPABASE_ANON_KEY,
-            "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
-        })
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            page = json.loads(resp.read().decode())
-        dates.update(r["trading_date"] for r in page)
-        if len(page) < 1000:
-            break
-        offset += 1000
+    rows = supabase_read_all(
+        "mcx_commodity_daily",
+        f"?select=trading_date&trading_date=gte.{since_iso}&turnover_cr=gt.0&order=trading_date.asc",
+        max_rows=None, timeout=15)
+    dates = {r["trading_date"] for r in rows}
     return dates
+
+
+# commodity_breakdown() outcomes, and the --commodity CLI exit code for each.
+BREAKDOWN_WRITTEN = "written"
+BREAKDOWN_PRESENT = "present"            # a real breakdown is already stored
+BREAKDOWN_NOT_PUBLISHED = "not_published"  # MCX returned no rows yet
+BREAKDOWN_INCOMPLETE = "incomplete"      # rows, but a leg is missing (gate)
+BREAKDOWN_FETCH_ERROR = "fetch_error"
+BREAKDOWN_WRITE_FAILED = "write_failed"
+EXIT_OK, EXIT_ERROR, EXIT_NOT_READY = 0, 1, 3
+_EXIT_CODES = {
+    BREAKDOWN_WRITTEN: EXIT_OK, BREAKDOWN_PRESENT: EXIT_OK,
+    BREAKDOWN_NOT_PUBLISHED: EXIT_NOT_READY, BREAKDOWN_INCOMPLETE: EXIT_NOT_READY,
+    BREAKDOWN_FETCH_ERROR: EXIT_ERROR, BREAKDOWN_WRITE_FAILED: EXIT_ERROR,
+}
+
+
+def commodity_breakdown(date_iso, present=None):
+    """Write the per-commodity breakdown for date_iso if MCX has a complete one.
+
+    Returns (status, n_rows, detail); status is one of the BREAKDOWN_* values.
+    `present` is a set of dates already covered (get_commodity_dates); pass it
+    to skip the fetch for those. Idempotent."""
+    if present is not None and date_iso in present:
+        return BREAKDOWN_PRESENT, 0, ""
+    raw_rows, err = _fetch_mcx_raw(date_iso)
+    if raw_rows is None:
+        if err == "no data":
+            return BREAKDOWN_NOT_PUBLISHED, 0, "MCX historical report has no rows yet"
+        return BREAKDOWN_FETCH_ERROR, 0, str(err)[:200]
+    commodity_rows = _aggregate_commodity_rows(date_iso, raw_rows)
+    complete, why = breakdown_completeness(commodity_rows)
+    if not complete:
+        return BREAKDOWN_INCOMPLETE, len(commodity_rows), why
+    if not _upsert_commodity_batch(fill_futures_oi(commodity_rows, date_iso)):
+        return BREAKDOWN_WRITE_FAILED, len(commodity_rows), "upsert to mcx_commodity_daily failed"
+    contracts = sum(r["contracts"] for r in commodity_rows)
+    return BREAKDOWN_WRITTEN, len(commodity_rows), f"{contracts:,} contracts"
 
 
 def ensure_commodity_breakdown(date_iso, present=None):
@@ -357,32 +438,71 @@ def ensure_commodity_breakdown(date_iso, present=None):
     the per-commodity rows — so without this, every relay-EOD day is missing from
     mcx_commodity_daily and the commodity dashboard / signals silently lose data.
     Idempotent (merge-duplicates). Returns the number of rows upserted."""
-    if present is not None and date_iso in present:
-        return 0
-    raw_rows, err = _fetch_mcx_raw(date_iso)
-    if raw_rows is None:
-        if err and err != "no data":
-            print(f"  ⓘ {date_iso}: commodity breakdown unavailable: {err}")
-        return 0
-    commodity_rows = _aggregate_commodity_rows(date_iso, raw_rows)
-    if commodity_rows and _upsert_commodity_batch(commodity_rows):
-        print(f"  ✓ {date_iso}: {len(commodity_rows)} commodity rows → mcx_commodity_daily")
-        return len(commodity_rows)
+    status, n, detail = commodity_breakdown(date_iso, present)
+    if status == BREAKDOWN_WRITTEN:
+        print(f"  ✓ {date_iso}: {n} commodity rows → mcx_commodity_daily ({detail})")
+        return n
+    if status != BREAKDOWN_PRESENT:
+        print(f"  ⓘ {date_iso}: commodity breakdown {status}: {detail}")
     return 0
 
 
+def run_commodity_cli(dates, retry_until=None, retry_every_min=20, now=None, sleep=time.sleep):
+    """Write breakdowns for `dates`, retrying not-yet-ready ones every
+    retry_every_min until the IST clock time retry_until ("HH:MM", same
+    morning). Returns the exit code: 0 all present/written, 3 some still not
+    published/incomplete, 1 a fetch or write error on the last pass."""
+    now = now or now_ist
+    pending = list(dict.fromkeys(dates))
+    if not pending:
+        print("No dates to check.")
+        return EXIT_OK
+    deadline = None
+    if retry_until:
+        hh, mm = (int(x) for x in retry_until.split(":"))
+        deadline = hh * 60 + mm
+    while True:
+        try:
+            present = get_commodity_dates(min(pending))
+        except Exception as e:
+            print(f"  ⚠ coverage read failed ({e}); fetching all pending dates")
+            present = set()
+        had_error, still = False, []
+        for d in pending:
+            status, n, detail = commodity_breakdown(d, present)
+            print(f"  {d}: {status}" + (f" — {n} rows, {detail}" if n or detail else ""))
+            code = _EXIT_CODES[status]
+            if code != EXIT_OK:
+                still.append(d)
+                had_error = had_error or code == EXIT_ERROR
+        if not still:
+            return EXIT_OK
+        t = now()
+        cur = t.hour * 60 + t.minute
+        if deadline is None or cur + retry_every_min > deadline:
+            return EXIT_ERROR if had_error else EXIT_NOT_READY
+        print(f"  {len(still)} date(s) not ready — retrying in {retry_every_min} min "
+              f"(until {retry_until} IST)")
+        sleep(retry_every_min * 60)
+        pending = still
+
+
+def recent_session_dates(days, today=None):
+    """Sessions (trading days + special sessions) in the `days` calendar days
+    before today, oldest first. Today is excluded: its session isn't over."""
+    today = today or now_ist().date()
+    out = []
+    for i in range(days, 0, -1):
+        d = today - timedelta(days=i)
+        if has_session(d):
+            out.append(d.strftime("%Y-%m-%d"))
+    return out
+
+
 def upsert_rows(rows):
-    """Upsert revenue rows to Supabase."""
-    url = f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue?on_conflict=trading_date"
-    body = json.dumps(rows).encode()
-    req = urllib.request.Request(url, data=body, method="POST", headers={
-        "apikey": SUPABASE_WRITE_KEY,
-        "Authorization": f"Bearer {SUPABASE_WRITE_KEY}",
-        "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates,return=representation",
-    })
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode())
+    """Upsert revenue rows to mcx_daily_revenue (merge on trading_date); returns
+    the written rows. Raises on an HTTP error."""
+    return supabase_upsert("mcx_daily_revenue", rows, on_conflict="trading_date", timeout=15)
 
 
 def fetch_and_compute(date_iso, commodity_present=None):
@@ -482,9 +602,28 @@ def refresh(lookback_days=5, force_dates=None):
         print("No new data fetched.")
 
 
+def _opt(name, default=None):
+    if name in sys.argv:
+        i = sys.argv.index(name)
+        if i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+    return default
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         arg = sys.argv[1]
+        if arg in ("--commodity", "--commodity-recent"):
+            # Per-commodity breakdown only (mcx_commodity_daily), complete
+            # reports only. Exit 0 = written/present, 3 = not ready yet,
+            # 1 = fetch/write error.
+            #   --commodity 2026-11-10 [--retry-until 06:55 --retry-every 20]
+            #   --commodity-recent 4   [--retry-until 06:55 --retry-every 20]
+            val = sys.argv[2] if len(sys.argv) > 2 else ""
+            dates = ([val] if arg == "--commodity"
+                     else recent_session_dates(int(val or 4)))
+            sys.exit(run_commodity_cli(dates, retry_until=_opt("--retry-until"),
+                                       retry_every_min=int(_opt("--retry-every", 20))))
         if arg == "--backfill":
             days = int(sys.argv[2]) if len(sys.argv) > 2 else 30
             refresh(lookback_days=days)

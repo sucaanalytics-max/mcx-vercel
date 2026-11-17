@@ -5,42 +5,33 @@ Computes daily average revenue breakdown (Futures, Options, Total, O/F Ratio)
 across FY, quarterly, monthly, weekly, and day-of-week dimensions.
 Mirrors the user's Excel "Exchanges Dashboard" with YoY/QoQ/MoM/WoW metrics.
 """
-from http.server import BaseHTTPRequestHandler
-import json
-from datetime import date, timedelta
+from lib.api_handler import JSONHandler, CACHE_INTRADAY
+from datetime import date
 from collections import defaultdict
 
 from lib.mcx_config import (
-    supabase_read_all, now_ist, make_cors_headers,
+    supabase_read_all, now_ist, MCX_SPECIAL_SESSIONS,
+    int_param, 
 )
 
 
 # ─── Date helpers ───────────────────────────────────────────────────────────
+# FY / quarter labels come from lib.calendar (one copy for every dashboard).
+from lib.calendar import (  # noqa: E402
+    fy_label as _fy_label, quarter_label, prev_quarter as _prev_quarter,
+    yoy_quarter as _yoy_quarter,
+)
 
-def _fy_label(d):
-    """Return FY label for a date. Apr-Mar fiscal year."""
-    if d.month >= 4:
-        return f"FY{str(d.year + 1)[-2:]}"
-    return f"FY{str(d.year)[-2:]}"
+
+def _quarter_key(d):
+    """Return (quarter_label, fy_label) for a date."""
+    return quarter_label(d), _fy_label(d)
 
 
 def _fy_start(fy_label):
     """Return start date for a FY label like 'FY26'."""
     yy = int(fy_label[2:])
     return date(2000 + yy - 1, 4, 1)
-
-
-def _quarter_key(d):
-    """Return (quarter_label, fy_label) for a date."""
-    m, y = d.month, d.year
-    if m <= 3:
-        return f"Q4 FY{str(y)[-2:]}", f"FY{str(y)[-2:]}"
-    elif m <= 6:
-        return f"Q1 FY{str(y + 1)[-2:]}", f"FY{str(y + 1)[-2:]}"
-    elif m <= 9:
-        return f"Q2 FY{str(y + 1)[-2:]}", f"FY{str(y + 1)[-2:]}"
-    else:
-        return f"Q3 FY{str(y + 1)[-2:]}", f"FY{str(y + 1)[-2:]}"
 
 
 def _quarter_num(label):
@@ -52,24 +43,6 @@ def _month_key(d):
     """Return month key like 'FY 2026 March'."""
     fy = _fy_label(d)
     return f"{fy} {d.strftime('%B')}"
-
-
-def _prev_quarter(q_label):
-    """Return the previous quarter label. Q1 FY26 -> Q4 FY25."""
-    q_num = int(q_label[1])
-    fy = q_label[3:]  # e.g., "FY26"
-    if q_num == 1:
-        yy = int(fy[2:])
-        return f"Q4 FY{str(yy - 1).zfill(2)}"
-    return f"Q{q_num - 1} {fy}"
-
-
-def _yoy_quarter(q_label):
-    """Return same quarter, prior year. Q4 FY26 -> Q4 FY25."""
-    q_num = q_label[:2]
-    fy = q_label[3:]
-    yy = int(fy[2:])
-    return f"{q_num} FY{str(yy - 1).zfill(2)}"
 
 
 # ─── Aggregation helpers ────────────────────────────────────────────────────
@@ -117,6 +90,7 @@ def generate_exchange_dashboard(today=None):
         "?select=trading_date,fut_rev_cr,opt_rev_cr,total_rev_cr"
         "&order=trading_date.asc",
         max_rows=5000,
+        newest_first=True,   # a cap drops the oldest days, never the latest
     )
 
     # Parse and normalize
@@ -137,6 +111,14 @@ def generate_exchange_dashboard(today=None):
             "date": d, "dow": d.weekday(),  # 0=Mon, 4=Fri
             "fut": round(fut, 4), "opt": round(opt, 4), "total": round(total, 4),
         })
+
+    # A special session (the ~1-hour Muhurat, e.g. Rs 0.35 Cr on Sun 8 Nov 2026)
+    # keeps its bar in the daily trend but is not a trading day for any average:
+    # counted as one, it pulled the 10-day average ~8% low and disagreed with the
+    # Today page (lib/home_view.py excludes it the same way). Every statistic
+    # below is a per-day average, so excluding it changes no total.
+    all_days = data
+    data = [r for r in all_days if r["date"].isoformat() not in MCX_SPECIAL_SESSIONS]
 
     if not data:
         return {"success": False, "error": "No data available"}
@@ -388,10 +370,12 @@ def generate_exchange_dashboard(today=None):
 
     # ── 7. Daily Trend (full history; client slices via range chips) ─────
     daily_trend = []
-    for r in data:
+    for r in all_days:
+        iso = r["date"].isoformat()
         daily_trend.append({
-            "date": r["date"].isoformat(),
+            "date": iso,
             "fut": r["fut"], "opt": r["opt"], "total": r["total"],
+            **({"special": MCX_SPECIAL_SESSIONS[iso]} if iso in MCX_SPECIAL_SESSIONS else {}),
         })
 
     # ── 8. Latest day + 45d MA for hero KPI ────────────────────────────
@@ -424,20 +408,17 @@ def generate_exchange_dashboard(today=None):
 
 # ─── Vercel handler ────────────────────────────────────────────────────────
 
-class handler(BaseHTTPRequestHandler):
+class handler(JSONHandler):
     def do_GET(self):
-        origin = self.headers.get("Origin", "")
-        cors = make_cors_headers(origin)
         try:
             from urllib.parse import urlparse, parse_qs
             qs = parse_qs(urlparse(self.path).query)
             view = qs.get("view", [None])[0]
 
-            cache = "public, max-age=120, s-maxage=120"
+            cache = CACHE_INTRADAY
             if view == "intraday_curve":
                 from lib.intraday_curves import generate_intraday_curves
-                days = int(qs.get("days", ["30"])[0])
-                result = generate_intraday_curves(days=min(days, 90))
+                result = generate_intraday_curves(days=int_param(qs, "days", 30, 5, 90))
             elif view == "home":
                 # Today page: completed days, six averages, measured projection error.
                 # Changes once a day (after the close), so the CDN can hold it longer.
@@ -447,28 +428,7 @@ class handler(BaseHTTPRequestHandler):
             else:
                 result = generate_exchange_dashboard()
 
-            self.send_response(200)
-            for k, v in cors.items():
-                self.send_header(k, v)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Cache-Control", cache)
-            self.end_headers()
-            self.wfile.write(json.dumps(result).encode())
+            self.send_json(result, cache=cache)
         except Exception as e:
-            self.send_response(500)
-            for k, v in cors.items():
-                self.send_header(k, v)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode())
+            self.send_error_json(e)
 
-    def do_OPTIONS(self):
-        origin = self.headers.get("Origin", "")
-        cors = make_cors_headers(origin)
-        self.send_response(204)
-        for k, v in cors.items():
-            self.send_header(k, v)
-        self.end_headers()
-
-    def log_message(self, format, *args):
-        pass

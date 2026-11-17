@@ -43,7 +43,9 @@ for i, (s, e) in enumerate([("2025-04-01", "2025-06-30"), ("2025-07-01", "2025-0
     QS.append({"quarter": f"Q{i}", "label": "", "fy": "FY", "q_num": (i % 4) + 1, "start": s, "end": e,
                "revenue_cr": round(fo * 1.10), "expenses_cr": round(40 + 0.2 * fo * 1.10), "pat_cr": round((fo * 1.10 - (40 + 0.2 * fo * 1.10)) * 0.8)})
 rows = [r for a in QS for r in daily(a["start"], a["end"], 10)]
-ACTUALS = q.QUARTERLY_ACTUALS
+# The generate_quarterly scenario below is dated 30 Oct 2026, before Q2 FY27
+# was reported (3 Nov): use the actuals known then.
+ACTUALS = [a for a in q.QUARTERLY_ACTUALS if a["end"] <= "2026-06-30"]
 q.QUARTERLY_ACTUALS = QS
 
 fo = q._fo_by_quarter(rows)

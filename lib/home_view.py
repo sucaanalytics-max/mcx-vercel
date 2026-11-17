@@ -20,6 +20,7 @@ from datetime import date, datetime, timedelta
 from lib.mcx_config import (
     supabase_read_all, now_ist, is_trading_day,
     SESSION_START, MCX_MORNING_CLOSE, MCX_EVENING_CLOSE,
+    FINAL_ROW_SOURCES,
 )
 try:
     from lib.mcx_config import MCX_SPECIAL_SESSIONS   # weekend Muhurat etc.
@@ -33,7 +34,6 @@ except ImportError:                             # older lib: fixed 23:30 close
     def session_end(d=None):
         return SESSION_END
 
-FINAL_ROW_SOURCES = {"mcx_relay_eod", "mcx_historical"}
 THIN_SESSIONS = MCX_MORNING_CLOSE | MCX_EVENING_CLOSE    # part-day sessions: not typical days
 # US market holidays (NYSE). MCX's evening session is thin when US markets are shut, so the
 # projection runs high on these days; they are known in advance, so they are left out of the
@@ -54,25 +54,7 @@ ACCURACY_MIN_N = 20         # fewer days than this at a time: no figure
 
 
 # ─── Calendar helpers ──────────────────────────────────────────────────────
-
-def fy_label(d):
-    """MCX's year runs April to March: 29 Sep 2026 is in FY27."""
-    return f"FY{(d.year + 1 if d.month >= 4 else d.year) % 100:02d}"
-
-
-def fy_start(d):
-    return date(d.year if d.month >= 4 else d.year - 1, 4, 1)
-
-
-def quarter_start(d):
-    start = fy_start(d)
-    q = ((d.month - 4) % 12) // 3
-    m = start.month - 1 + 3 * q
-    return date(start.year + m // 12, m % 12 + 1, 1)
-
-
-def quarter_label(d):
-    return f"Q{((d.month - 4) % 12) // 3 + 1} {fy_label(d)}"
+from lib.calendar import fy_label, fy_start, quarter_start, quarter_label  # noqa: E402,F401
 
 
 def add_months(d, k):
@@ -101,11 +83,23 @@ def completed_days(rows, now):
         opt = r.get("opt_rev_cr") or 0
         if fut + opt <= 0 or d > today:
             continue
-        if d == today and not (r.get("source") in FINAL_ROW_SOURCES and now_min >= session_end(today)):
+        if d == today and not (r.get("source") in FINAL_ROW_SOURCES and now_min >= _close_min(today)):
             continue
         out.append({"date": d, "fut": fut, "opt": opt, "total": fut + opt})
     out.sort(key=lambda x: x["date"])
     return out
+
+
+def _close_min(d):
+    """The day's real close: 17:00 on an evening-closed session, else session_end(d)."""
+    try:
+        from lib.mcx_config import session_shape
+        shape = session_shape(d)
+        if shape["type"] != "closed":
+            return shape["end"]
+    except ImportError:
+        pass
+    return session_end(d)
 
 
 def _mean(rows):
@@ -244,7 +238,7 @@ def generate_home(now=None, rows=None, snaps=None):
         rows = supabase_read_all(
             "mcx_daily_revenue",
             "?select=trading_date,fut_rev_cr,opt_rev_cr,total_rev_cr,source&order=trading_date.asc",
-            max_rows=5000)
+            max_rows=5000, newest_first=True)
     if snaps is None:
         since = (today - timedelta(days=150)).isoformat()
         snaps = supabase_read_all(
@@ -252,7 +246,7 @@ def generate_home(now=None, rows=None, snaps=None):
             f"?select=trading_date,elapsed_min,proj_total_rev&proj_total_rev=not.is.null"
             f"&trading_date=gte.{since}&trading_date=lt.{today.isoformat()}"
             f"&order=trading_date.asc,elapsed_min.asc",
-            max_rows=15000)
+            max_rows=15000, newest_first=True)
     days = completed_days(rows, now)
     if not days:
         return {"success": False, "error": "No completed trading days"}

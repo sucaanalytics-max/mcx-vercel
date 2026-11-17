@@ -5,8 +5,7 @@ Parts: projection (our EPS vs consensus vs reported, walk-forward), events (real
 option-implied results-day move from NSE bhavcopy), live (implied event move from Dhan now).
 
 Run:
-  uv run --no-project --with scipy --with yfinance --with lxml --with pandas --with numpy \
-      --with "dhanhq<2.1" --with python-dotenv python -I scripts/results_event_study.py OUT_DIR
+  scripts/mcx_uv.sh --extra research python -I research/results_event_study.py OUT_DIR
 """
 from __future__ import annotations
 import sys, json, math, importlib.util, datetime as dt
@@ -20,7 +19,7 @@ from lib.mcx_config import DILUTED_SHARES_CR, supabase_read_all
 from lib.options_costs import leg_fees
 from api.quarterly import QUARTERLY_ACTUALS, Q4_EXPENSE_ADJ_CR, _fit_expense_model, _compute_tax_dep_rate
 
-_spec = importlib.util.spec_from_file_location("bhav", ROOT / "scripts" / "fetch_nse_fo_bhav.py")
+_spec = importlib.util.spec_from_file_location("bhav", ROOT / "research" / "fetch_nse_fo_bhav.py")
 bhav = importlib.util.module_from_spec(_spec); _spec.loader.exec_module(bhav)
 
 R, HALF_SPREAD = 0.065, 0.025

@@ -333,7 +333,7 @@
 
   function mountQuarter() {
     if (QS.data && Date.now() - QS.at < 5 * 60 * 1000) { renderQuarter(); return; }
-    fetch('/api/quarterly').then(r => r.json()).then(d => {
+    MCX.getJSON('/api/quarterly').then(d => {
       if (!d.success) throw new Error(d.error || 'No data');
       QS.data = d; QS.at = Date.now(); renderQuarter();
     }).catch(e => MCX.ui.error($('qpChart'), 'Could not load the quarter: ' + e.message, mountQuarter));
@@ -766,7 +766,7 @@
   }
 
   function mountScenarios() {
-    const q = QS.data ? Promise.resolve(QS.data) : fetch('/api/quarterly').then(r => r.json()).then(d => { if (d.success) { QS.data = d; QS.at = Date.now(); } return d; });
+    const q = QS.data ? Promise.resolve(QS.data) : MCX.getJSON('/api/quarterly').then(d => { if (d.success) { QS.data = d; QS.at = Date.now(); } return d; });
     Promise.all([fetchRanged(valUrl()), q]).then(([v, qd]) => {
       if (!v.success) throw new Error(v.error || 'No valuation data');
       if (!FV.data) FV.data = v;

@@ -25,7 +25,7 @@
 -- ORDER MATTERS — do steps 1–2 before running this, or the relay's EOD write
 -- and the 07:00 daily_verify will fail with 42501:
 --   1. Relay Mac: add the service-role key to the repo's .env.local
---        SUPABASE_SERVICE_KEY=<Supabase → Project Settings → API → service_role>
+--        SUPABASE_SECRET_KEY=<Supabase → Settings → API Keys → secret key, sb_secret_…>  (legacy SUPABASE_SERVICE_KEY also accepted)
 --      then restart the relay (launchctl kickstart -k gui/$(id -u)/com.mcx.relay).
 --      Its log must start with "Supabase writes as: service_role".
 --   2. Merge the PR that stops /api/mcxlive writing (Vercel never writes this

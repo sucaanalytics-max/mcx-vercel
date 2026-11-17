@@ -6,14 +6,16 @@ computes intraday revenue projection, and upserts snapshot to Supabase.
 The Vercel /api/refresh GET endpoint reads from Supabase to serve the frontend.
 
 Runs every 15 minutes during MCX trading hours (09:00 to 23:30 IST, or 23:55
-while the US is on standard time; see lib.mcx_config.session_end).
+while the US is on standard time; see lib.mcx_config.session_end). On part-day
+sessions it runs only the hours that trade: 17:00 to the close when the morning
+is closed, 09:00–17:00 when the evening is (lib.mcx_config.session_shape).
 Designed to be called by a cron/scheduled task starting at 8:00 AM IST.
 
 Usage:
   python3 scripts/mcx_relay.py          # single snapshot, push to Supabase
   python3 scripts/mcx_relay.py --loop   # loop every 15 min until session ends
 """
-import sys, os, json, math, time, urllib.request, urllib.error
+import sys, os, time, urllib.request, urllib.error
 
 # Force UTF-8 output on Windows (cp1252 can't handle Unicode symbols)
 if sys.platform == "win32":
@@ -23,7 +25,7 @@ if sys.platform == "win32":
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
-from curl_cffi import requests as cfreq
+from curl_cffi import requests as cfreq  # noqa: F401  (fail fast without curl_cffi; sessions: lib.curl_session)
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 import concurrent.futures as _cf
@@ -48,16 +50,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # ── Import shared config from single source of truth ────────────────────────
 from lib.mcx_config import (
-    SUPABASE_URL, SUPABASE_ANON_KEY,
-    FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY, TRADING_DAYS,
-    SESSION_START, session_end, fmt_ist_minutes,
-    DAY_MULTIPLIER, DAY_DESCRIPTION,
-    MCX_HOLIDAYS_2026,
-    now_ist, get_day_type, get_intraday_weight,
-    project_full_day, calc_revenue, calc_uncertainty,
+    FUTURES_RATE, OPTIONS_RATE, NONTX_DAILY, SESSION_START, fmt_ist_minutes,
+    session_shape, session_clock, SESSION_FULL, SESSION_CLOSED,
+    DAY_MULTIPLIER, is_trading_day,
+    now_ist, get_day_type, project_full_day, calc_revenue, calc_uncertainty,
     check_regime_drift, supabase_upsert, SUPABASE_WRITE_ROLE,
+    calendar_status, supabase_read,
 )
 
+from lib.curl_session import new_session
 from lib.cron_margins import (
     _download_xls, _parse_xls,
     sb_upsert as margin_upsert,
@@ -85,39 +86,17 @@ EOD_FALLBACK_MIN = 15
 LATEST_EOD_MIN = 23 * 60 + 57
 RELAY_ID = os.environ.get("MCX_RELAY_ID", "default")
 
-# Alias for backward compat (relay uses MCX_HOLIDAYS directly)
-MCX_HOLIDAYS = MCX_HOLIDAYS_2026
-
-
-def is_trading_day(d):
-    return d.weekday() < 5 and d.strftime("%Y-%m-%d") not in MCX_HOLIDAYS
-
-
-
 # ── MCX API (curl_cffi with Chrome TLS impersonation) ───────────────────────
 _mw_session = None
 _hist_session = None
 # Newest target first; older curl_cffi builds (e.g. 0.13 under the system
 # python that daily_verify may run on) reject chrome142 with ImpersonateError.
-CHROME_IMPERSONATE = os.environ.get("MCX_IMPERSONATE", "chrome142")
-CHROME_IMPERSONATE_FALLBACKS = ["chrome136", "chrome131", "chrome"]
 
 
 def _new_session(warm_url):
-    """curl_cffi session warmed on warm_url, trying impersonation targets in turn."""
-    last_err = None
-    for target in [CHROME_IMPERSONATE, *CHROME_IMPERSONATE_FALLBACKS]:
-        try:
-            sess = cfreq.Session(impersonate=target)
-            # Some builds only reject an unknown target on the first request.
-            _hard_call(sess.get, warm_url, timeout=20, hard_timeout=25)
-            return sess
-        except Exception as e:
-            if "impersonat" in str(e).lower() or "not supported" in str(e).lower():
-                last_err = e
-                continue  # token unknown to this curl_cffi build — try the next
-            raise
-    raise last_err
+    """curl_cffi session warmed on warm_url (lib.curl_session), the warm-up
+    under the relay's hard wall-clock guard."""
+    return new_session(warm_url, get=lambda s, u, t: _hard_call(s.get, u, timeout=20, hard_timeout=25))
 
 
 def _get_mw_session(force_new=False):
@@ -200,16 +179,19 @@ def run_snapshot():
     """Fetch MCX data, compute projection, push to Supabase. Returns True on success."""
     capture = now_ist()
     current_min = capture.hour * 60 + capture.minute
-    close = session_end(capture)       # 1410 (23:30) or 1435 (23:55)
-    total = close - SESSION_START
+    # elapsed counts from 09:00 (what snapshots store); traded counts from the
+    # day's real open, so it differs on a part-day session.
+    elapsed, traded, shape = session_clock(capture)
+    open_min, close, total = shape["start"], shape["end"], shape["total"]
 
     # Check if within trading window (with 30-min pre-buffer)
-    if current_min < SESSION_START - 30 or current_min > close + 15:
-        print(f"  ⏸ {capture.strftime('%H:%M IST')} — outside trading hours, skipping")
+    if (shape["type"] == SESSION_CLOSED
+            or current_min < open_min - 30 or current_min > close + 15):
+        print(f"  ⏸ {capture.strftime('%H:%M IST')} — outside trading hours "
+              f"({_hours(shape)}), skipping")
         return False
 
-    elapsed = max(0, min(current_min - SESSION_START, total))
-    time_pct = elapsed / total
+    time_pct = traded / total
 
     # Fetch market data via curl_cffi session
     print(f"  Fetching market data...")
@@ -238,8 +220,8 @@ def run_snapshot():
 
     # Stale data guard: if early in session but notionals are huge, API returned
     # yesterday's cached data. Skip this snapshot.
-    if elapsed <= 15 and fut_notl > 30000:
-        print(f"  ⚠ Stale data detected: {fut_notl:.0f} Cr notional at {elapsed}m elapsed — skipping")
+    if traded <= 15 and fut_notl > 30000:
+        print(f"  ⚠ Stale data detected: {fut_notl:.0f} Cr notional at {traded}m traded — skipping")
         return False
 
     day_type = get_day_type(capture)
@@ -289,7 +271,7 @@ def run_snapshot():
     snapshot = {
         "trading_date": capture.strftime("%Y-%m-%d"),
         "elapsed_min": elapsed,
-        "session_closed": elapsed >= total,
+        "session_closed": traded >= total,
         "fut_notl_cr": round(fut_notl, 2),
         "opt_notl_cr": round(opt_notl, 2),
         "opt_prem_cr": round(opt_prem, 2),
@@ -314,7 +296,11 @@ def run_snapshot():
     }
 
     print(f"  Pushing to Supabase...")
-    result = _hard_call(supabase_upsert, "mcx_snapshots", snapshot, hard_timeout=20)
+    # Merge on the table's unique key (mcx_snapshots_trading_date_elapsed_min_key):
+    # without on_conflict a second write for the same minute (relay restart, or
+    # the /api/refresh POST path) was a 409 that counted as a failed snapshot.
+    result = _hard_call(supabase_upsert, "mcx_snapshots", snapshot, hard_timeout=20,
+                        on_conflict="trading_date,elapsed_min")
     print(f"  ✓ {capture.strftime('%H:%M IST')} — Rev: ₹{total_rev:.2f} Cr "
           f"(Fut: {fut_notl:.0f} | Opt Prem: {opt_prem:.0f}) "
           f"[{conf}, ±{unc*100:.0f}%] "
@@ -323,7 +309,8 @@ def run_snapshot():
 
     # Regime drift check — run once per session when ≥3 buckets complete (15:00-16:00)
     today_iso = capture.strftime("%Y-%m-%d")
-    if 360 <= elapsed < 420 and getattr(run_snapshot, '_regime_done', None) != today_iso:
+    if (shape["type"] == SESSION_FULL and 360 <= elapsed < 420
+            and getattr(run_snapshot, '_regime_done', None) != today_iso):
         run_snapshot._regime_done = today_iso
         try:
             from lib.mcx_config import supabase_read_all
@@ -520,8 +507,11 @@ def send_heartbeat(status="running", last_rev=None, elapsed=None, error=None):
         beat["last_rev_cr"] = round(last_rev, 4)
     if elapsed is not None:
         beat["elapsed_min"] = elapsed
-    if error:
-        beat["last_error"] = str(error)[:200]
+    # Always send last_error: the upsert merges on relay_id and only updates the
+    # columns it is given, so a heartbeat without the key left the last failure
+    # (e.g. a long-fixed 409) on /api/refresh?health=1 for good. No error now
+    # means the field is cleared.
+    beat["last_error"] = str(error)[:200] if error else None
     try:
         _hard_call(supabase_upsert, "relay_heartbeat", beat, hard_timeout=15)
     except Exception as e:
@@ -564,11 +554,16 @@ def refresh_margins_local():
         today_str = now_ist().strftime("%Y-%m-%d")
         if pub_date != today_str:
             print(f"  ⚠ Stale: Sharekhan file published {pub_date} ≠ today {today_str}")
-        errors = margin_upsert("mcx_margin_daily", rows)
+        stats = {}
+        errors = margin_upsert("mcx_margin_daily", rows, stats=stats)
+        skipped = stats.get("skipped", 0)
         if errors:
             print(f"  ⚠ Upsert errors: {errors[:2]}")
+        elif skipped >= len(rows):
+            print(f"  · Margins {pub_date}: already stored, nothing written ({len(rows)} rows)")
         else:
-            print(f"  ✓ Margins upserted: {pub_date} ({len(rows)} rows)")
+            print(f"  ✓ Margins upserted: {pub_date} ({len(rows) - skipped} rows"
+                  + (f", {skipped} already stored" if skipped else "") + ")")
     except Exception as e:
         print(f"  ✗ Margin refresh failed: {e}")
 
@@ -582,10 +577,7 @@ def refresh_oi_participants_local():
         return
     print(f"\n  -- OI Participants Refresh --")
     try:
-        session = cfreq.Session(impersonate="chrome142")
-        _hard_call(session.get,
-                   "https://www.mcxindia.com/market-operations/trading-survelliance",
-                   timeout=20, hard_timeout=25)
+        session = _new_session("https://www.mcxindia.com/market-operations/trading-survelliance")
 
         dt = now_ist().date()
         xlsx_bytes = None
@@ -610,11 +602,15 @@ def refresh_oi_participants_local():
         if not rows:
             print(f"  ✗ No OI participant rows parsed for {resolved_dt}")
             return
-        errors = oi_upsert("mcx_oi_participants", rows)
+        stats = {}
+        errors = oi_upsert("mcx_oi_participants", rows, stats=stats)
+        skipped = stats.get("skipped", 0)
         if errors:
             print(f"  ⚠ Upsert errors: {errors[:2]}")
+        elif skipped >= len(rows):
+            print(f"  · OI participants {report_date}: already stored, nothing written")
         else:
-            print(f"  ✓ OI participants upserted: {report_date} ({len(rows)} rows)")
+            print(f"  ✓ OI participants upserted: {report_date} ({len(rows) - skipped} rows)")
     except Exception as e:
         print(f"  ✗ OI participants refresh failed: {e}")
 
@@ -667,12 +663,90 @@ def _start_stall_watchdog():
     threading.Thread(target=_watch, daemon=True, name="stall-watchdog").start()
 
 
+def _hours(shape):
+    """'09:00–23:55 IST' / '17:00–23:55 IST, morning closed'."""
+    if shape["type"] == SESSION_CLOSED:
+        return "closed"
+    note = {"evening_only": ", morning closed", "morning_only": ", evening closed"}.get(shape["type"], "")
+    return f"{fmt_ist_minutes(shape['start'])}–{fmt_ist_minutes(shape['end'])} IST{note}"
+
+
+# ── Per-commodity breakdown after the close ─────────────────────────────────
+# capture_eod() writes only the exchange totals. The per-commodity rows come
+# from MCX's Historical Detailed Report, which was NOT out at the close when
+# probed (10 Nov 2026: empty at 23:48, contracts at 04:31, premium by 06:31),
+# so this one attempt usually reports "not ready"; scripts/launchd/
+# com.mcx.commodity-eod.plist retries 05:30-06:55 and daily_verify (07:00) is
+# the backstop. It runs bhav_refresh in a subprocess so a wedged libcurl call
+# can't touch this process's pool, and it is bounded well inside STALL_LIMIT.
+COMMODITY_EOD_TIMEOUT = 90
+
+
+def capture_commodity_breakdown(session_date, timeout=COMMODITY_EOD_TIMEOUT, run=None):
+    """One non-fatal attempt at the day's per-commodity breakdown. Never
+    raises; returns the bhav_refresh exit code, or None if it didn't finish."""
+    import subprocess
+    run = run or subprocess.run
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bhav_refresh.py")
+    print(f"\n  ── Commodity breakdown for {session_date} ──")
+    _mark_progress()
+    try:
+        res = run([sys.executable, script, "--commodity", session_date],
+                  capture_output=True, text=True, timeout=timeout,
+                  cwd=os.path.dirname(os.path.dirname(script)))
+    except subprocess.TimeoutExpired:
+        print(f"  ⓘ breakdown fetch exceeded {timeout}s — left to the 05:30 job / daily_verify")
+        return None
+    except Exception as e:
+        print(f"  ⓘ breakdown fetch failed to run ({type(e).__name__}: {e}) — left to daily_verify")
+        return None
+    finally:
+        _mark_progress()
+    for line in (res.stdout or "").strip().splitlines()[-3:]:
+        print(f"  {line.strip()}")
+    if res.returncode == 0:
+        print(f"  ✓ {session_date}: per-commodity breakdown stored")
+    elif res.returncode == 3:
+        print(f"  ⓘ {session_date}: MCX report not complete yet — the 05:30 job / daily_verify will retry")
+    else:
+        print(f"  ⓘ {session_date}: breakdown fetch exit {res.returncode}: "
+              f"{(res.stderr or '').strip()[-160:]}")
+    return res.returncode
+
+
+def close_session(session_date, clock_fallback=False):
+    """Everything after the close, in priority order. Revenue first and always:
+    nothing after it can fail or delay it.
+
+    A failed revenue write (network, the 409 a re-run hits on the unique
+    trading_date, or the guard trigger) is logged and reported in the heartbeat
+    but no longer aborts the steps after it: before, the exception skipped
+    margins / OI / commodity and sent the outer loop into up to 10 restarts that
+    retried the same failing write. daily_verify (07:00) and the next start-up's
+    catch-up backfill a missing revenue row."""
+    try:
+        eod_ok = capture_eod(session_date)
+    except Exception as e:
+        eod_ok = False
+        print(f"  ✗ EOD write failed for {session_date}: {e}")
+        print("    (daily_verify at 07:00 and the next relay start-up backfill missing revenue)")
+        send_heartbeat("error", error=f"eod {session_date}: {e}")
+    refresh_margins_local()
+    refresh_oi_participants_local()
+    if not clock_fallback and eod_ok:
+        send_heartbeat("eod_done")
+    try:
+        capture_commodity_breakdown(session_date)
+    except Exception as e:  # belt and braces: the function already never raises
+        print(f"  ⓘ commodity breakdown skipped: {e}")
+
+
 def next_sleep_seconds(t, base_s):
     """Sleep before the next snapshot: base_s, cut short so the loop wakes
     EOD_DELAY_MIN after today's close. Without the cut, a 15-min cadence can
     land the final snapshot anywhere up to 15 min late; at a 23:55 close that
     crosses midnight, and the loop then exits without an EOD capture."""
-    wake = (session_end(t) + EOD_DELAY_MIN) * 60
+    wake = (session_shape(t)["end"] + EOD_DELAY_MIN) * 60
     now_s = t.hour * 3600 + t.minute * 60 + t.second
     until_wake = wake - now_s
     if 0 < until_wake < base_s:
@@ -680,12 +754,25 @@ def next_sleep_seconds(t, base_s):
     return base_s
 
 
+def _report_calendar_status():
+    """Put a missing MCX holiday calendar where it is seen: the heartbeat's
+    last_error (shown by /api/refresh?health=1), not just stderr. The relay
+    keeps running: stopping it would also lose real trading days."""
+    st = calendar_status()
+    if st["status"] != "OK":
+        print(f"  ⚠ Calendar {st['status']}: {st['message']}")
+        send_heartbeat("error" if st["status"] == "STALE" else "running",
+                       error=f"calendar {st['status']}: {st['message']}")
+    return st
+
+
 def run_loop():
     """Run snapshots every 15 minutes until trading session ends.
     After session close, captures authoritative EOD record for mcx_daily_revenue."""
     print(f"MCX Relay — loop mode (every {LOOP_INTERVAL//60} min)")
-    print(f"Trading hours: 09:00–{fmt_ist_minutes(session_end(now_ist()))} IST")
+    print(f"Trading hours: {_hours(session_shape(now_ist()))}")
     _start_stall_watchdog()
+    _report_calendar_status()
 
     fail_streak = 0
     MAX_CONSEC_FAIL = 4  # back-to-back failures before we exit for launchd to relaunch
@@ -694,7 +781,8 @@ def run_loop():
         _mark_progress()  # reset the stall-watchdog each iteration
         t = now_ist()
         current_min = t.hour * 60 + t.minute
-        close = session_end(t)
+        shape = session_shape(t)
+        open_min, close = shape["start"], shape["end"]
         session_date = t.strftime("%Y-%m-%d")
 
         if not is_trading_day(t.date()):
@@ -705,9 +793,10 @@ def run_loop():
             print(f"{t.strftime('%H:%M IST')} — Session ended. Exiting.")
             break
 
-        if current_min < SESSION_START - 30:
-            wait = (SESSION_START - 30 - current_min) * 60
-            print(f"{t.strftime('%H:%M IST')} — Waiting {wait//60} min until pre-market...")
+        if current_min < open_min - 30:
+            wait = (open_min - 30 - current_min) * 60
+            print(f"{t.strftime('%H:%M IST')} — Waiting {wait//60} min until pre-market "
+                  f"({_hours(shape)})...")
             _watchful_sleep(min(wait, LOOP_INTERVAL))
             continue
 
@@ -735,10 +824,7 @@ def run_loop():
         # Trigger EOD immediately when session closes (no timing race)
         if result == "closed":
             print("\nSession closed. Capturing EOD record...")
-            capture_eod(session_date)
-            refresh_margins_local()
-            refresh_oi_participants_local()
-            send_heartbeat("eod_done")
+            close_session(session_date)
             break
 
         # Fallback: past the close but the snapshot hasn't reported it (fetches
@@ -749,9 +835,7 @@ def run_loop():
         fallback_min = min(close + EOD_FALLBACK_MIN, LATEST_EOD_MIN)
         if t2.strftime("%Y-%m-%d") == session_date and current_min2 >= fallback_min:
             print("\nSession ended (clock fallback). Capturing EOD record...")
-            capture_eod(session_date)
-            refresh_margins_local()
-            refresh_oi_participants_local()
+            close_session(session_date, clock_fallback=True)
             break
 
         # After a failure, retry in 2 min (not 15) so a transient stall recovers
@@ -778,17 +862,9 @@ def catchup_missing(days=7):
             continue
 
         # Check if we already have data for this date
-        url = (f"{SUPABASE_URL}/rest/v1/mcx_daily_revenue"
-               f"?trading_date=eq.{ds}&limit=1")
-        req = urllib.request.Request(url, headers={
-            "apikey": SUPABASE_ANON_KEY,
-            "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
-        })
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                rows = json.loads(resp.read().decode())
-                if rows:
-                    continue  # Already have data
+            if supabase_read("mcx_daily_revenue", f"?trading_date=eq.{ds}&limit=1"):
+                continue  # Already have data
         except Exception:
             continue  # Skip on error, don't block main flow
 
@@ -824,9 +900,10 @@ def catchup_missing(days=7):
 if __name__ == "__main__":
     # Flush stdout after every print (critical for Windows log files)
     sys.stdout.reconfigure(line_buffering=True)
-    print(f"Supabase writes as: {SUPABASE_WRITE_ROLE}"
+    from lib.mcx_config import SUPABASE_WRITE_KEY, supabase_key_kind
+    print(f"Supabase writes as: {SUPABASE_WRITE_ROLE} ({supabase_key_kind(SUPABASE_WRITE_KEY)} key)"
           + ("" if SUPABASE_WRITE_ROLE == "service_role" else
-             " — set SUPABASE_SERVICE_KEY in .env.local; mcx_daily_revenue rejects anon writes once locked"))
+             " — set SUPABASE_SECRET_KEY in .env.local; mcx_daily_revenue rejects anon writes once locked"))
 
     if "--loop" in sys.argv:
         catchup_missing(7)  # Self-heal before starting loop

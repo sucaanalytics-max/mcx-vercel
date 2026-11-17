@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Offline checks on vercel.json crons vs api/cron.py's dispatch table: jobs that can never
-work from Vercel (margins, oi_participants) are not scheduled, and every scheduled job exists.
+work from Vercel (margins, oi_participants) are neither scheduled nor routable there (they run
+locally via scripts/run_cron.py), and every scheduled job exists.
 No network. Run:  python3 scripts/test_cron_config.py"""
 import ast
 import json
@@ -29,9 +30,11 @@ table = set()
 for node in ast.walk(tree):
     if isinstance(node, ast.Dict) and node.keys and all(isinstance(k, ast.Constant) and isinstance(k.value, str) for k in node.keys):
         keys = {k.value for k in node.keys}
-        if "margins" in keys and "oi_participants" in keys:
+        if "valuation" in keys and "models" in keys:
             table = keys
-check("dispatch table found", "oi_participants" in table, True)
+check("dispatch table found", "valuation" in table, True)
+check("oi_participants not routable on Vercel", "oi_participants" in table, False)
+check("margins not routable on Vercel", "margins" in table, False)
 check("no oi_participants cron", "oi_participants" in jobs, False)
 check("no margins cron", "margins" in jobs, False)
 check("every cron job is in the dispatch table", sorted(j for j in jobs if j not in table), [])

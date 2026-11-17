@@ -19,8 +19,9 @@ from lib.mcx_config import now_ist, is_trading_day
 
 def show_gaps(lookback_days=30):
     """Print missing trading days in last N days."""
-    existing = get_existing_margin_dates()
     today = now_ist().date()
+    existing = get_existing_margin_dates(
+        since=(today - timedelta(days=lookback_days)).strftime("%Y-%m-%d")) or set()
     missing = []
     for i in range(lookback_days):
         d = today - timedelta(days=i)
@@ -47,7 +48,7 @@ def backfill_mcxccl(target_dates):
         return
 
     # Skip dates already in DB
-    existing = get_existing_margin_dates()
+    existing = get_existing_margin_dates(since=min(target_dates)) or set()
     to_scrape = [d for d in target_dates if d not in existing]
     skipped = len(target_dates) - len(to_scrape)
     if skipped:
@@ -63,7 +64,7 @@ def backfill_mcxccl(target_dates):
     except ImportError as e:
         print(f"ERROR: {e}")
         print("Requires curl_cffi — run under /opt/homebrew/bin/python3")
-        return
+        return False
 
     total_rows = 0
     total_errors = []
@@ -109,6 +110,8 @@ def backfill_mcxccl(target_dates):
         print(f"Errors ({len(total_errors)}):")
         for e in total_errors[:10]:
             print(f"  {e}")
+    # "no data" for a date is MCXCCL not publishing, not a failure; errors are.
+    return not total_errors
 
 
 def main():
@@ -125,8 +128,9 @@ def main():
 
     if args.backfill:
         # Find missing trading days in last N days
-        existing = get_existing_margin_dates()
         today = now_ist().date()
+        existing = get_existing_margin_dates(
+            since=(today - timedelta(days=args.backfill)).strftime("%Y-%m-%d")) or set()
         missing = []
         for i in range(args.backfill):
             d = today - timedelta(days=i)
@@ -136,15 +140,13 @@ def main():
         missing.sort()
         if missing:
             print(f"Found {len(missing)} missing dates in last {args.backfill} days")
-            backfill_mcxccl(missing)
-        else:
-            print(f"No gaps in last {args.backfill} days.")
-        return
+            return 0 if backfill_mcxccl(missing) is not False else 1
+        print(f"No gaps in last {args.backfill} days.")
+        return 0
 
     if args.date:
         # Specific date via MCXCCL
-        backfill_mcxccl([args.date])
-        return
+        return 0 if backfill_mcxccl([args.date]) is not False else 1
 
     # Default: today via Sharekhan XLS
     result = refresh_margins()
@@ -161,7 +163,10 @@ def main():
         print("\nErrors:")
         for e in result["errors"]:
             print(f"  {e}")
+    return 0 if result.get("success") else 1
 
 
 if __name__ == "__main__":
-    main()
+    # Non-zero on a real failure, so daily_verify / the freshness fixer stop
+    # reporting "margin_refresh OK" when nothing was written.
+    sys.exit(main() or 0)

@@ -14,11 +14,15 @@ winter day), and bhav_refresh never corrects relay rows. Covers:
      before midnight, and marks the session closed only at the real close.
   4. daily_verify replaces a relay EOD row that is >1% off MCX's historical
      report, and leaves unsettled reports and non-relay sources alone.
+  5. Part-day sessions (morning or evening closed): session_shape() builds on
+     the seasonal close, the projection is time-only over the day's real
+     hours, and the relay sleeps through the closed half and closes on time.
 
 Run:  python3 scripts/test_session_hours.py            # offline, no network
       python3 scripts/test_session_hours.py --network  # + read-only MCX/Supabase checks
 """
 import sys, os, time, types
+import json
 from datetime import datetime, date, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -34,6 +38,8 @@ def check(name, cond, detail=""):
 
 
 # Keep the projection offline: no adaptive curve, so the static one is used.
+# test_curves_skip_short_days needs the real one, so keep a reference.
+_REAL_ADAPTIVE = cfg._compute_adaptive_weights
 cfg._compute_adaptive_weights = lambda vol_fn=None, close_min=None: None
 
 
@@ -134,6 +140,8 @@ def _patch_relay(relay, clock, writes):
     relay._hard_call = lambda fn, *a, hard_timeout=25, **k: fn(*a, **k)
     relay.supabase_upsert = lambda table, row, **k: writes.append((table, dict(row))) or [row]
     relay.send_heartbeat = lambda *a, **k: None
+    # close_session() runs bhav_refresh in a subprocess after the EOD row: keep it offline.
+    relay.capture_commodity_breakdown = lambda *a, **k: None
     relay.time = types.SimpleNamespace(sleep=lambda s: None, time=time.time)  # not the real module
     cfg.supabase_read = lambda *a, **k: []   # today's snapshots for drift
 
@@ -199,7 +207,7 @@ def _run_loop_with_failing_close(start, fail="raise"):
 
     def flaky_snapshot():
         t = clock()
-        if t.hour * 60 + t.minute >= relay.session_end(t):
+        if t.hour * 60 + t.minute >= cfg.session_end(t):
             if fail == "raise":
                 raise RuntimeError("MCX unreachable")
             return False
@@ -329,6 +337,334 @@ def test_curves_and_freshness():
           expected_trading_day(datetime(2026, 9, 29, 23, 31)) == date(2026, 9, 29))
 
 
+def _uniform_day(d, last=None):
+    """Snapshots at 1 Cr per minute from 09:00, every 15 min, ending at `last`
+    (default: the day's own close)."""
+    last = cfg.session_total(d) if last is None else last
+    snaps = [{"trading_date": d, "elapsed_min": m, "fut_notl_cr": float(m), "opt_prem_cr": 0.0}
+             for m in range(15, last, 15)]
+    snaps.append({"trading_date": d, "elapsed_min": last, "fut_notl_cr": float(last), "opt_prem_cr": 0.0})
+    return snaps
+
+
+def test_curves_skip_short_days():
+    """2-16 Nov 2026: the relay ran pre-23:55 code, so each winter day's last
+    snapshot was at 23:30 (870 of 895 min). Such a day is missing ~3% of its
+    volume, all in the late bucket, and must not train either curve."""
+    print("\n[10] Curves skip winter days cut short at 23:30")
+    full = ["2026-11-17", "2026-11-18", "2026-11-19"]
+    short = ["2026-11-02", "2026-11-03", "2026-11-04"]
+    late_uniform = 115 / 895
+    check("reached_close: 23:55 day at 895", cfg.reached_close(895, "2026-11-02"))
+    check("reached_close: 23:55 day stopped at 870 is not full", not cfg.reached_close(870, "2026-11-02"))
+    check("reached_close: 23:30 day at 870", cfg.reached_close(870, "2026-10-30"))
+    check("reached_close: 23:30 day at 865 (5 min short) still full", cfg.reached_close(865, "2026-10-30"))
+    check("reached_close: 23:30 day at 800 is not full", not cfg.reached_close(800, "2026-10-30"))
+
+    real_read, real_now = cfg.supabase_read_all, cfg.now_ist
+    cfg.now_ist = lambda: datetime(2026, 11, 20, 12, 0)
+    try:
+        cfg.supabase_read_all = lambda *a, **k: sum((_uniform_day(d, 870) for d in short), [])
+        check("adaptive: only cut-short winter days -> None (static fallback)",
+              _REAL_ADAPTIVE(close_min=1435) is None)
+        cfg.supabase_read_all = lambda *a, **k: (sum((_uniform_day(d, 870) for d in short), [])
+                                                 + sum((_uniform_day(d) for d in full), []))
+        w = _REAL_ADAPTIVE(close_min=1435)
+        check("adaptive: late bucket from full winter days only",
+              w is not None and abs(w[-1] - late_uniform) < 1e-6,
+              f"{w[-1]:.4f} vs {late_uniform:.4f}" if w else "None")
+    finally:
+        cfg.supabase_read_all, cfg.now_ist = real_read, real_now
+
+    import lib.intraday_curves as ic
+    real_read, real_now = ic.supabase_read_all, ic.now_ist
+    ic.supabase_read_all = lambda *a, **k: _uniform_day("2026-11-02", 870) + _uniform_day("2026-11-17")
+    ic.now_ist = lambda: datetime(2026, 11, 18, 12, 0)
+    try:
+        c = ic.generate_intraday_curves(days=30, include_today=False)
+    finally:
+        ic.supabase_read_all, ic.now_ist = real_read, real_now
+    ra = c["rolling_average"]
+    check("dashboard curve: cut-short day left out", ra["days_used"] == 1,
+          str({k: ra[k] for k in ra if k != "buckets"}))
+    check("dashboard curve: cut-short day counted as incomplete", ra["incomplete_days_excluded"] == 1, str(ra))
+
+    # 17 Nov 2026 on production: the window held summer days, winter days cut at
+    # 23:30 and one part day (10 Nov), and no day that qualifies. The payload
+    # must say why, not send all-zero percentiles (drawn as "0% in every bucket").
+    ic.supabase_read_all = lambda *a, **k: (
+        _uniform_day("2026-10-29") + _uniform_day("2026-10-30")
+        + sum((_uniform_day(d, 870) for d in short), [])
+        + _uniform_day("2026-11-10", 870))
+    ic.now_ist = lambda: datetime(2026, 11, 17, 12, 0)
+    try:
+        c = ic.generate_intraday_curves(days=30, include_today=False)
+    finally:
+        ic.supabase_read_all, ic.now_ist = real_read, real_now
+    ra = c["rolling_average"]
+    check("no qualifying day: days_used 0, reasons counted",
+          (ra["days_used"], ra["incomplete_days_excluded"], ra["other_season_days_excluded"],
+           ra["part_days_excluded"]) == (0, 3, 2, 1), str({k: ra[k] for k in ra if k != "buckets"}))
+    check("no qualifying day: percentiles null, not zeros", c["percentiles"] is None, str(c["percentiles"]))
+    check("no qualifying day: no curves, no EWMA",
+          c["historical_curves"] == [] and c["adaptive_ewma"] is None and c["session_end"] == "23:55")
+
+    # The EWMA must weight the newest day most. daily_curves is newest-first;
+    # the loop used to reverse it, so the oldest day got age 0.
+    days_full = [d for d in ((date(2026, 11, 17) + timedelta(days=i)).isoformat() for i in range(25))
+                 if cfg.session_shape(d)["type"] == cfg.SESSION_FULL][:10]
+    newest = days_full[-1]
+    def back_loaded(d):      # volume grows with the square of time: a heavy late bucket
+        return [dict(s, fut_notl_cr=s["elapsed_min"] ** 2 / 895) for s in _uniform_day(d)]
+    ic.supabase_read_all = lambda *a, **k: (sum((_uniform_day(d) for d in days_full[:-1]), [])
+                                            + back_loaded(newest))
+    ic.now_ist = lambda: datetime.combine(date.fromisoformat(newest) + timedelta(days=1), datetime.min.time())
+    try:
+        c = ic.generate_intraday_curves(days=30, include_today=False)
+    finally:
+        ic.supabase_read_all, ic.now_ist = real_read, real_now
+    late_mean = c["rolling_average"]["buckets"][-1]["weight"]
+    late_ewma = c["adaptive_ewma"]["buckets"][-1]["weight"] if c["adaptive_ewma"] else None
+    late_newest = c["historical_curves"][0]["buckets"][-1]
+    check("EWMA: 10 full winter days used", len(days_full) == 10 and c["rolling_average"]["days_used"] == 10,
+          str(days_full))
+    check("historical_curves is newest first", c["historical_curves"][0]["date"] == newest)
+    check("EWMA weights the newest day most (late bucket above the plain mean)",
+          late_ewma is not None and late_mean < late_ewma < late_newest,
+          f"mean {late_mean} ewma {late_ewma} newest {late_newest}")
+
+
+
+def test_freshness_relay_coverage():
+    """The freshness scan flags a session whose snapshots stop before its own
+    close: 2-16 Nov 2026 all ended at 23:30 and nothing noticed for two weeks."""
+    print("\n[10b] Freshness: relay coverage")
+    import scripts.freshness_scan as fs
+    last = {}   # trading_date -> last elapsed_min (missing = no snapshots)
+    def fake_read(table, params, **k):
+        assert table == "mcx_snapshots", table
+        d = params.split("trading_date=eq.")[1].split("&")[0]
+        return [{"elapsed_min": last[d]}] if d in last else []
+    real_read, real_now = fs.supabase_read, fs.now_ist
+    fs.supabase_read = fake_read
+    try:
+        # 17 Nov 2026 09:00: expected day 16 Nov, which stopped at 23:30.
+        fs.now_ist = lambda: datetime(2026, 11, 17, 9, 0)
+        last.update({"2026-11-16": 870, "2026-11-13": 870, "2026-11-12": 870,
+                     "2026-11-11": 870, "2026-11-10": 870})
+        c = fs._check_relay_coverage(5)
+        check("16 Nov cut at 23:30 -> STALE", c["status"] == "STALE" and c["last_snapshot"] == "23:30", str(c))
+        check("lists every short day in the window",
+              [x["date"] for x in c["incomplete_days"]]
+              == ["2026-11-16", "2026-11-13", "2026-11-12", "2026-11-11", "2026-11-10"], str(c))
+        check("part day 10 Nov is judged on its own 23:55 close",
+              c["incomplete_days"][-1] == {"date": "2026-11-10", "last_snapshot": "23:30", "close": "23:55"}, str(c))
+
+        # 18 Nov 09:00: 17 Nov ran to 23:55 (elapsed 895). Older short days
+        # stay listed but no longer stale the domain.
+        fs.now_ist = lambda: datetime(2026, 11, 18, 9, 0)
+        last["2026-11-17"] = 895
+        c = fs._check_relay_coverage(5)
+        check("17 Nov ran to 23:55 -> OK", c["status"] == "OK" and c["last_snapshot"] == "23:55", str(c))
+        check("older short days still listed", len(c["incomplete_days"]) == 4, str(c))
+
+        # Ten minutes short is within tolerance; a summer day at 23:30 is full.
+        last["2026-11-17"] = 885
+        check("885 of 895 min is full", fs._check_relay_coverage(1)["status"] == "OK")
+        fs.now_ist = lambda: datetime(2026, 10, 31, 9, 0)
+        last["2026-10-30"] = 870
+        check("summer day to 23:30 is full", fs._check_relay_coverage(1)["status"] == "OK")
+
+        # No snapshots at all for the expected day: the relay never ran.
+        fs.now_ist = lambda: datetime(2026, 11, 20, 9, 0)
+        c = fs._check_relay_coverage(1)
+        check("no snapshots -> STALE", c["status"] == "STALE" and c["last_snapshot"] is None, str(c))
+
+        # Evening-closed (morning-only) day: its close is 17:00, elapsed 480.
+        fs.now_ist = lambda: datetime(2026, 1, 2, 9, 0)
+        last["2026-01-01"] = 480
+        check("morning-only day judged on its 17:00 close", fs._check_relay_coverage(1)["status"] == "OK")
+    finally:
+        fs.supabase_read, fs.now_ist = real_read, real_now
+
+    with open(fs.MANIFEST) as f:
+        man = json.load(f)
+    rc = [d for d in man["domains"] if d["domain"] == "relay_coverage"]
+    check("manifest has relay_coverage with no fixer",
+          len(rc) == 1 and rc[0]["cadence"] == "session" and rc[0]["fixer"] is None, str(rc))
+
+# ── Part-day sessions ────────────────────────────────────────────────────────
+# 2026-11-10 Diwali-Balipratipada: morning closed, evening 17:00–23:55 (winter).
+# 2026-10-20 Dassera: morning closed, evening 17:00–23:30 (summer).
+# 2026-01-01 New Year: evening closed, morning 09:00–17:00.
+# 2026-11-02 / 2026-09-29: normal winter / summer days.
+
+def test_session_shape():
+    print("\n[11] session_shape and session_clock")
+    cases = [
+        ("2026-11-10", 1020, 1435, 415, "evening_only"),
+        ("2026-10-20", 1020, 1410, 390, "evening_only"),
+        ("2026-01-01",  540, 1020, 480, "morning_only"),
+        ("2026-11-02",  540, 1435, 895, "full"),
+        ("2026-09-29",  540, 1410, 870, "full"),
+        ("2026-10-02",  540,  540,   0, "closed"),    # Gandhi Jayanti
+        ("2026-11-07",  540,  540,   0, "closed"),    # Saturday
+        ("2026-11-08",  540,  540,   0, "closed"),    # Muhurat Sunday: never projected live
+    ]
+    for d, start, end, total, kind in cases:
+        sh = cfg.session_shape(d)
+        check(f"{d}: {kind} {cfg.fmt_ist_minutes(start)}–{cfg.fmt_ist_minutes(end)} ({total} min)",
+              (sh["start"], sh["end"], sh["total"], sh["type"]) == (start, end, total, kind), str(sh))
+    for d in ("2026-11-02", "2026-09-29", "2026-11-10", "2026-10-20"):
+        check(f"{d}: close is session_end()", cfg.session_shape(d)["end"] == cfg.session_end(d))
+    cfg.SESSION_END_OVERRIDES["2026-11-10"] = 1410
+    try:
+        check("override moves the evening-only close too", cfg.session_shape("2026-11-10")["end"] == 1410)
+    finally:
+        del cfg.SESSION_END_OVERRIDES["2026-11-10"]
+
+    clk = cfg.session_clock
+    for when, want in [
+        (datetime(2026, 11, 10, 12, 0), (180, 0)),     # morning closed: nothing traded
+        (datetime(2026, 11, 10, 20, 0), (660, 180)),
+        (datetime(2026, 11, 10, 23, 58), (895, 415)),
+        (datetime(2026, 1, 1, 18, 0), (480, 480)),     # evening closed: done at 17:00
+        (datetime(2026, 11, 2, 20, 0), (660, 660)),    # full days: the two agree
+        (datetime(2026, 9, 29, 23, 40), (870, 870)),
+    ]:
+        e, tr, _ = clk(when)
+        check(f"{when:%Y-%m-%d %H:%M}: elapsed {want[0]}, traded {want[1]}", (e, tr) == want, f"{e}, {tr}")
+    check("traded_minutes from a stored elapsed (11-10, 660)", cfg.traded_minutes(660, "2026-11-10") == 180)
+    check("traded_minutes = elapsed on a full day", cfg.traded_minutes(660, "2026-11-02") == 660)
+
+
+def test_part_day_projection():
+    print("\n[12] Projection on part-day sessions")
+    # 20:00 on 2026-11-10: 180 of 415 minutes traded, so time-only gives ×415/180.
+    pf, po, conf = cfg.project_full_day(1000, 100, 660, trading_date="2026-11-10")
+    check("11-10 20:00 is time-only (×415/180)",
+          abs(pf - 1000 * 415 / 180) < 1e-6 and abs(po - 100 * 415 / 180) < 1e-6, f"{pf:.2f}/{po:.2f} {conf}")
+    check("11-10 20:00 confidence MEDIUM (43% gone)", conf == "MEDIUM", conf)
+    pf_full, _, _ = cfg.project_full_day(1000, 100, 660, trading_date="2026-11-02")
+    check("a full winter day at 20:00 still uses the curve", abs(pf_full - pf) > 1, f"{pf_full:.2f}")
+    pf, po, conf = cfg.project_full_day(1000, 100, 180, trading_date="2026-11-10")
+    check("11-10 12:00 (closed half) returns realized", (pf, po, conf) == (1000, 100, "LOW"))
+    pf, po, conf = cfg.project_full_day(1000, 100, 895, trading_date="2026-11-10")
+    check("11-10 23:55 is CERTAIN", conf == "CERTAIN" and pf == 1000)
+    pf, po, conf = cfg.project_full_day(1000, 100, 870, trading_date="2026-11-10")
+    check("11-10 23:30 still projects (winter close)", conf != "CERTAIN" and abs(pf - 1000 * 415 / 390) < 1e-6,
+          f"{pf:.2f} {conf}")
+    pf, po, conf = cfg.project_full_day(1000, 100, 240, trading_date="2026-01-01")
+    check("01-01 13:00 is ×480/240", abs(pf - 2000) < 1e-6, f"{pf:.2f}")
+    pf, po, conf = cfg.project_full_day(1000, 100, 480, trading_date="2026-01-01")
+    check("01-01 17:00 is CERTAIN", conf == "CERTAIN" and pf == 1000)
+    # Day-type prior still applies and fades, as on full days.
+    pf_hi, _, _ = cfg.project_full_day(1000, 100, 660, day_type="HIGH", trading_date="2026-11-10")
+    tp = 180 / 415
+    check("day-type prior fades with share gone",
+          abs(pf_hi - 1000 / tp * (1 + 0.15 * (1 - tp))) < 1e-6, f"{pf_hi:.2f}")
+
+    op = cfg.is_market_open
+    check("11-10 12:00 market shut", not op(datetime(2026, 11, 10, 12, 0)))
+    check("11-10 17:00 market open", op(datetime(2026, 11, 10, 17, 0)))
+    check("11-10 23:50 market open (winter)", op(datetime(2026, 11, 10, 23, 50)))
+    check("01-01 18:00 market shut", not op(datetime(2026, 1, 1, 18, 0)))
+    check("10-02 12:00 holiday shut", not op(datetime(2026, 10, 2, 12, 0)))
+
+    # The adaptive curve learns only from full days: an evening-only day's
+    # snapshots would teach it that 09:00–17:00 trades nothing.
+    real_read = cfg.supabase_read_all
+    def day(d, start):
+        return [{"trading_date": d, "elapsed_min": m, "fut_notl_cr": float(max(0, m - (start - 540))),
+                 "opt_prem_cr": 0.0} for m in range(15, cfg.session_total(d) + 1, 15)]
+    rows = day("2026-11-10", 1020)
+    cfg.supabase_read_all = lambda *a, **k: rows
+    real_now = cfg.now_ist
+    cfg.now_ist = lambda: datetime(2026, 11, 11, 12, 0)
+    try:
+        used = _REAL_ADAPTIVE(close_min=1435)
+    finally:
+        cfg.supabase_read_all, cfg.now_ist = real_read, real_now
+    check("adaptive curve ignores part-day sessions", used is None, str(used))
+
+
+def test_refresh_part_day():
+    print("\n[13] GET /api/refresh on a part-day session")
+    import api.refresh as rf
+    snap = {"id": 1, "captured_at": "2026-11-10T14:30:00+00:00", "trading_date": "2026-11-10",
+            "elapsed_min": 660, "session_closed": False, "fut_notl_cr": 60000.0, "opt_notl_cr": 90000.0,
+            "opt_prem_cr": 9000.0, "total_rev_cr": 10.0, "proj_fut_cr": 138333.33, "proj_opt_cr": 20750.0,
+            "proj_total_rev": 23.0, "day_type": "LOW", "dual_call": False}
+    sent = {}
+    real = (rf.supabase_read, rf.now_ist)
+    rf.supabase_read = lambda table, params="", timeout=10: [dict(snap)] if table == "mcx_snapshots" else []
+    rf.now_ist = lambda: datetime(2026, 11, 10, 20, 0)
+    try:
+        h = rf.handler.__new__(rf.handler)
+        h.path = "/api/refresh"
+        h.send_json = lambda data, status=200, **k: sent.update(data=data, status=status)
+        h.do_GET()
+    finally:
+        rf.supabase_read, rf.now_ist = real
+    r = sent["data"]
+    tp = 180 / 415
+    check("served", r.get("success") is True, str(r)[:200])
+    check("session 415 min, evening_only", r["session_total_min"] == 415 and r["session_type"] == "evening_only")
+    check("elapsed_pct is share of the real session", r["elapsed_pct"] == round(tp * 100, 1), str(r["elapsed_pct"]))
+    check("range read at minutes traded, not the clock", r["range_min"] == 180, str(r["range_min"]))
+    check("uncertainty from share gone",
+          r["uncertainty_pct"] == round(cfg.calc_uncertainty(tp, r["day_type"], False) * 100, 1))
+
+
+def test_relay_part_day():
+    print("\n[14] Relay on a part-day session")
+    import importlib
+    import scripts.mcx_relay as relay
+    relay = importlib.reload(relay)
+    for when, want in [
+        (datetime(2026, 11, 10, 12, 0), None),          # morning closed: skip, no write
+        (datetime(2026, 11, 10, 16, 45), None),         # pre-open: yesterday's totals, stale guard
+        (datetime(2026, 11, 10, 20, 0), (660, False)),
+        (datetime(2026, 11, 10, 23, 57), (895, True)),
+        (datetime(2026, 1, 1, 17, 2), (480, True)),     # evening closed: EOD at 17:00
+    ]:
+        writes = []
+        _patch_relay(relay, FakeClock(when), writes)
+        result = relay.run_snapshot()
+        snaps = [r for t, r in writes if t == "mcx_snapshots"]
+        if want is None:
+            check(f"{when:%Y-%m-%d %H:%M}: skipped", result is False and not snaps, str(result))
+            continue
+        snap = snaps[-1] if snaps else {}
+        check(f"{when:%Y-%m-%d %H:%M}: elapsed {want[0]}, closed={want[1]}",
+              snap.get("elapsed_min") == want[0] and snap.get("session_closed") == want[1]
+              and (result == "closed") == want[1], f"{snap.get('elapsed_min')} {snap.get('session_closed')} {result}")
+        if when.hour == 20:
+            check("relay projection ×415/180",
+                  abs(snap["proj_fut_cr"] - round(60000 * 415 / 180, 2)) < 0.01, str(snap["proj_fut_cr"]))
+
+    ns = relay.next_sleep_seconds
+    check("01-01 16:50 sleeps to 17:02", ns(datetime(2026, 1, 1, 16, 50), 900) == 720)
+    check("11-10 23:47:30 sleeps to 23:57", ns(datetime(2026, 11, 10, 23, 47, 30), 900) == 570)
+
+    # Whole day on 2026-11-10 from an 08:30 launch.
+    clock = FakeClock(datetime(2026, 11, 10, 8, 30))
+    writes, eod_calls = [], []
+    _patch_relay(relay, clock, writes)
+    relay._watchful_sleep = clock.sleep
+    relay._start_stall_watchdog = lambda: None
+    relay.refresh_margins_local = lambda: None
+    relay.refresh_oi_participants_local = lambda: None
+    relay.capture_eod = lambda date_iso=None: eod_calls.append((date_iso, clock()))
+    relay.run_loop()
+    snaps = [r for t, r in writes if t == "mcx_snapshots"]
+    check("no snapshots before 16:30", snaps and min(s["elapsed_min"] for s in snaps) >= 450,
+          str([s["elapsed_min"] for s in snaps][:3]))
+    check("EOD once, for 11-10, after 23:55",
+          len(eod_calls) == 1 and eod_calls[0][0] == "2026-11-10"
+          and datetime(2026, 11, 10, 23, 55) <= eod_calls[0][1] < datetime(2026, 11, 11), str(eod_calls))
+
+
 def test_network_relay_matches_historical():
     """Read-only: recent relay EOD rows agree with MCX's report within 1%, so
     the reconciliation won't churn normal summer days."""
@@ -365,6 +701,12 @@ if __name__ == "__main__":
     test_reconcile_decision()
     test_replace_confirms_write()
     test_curves_and_freshness()
+    test_curves_skip_short_days()
+    test_freshness_relay_coverage()
+    test_session_shape()
+    test_part_day_projection()
+    test_refresh_part_day()
+    test_relay_part_day()
     if "--network" in sys.argv:
         test_network_relay_matches_historical()
     print("\n" + "=" * 72)

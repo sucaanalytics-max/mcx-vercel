@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mcx.relay</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel/scripts/start_relay.sh</string>
+    </array>
+
+    <!-- Run at 08:55 local time Mon-Fri -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>55</integer></dict>
+        <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>55</integer></dict>
+        <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>55</integer></dict>
+        <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>55</integer></dict>
+        <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>8</integer><key>Minute</key><integer>55</integer></dict>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/pranayagarwal/Dropbox/My Mac (Pranay's MacBook Air)/Documents/MCX/mcx-vercel</string>
+
+    <!-- Logs outside /tmp (lost on reboot) and outside Dropbox (synced, unbounded).
+         scripts/launchd/install.sh creates the directory. -->
+    <key>StandardOutPath</key>
+    <string>/Users/pranayagarwal/Library/Logs/mcx/relay_stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/pranayagarwal/Library/Logs/mcx/relay_stderr.log</string>
+
+    <!-- Auto-restart only on non-zero exit (silent crash), not on graceful exit
+         after EOD. Pairs with caffeinate -is to keep the loop alive across
+         lid-close events during the 14.5h trading window. -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- Allow relay to run up to 15 hours (09:00-23:30 = 14.5h) -->
+    <key>TimeOut</key>
+    <integer>54000</integer>
+
+    <key>AbandonProcessGroup</key>
+    <false/>
+</dict>
+</plist>

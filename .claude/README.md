@@ -56,7 +56,7 @@ staleness.
    plutil -lint ~/Library/LaunchAgents/com.mcx.freshness.plist
    launchctl load ~/Library/LaunchAgents/com.mcx.freshness.plist
    launchctl kickstart -k gui/$(id -u)/com.mcx.freshness   # one manual fire
-   tail -f logs/freshness_launchd.log
+   tail -f ~/Library/Logs/mcx/freshness.log
    ```
 
 ## Manual use

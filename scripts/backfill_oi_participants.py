@@ -14,14 +14,16 @@ Usage:
 Requires: curl_cffi, pandas, openpyxl
 """
 import sys, os, json, time, argparse
-from datetime import datetime, date, timedelta
-from curl_cffi import requests as cfreq
+from datetime import datetime, timedelta
+from curl_cffi import requests as cfreq  # noqa: F401  (fail fast without curl_cffi; sessions: lib.curl_session)
 
 # Add parent to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from lib.cron_oi_participants import _parse_participants, sb_upsert
-from lib.mcx_config import now_ist, SUPABASE_URL, SUPABASE_ANON_KEY
+from lib.mcx_config import now_ist
+from lib.supabase import supabase_read_all
+from lib.curl_session import new_session
 
 # Sitefinity document API — discovered from archive page JS
 SITEFINITY_API = (
@@ -64,19 +66,12 @@ def is_trading_day(d):
 
 
 def get_existing_dates():
-    """Fetch distinct report_dates already in Supabase."""
-    import urllib.request
-    url = (f"{SUPABASE_URL}/rest/v1/mcx_oi_participants"
-           f"?select=report_date&order=report_date.desc&limit=2000")
-    headers = {
-        "apikey": SUPABASE_ANON_KEY,
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
-    }
-    req = urllib.request.Request(url, headers=headers)
+    """Distinct report_dates already in Supabase (all of them: a single
+    limit=2000 read covered only ~60 dates at ~32 rows a day)."""
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            rows = json.loads(resp.read().decode())
-            return set(r["report_date"] for r in rows)
+        rows = supabase_read_all("mcx_oi_participants", "?select=report_date&order=report_date.desc",
+                                 max_rows=None, timeout=15)
+        return set(r["report_date"] for r in rows)
     except Exception as e:
         print(f"  Warning: could not fetch existing dates: {e}")
         return set()
@@ -137,24 +132,20 @@ def backfill(start_date, end_date):
     progress = load_progress()
     completed_set = set(progress["completed"])
 
-    # Create curl_cffi session (try chrome142 for newer curl_cffi, fallback to chrome)
-    session = cfreq.Session(impersonate="chrome")
+    # curl_cffi session (lib.curl_session); a failed warm-up is not fatal here.
     print("  Warming up session...")
     try:
-        session.get("https://www.mcxindia.com/", timeout=30)
-    except Exception:
-        # Retry with different impersonate if first attempt fails
-        try:
-            session = cfreq.Session(impersonate="chrome142")
-            session.get("https://www.mcxindia.com/", timeout=30)
-        except Exception as e:
-            print(f"  Warning: session warmup failed: {e}")
+        session = new_session("https://www.mcxindia.com/", timeout=30)
+    except Exception as e:
+        print(f"  Warning: session warmup failed: {e}")
+        session = new_session(None)
 
     # Iterate trading days
     d = start_date
     total = 0
     success = 0
     failed = 0
+    hard_failed = 0
     skipped = 0
 
     while d <= end_date:
@@ -212,6 +203,7 @@ def backfill(start_date, end_date):
                 print(f"Upsert errors: {errors[:1]}")
                 progress["failed"].append(ds)
                 failed += 1
+                hard_failed += 1
             else:
                 print(f"OK ({len(rows)} rows, date: {report_date})")
                 progress["completed"].append(ds)
@@ -222,6 +214,7 @@ def backfill(start_date, end_date):
             print(f"Error: {e}")
             progress["failed"].append(ds)
             failed += 1
+            hard_failed += 1
 
         save_progress(progress)
         d += timedelta(days=1)
@@ -235,6 +228,9 @@ def backfill(start_date, end_date):
     if failed > 0:
         print(f"  Failed dates saved to: {PROGRESS_FILE}")
         print(f"  Re-run with --retry-failed to retry")
+    # Only write/network errors are failures. "No document" / not-yet-published is
+    # MCX's T+1 publication lag and must not turn every morning run red.
+    return hard_failed
 
 
 def main():
@@ -256,8 +252,7 @@ def main():
         save_progress(progress)
         start = datetime.strptime(dates[0], "%Y-%m-%d").date()
         end = datetime.strptime(dates[-1], "%Y-%m-%d").date()
-        backfill(start, end)
-        return
+        return 1 if backfill(start, end) else 0
 
     if args.recent:
         end = now_ist().date()
@@ -266,8 +261,8 @@ def main():
         start = datetime.strptime(args.from_date, "%Y-%m-%d").date()
         end = datetime.strptime(args.to_date, "%Y-%m-%d").date() if args.to_date else now_ist().date()
 
-    backfill(start, end)
+    return 1 if backfill(start, end) else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

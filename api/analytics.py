@@ -10,11 +10,11 @@ Returns:
 
 Data: reads mcx_model_signals + mcx_share_price.
 """
-from http.server import BaseHTTPRequestHandler
-import json, math
+from lib.api_handler import JSONHandler, CACHE_DAILY
+import math
 
 from lib.mcx_config import (
-    supabase_read_all, now_ist, make_cors_headers,
+    supabase_read_all, now_ist, int_param,
     safe_float as _f, pearson as _pearson,
 )
 
@@ -61,7 +61,8 @@ def generate_analytics():
         "?select=trading_date,ecm_spread_zscore,mf_revenue_z,mf_turnover_z,"
         "mf_composite_z,ensemble_score,ensemble_signal,position_score,conviction"
         "&order=trading_date.asc",
-        max_rows=2000,
+        max_rows=5000,          # whole history (1.2k rows in Nov 2026)
+        newest_first=True,      # if ever exceeded, drop the oldest, not today
     )
     if not signals:
         return {"success": False, "error": "No model signals available."}
@@ -70,7 +71,8 @@ def generate_analytics():
     prices = supabase_read_all(
         "mcx_share_price",
         "?select=trading_date,close&order=trading_date.asc",
-        max_rows=2000,
+        max_rows=5000,
+        newest_first=True,
     )
 
     # Sentinel-date guard: garbage rows (e.g. trading_date ~1900-01-01) sit at the
@@ -322,34 +324,26 @@ def generate_analytics():
     }
 
 
+def page_fields(payload):
+    """The part of the payload Lab › Diagnostics reads (lab.js diagLede,
+    renderIc, renderWeights, renderCorr, renderState): every key except the
+    HMM state history (only its `current` is shown) and the rolling metrics
+    the page doesn't chart (avg_win, avg_loss, profit_factor). ~45% of the
+    full payload. Served at ?fields=page; the full payload stays the default.
+    Values are the full payload's, untouched."""
+    if not payload.get("success"):
+        return payload
+    out = dict(payload)
+    out["hmm_regime"] = {"current": (payload.get("hmm_regime") or {}).get("current")}
+    out["rolling_metrics"] = [{"date": r.get("date"), "sharpe_ratio": r.get("sharpe_ratio"),
+                               "win_rate": r.get("win_rate")} for r in payload.get("rolling_metrics") or []]
+    return out
+
+
 # ─── Vercel handler ──────────────────────────────────────────────────────
 
-class handler(BaseHTTPRequestHandler):
-
-    def log_message(self, fmt, *args):
-        pass
-
-    def _cors(self):
-        origin = self.headers.get("Origin", "")
-        hdrs = make_cors_headers(origin)
-        for k, v in hdrs.items():
-            self.send_header(k, v)
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-
-    def send_json(self, data, status=200):
-        body = json.dumps(data, default=str).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self._cors()
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_OPTIONS(self):
-        self.send_response(204)
-        self._cors()
-        self.end_headers()
+class handler(JSONHandler):
+    default_cache = CACHE_DAILY
 
     def do_GET(self):
         try:
@@ -359,10 +353,11 @@ class handler(BaseHTTPRequestHandler):
 
             if section == "hourly_accuracy":
                 from lib.hourly_analysis import generate_hourly_accuracy
-                days = int(qs.get("days", ["90"])[0])
-                result = generate_hourly_accuracy(lookback_days=min(days, 180))
+                result = generate_hourly_accuracy(lookback_days=int_param(qs, "days", 90, 5, 180))
             else:
                 result = generate_analytics()
+                if qs.get("fields", [None])[0] == "page":
+                    result = page_fields(result)
 
             self.send_json(result)
         except Exception as e:

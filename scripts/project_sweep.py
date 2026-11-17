@@ -40,16 +40,16 @@ PROD_URL = os.environ.get("MCX_PROD_URL", "https://mcx-vercel.vercel.app")
 
 # GET-safe production endpoints. /api/cron is excluded (auth + writes).
 # Known by-design behaviour, verified 23 Sep 2026 (tasks/todo.md "Not issues"):
-# /api/backtest 404s; /api/mcxlive's mcxpy is blocked from cloud IPs.
+# /api/backtest 404s. /api/history and /api/mcxlive were deleted in Phase 3
+# (no caller; mcxlive could never reach MCX from Vercel).
 ENDPOINTS = [
-    "/api/quarterly", "/api/valuation", "/api/analytics", "/api/history",
+    "/api/quarterly", "/api/valuation", "/api/analytics",
     "/api/mcxprice", "/api/refresh", "/api/exchange_dashboard",
     "/api/models", "/api/models?view=momentum", "/api/models?view=options",
-    "/api/commodities", "/api/commodities?view=signals", "/api/commodities?view=icomdex",
+    "/api/commodities?view=signals", "/api/commodities?view=icomdex",
     "/api/commodity_dashboard", "/api/commodity_dashboard?view=margins",
     "/api/commodity_dashboard?view=oi_participants",
 ]
-SOFT_ENDPOINTS = {"/api/mcxlive"}  # not probed: fails from cloud IPs by design
 
 HUMAN_HINTS = re.compile(
     r"SQL editor|paste|BLOCKED on human|human step|user must|launchctl load|"
@@ -80,8 +80,7 @@ def python_cmd():
     """Same interpreter choice as scripts/run_tests.sh."""
     uv = shutil.which("uv") or os.path.expanduser("~/.local/bin/uv")
     if os.path.exists(uv):
-        return [uv, "run", "--no-project", "--quiet", "--with-requirements",
-                "requirements.txt", "python"]
+        return ["bash", os.path.join(ROOT, "scripts", "mcx_uv.sh"), "python"]
     return [sys.executable]
 
 

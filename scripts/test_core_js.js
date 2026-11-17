@@ -126,5 +126,83 @@ location.hash = '#/value/fair-value'; winListeners.hashchange();
 location.hash = '#/today'; winListeners.hashchange();
 check('retheme happens once, not on every visit', rethemes, ['today']);
 
-console.log(failed ? `\n${failed} FAILED` : '\nAll core.js tests passed.');
-process.exit(failed ? 1 : 0);
+// Dates: bad input prints a dash, never "NaN undefined"
+check('date formatters on null', [MCX.fmt.dayMonth(null), MCX.fmt.day(undefined), MCX.fmt.weekday(''), MCX.fmt.dateLong('nope')], ['—', '—', '—', '—']);
+check('span with a missing end', MCX.fmt.span('2026-11-02', null), '—');
+check('valid dates unchanged', [MCX.fmt.dayMonth('2026-09-28'), MCX.fmt.day('2026-09-28'), MCX.fmt.span('2026-09-22', '2026-09-28')], ['28 Sep', 'Mon 28 Sep', '22–28 Sep']);
+
+// Fetching: errors are readable and are not cached
+(async () => {
+  const res = (body, { status = 200, type = 'application/json' } = {}) => ({
+    ok: status < 400, status, headers: { get: k => (k.toLowerCase() === 'content-type' ? type : null) },
+    json: () => (typeof body === 'string' ? Promise.reject(new SyntaxError('bad')) : Promise.resolve(body)),
+  });
+  const queue = [];
+  let calls = 0;
+  global.fetch = () => { calls++; return Promise.resolve(queue.shift()); };
+
+  queue.push(res('<!DOCTYPE html>', { status: 504, type: 'text/html' }));
+  let msg = null; try { await MCX.getJSON('/api/x'); } catch (e) { msg = e.message; }
+  check('HTML error page becomes a readable error', msg, 'Service unavailable (HTTP 504)');
+  queue.push(res({ success: false, error: 'boom' }, { status: 500 }));
+  check('JSON error body is returned to the caller', await MCX.getJSON('/api/x'), { success: false, error: 'boom' });
+
+  calls = 0;
+  queue.push(res({ success: false, error: 'supabase down' }), res({ success: true, v: 1 }));
+  check('first answer is the error', (await fetchRanged('/api/r1')).success, false);
+  check('retry fetches again and gets the good answer', (await fetchRanged('/api/r1')).v, 1);
+  check('good answer is cached', [(await fetchRanged('/api/r1')).v, calls], [1, 2]);
+  queue.push(res('<html>', { status: 502, type: 'text/html' }), res({ success: true, v: 2 }));
+  let threw = false; try { await fetchRanged('/api/r2'); } catch (e) { threw = true; }
+  check('a thrown fetch is not cached either', [threw, (await fetchRanged('/api/r2')).v], [true, 2]);
+
+  // The 2-minute refresh drops only the live views; the daily ones live up to 30 minutes.
+  clearRangedCache();
+  calls = 0;
+  const urls = ['/api/exchange_dashboard?view=home', '/api/exchange_dashboard', '/api/commodity_dashboard?view=margins', '/api/analytics?fields=page'];
+  urls.forEach((u, i) => queue.push(res({ success: true, v: i })));
+  for (const u of urls) await fetchRanged(u);
+  clearRangedCache({ liveOnly: true });
+  urls.forEach((u, i) => queue.push(res({ success: true, v: 10 + i })));
+  const after = []; for (const u of urls) after.push((await fetchRanged(u)).v);
+  check('auto refresh refetches exchange_dashboard views, keeps the daily ones', [after, calls], [[10, 11, 2, 3], 6]);
+  queue.length = 0;
+  const realNow = Date.now;
+  Date.now = () => realNow() + 31 * 60 * 1000;
+  clearRangedCache({ liveOnly: true });
+  queue.push(res({ success: true, v: 20 }));
+  check('a daily view older than 30 minutes is refetched', (await fetchRanged('/api/commodity_dashboard?view=margins')).v, 20);
+  Date.now = realNow;
+
+  // A request that never answers is aborted after the timeout and rejects, so the
+  // page shows Retry instead of "Loading…" for good.
+  const abortable = () => (url, init) => new Promise((resolve, reject) => {
+    const sig = init && init.signal;
+    if (sig) sig.addEventListener('abort', () => { const e = new Error('aborted'); e.name = 'AbortError'; reject(e); });
+  });
+  global.fetch = abortable();
+  let tmsg = null, t0 = Date.now();
+  try { await MCX.getJSON('/api/hang', { timeout: 50 }); } catch (e) { tmsg = e.message; }
+  check('a stalled request rejects after the timeout', [tmsg, Date.now() - t0 < 2000], ['The server took too long to answer (over 0 s)', true]);
+  check('the default timeout is 45 s', MCX.FETCH_TIMEOUT_MS, 45000);
+  let sawSignal = null;
+  global.fetch = (url, init) => { sawSignal = !!(init && init.signal); return Promise.resolve(res({ success: true })); };
+  check('a normal answer is unaffected', (await MCX.getJSON('/api/ok', { timeout: 50 })).success, true);
+  check('the request carries an abort signal', sawSignal, true);
+  await new Promise(r => setTimeout(r, 80));          // the cleared timer must not fire late
+  check('no stray abort after a normal answer', true, true);
+  global.fetch = abortable();
+  clearRangedCache();
+  const realT = MCX.FETCH_TIMEOUT_MS; MCX.FETCH_TIMEOUT_MS = 30;
+  let rthrew = false; try { await fetchRanged('/api/hang2'); } catch (e) { rthrew = /too long/.test(e.message); }
+  global.fetch = () => Promise.resolve(res({ success: true, v: 9 }));
+  check('a timed-out view is not cached: Retry refetches', [rthrew, (await fetchRanged('/api/hang2')).v], [true, 9]);
+  MCX.FETCH_TIMEOUT_MS = realT;
+  global.fetch = () => { calls++; return Promise.resolve(queue.shift()); };   // back to the queue for the tests below
+  clearRangedCache();
+  queue.push(res({ success: true, v: 30 }));
+  check('a manual refresh (no options) drops everything', (await fetchRanged('/api/analytics?fields=page')).v, 30);
+
+  console.log(failed ? `\n${failed} FAILED` : '\nAll core.js tests passed.');
+  process.exit(failed ? 1 : 0);
+})();

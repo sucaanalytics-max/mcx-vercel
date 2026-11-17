@@ -24,22 +24,65 @@
   const MON_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   function dparts(iso) {
     const [y, m, d] = String(iso).split('-').map(Number);
-    return { y, m, d, dow: new Date(Date.UTC(y, m - 1, d)).getUTCDay() };
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    // null / '' / garbage: callers print '—' instead of "NaN undefined"
+    if (!Number.isFinite(dow) || !(m >= 1 && m <= 12)) return null;
+    return { y, m, d, dow };
   }
+  const NO_DATE = '—';
   Object.assign(MCX.fmt, {
-    weekday: iso => DOW[dparts(iso).dow],                                   // Mon
-    weekdayLong: iso => DOW_LONG[dparts(iso).dow],                          // Monday
-    dayMonth: iso => { const p = dparts(iso); return p.d + ' ' + MON[p.m - 1]; },               // 28 Sep
-    day: iso => { const p = dparts(iso); return DOW[p.dow] + ' ' + p.d + ' ' + MON[p.m - 1]; }, // Mon 28 Sep
-    dateLong: iso => { const p = dparts(iso); return `${DOW_LONG[p.dow]} ${p.d} ${MON_LONG[p.m - 1]} ${p.y}`; },
+    weekday: iso => { const p = dparts(iso); return p ? DOW[p.dow] : NO_DATE; },                // Mon
+    weekdayLong: iso => { const p = dparts(iso); return p ? DOW_LONG[p.dow] : NO_DATE; },       // Monday
+    dayMonth: iso => { const p = dparts(iso); return p ? p.d + ' ' + MON[p.m - 1] : NO_DATE; }, // 28 Sep
+    day: iso => { const p = dparts(iso); return p ? DOW[p.dow] + ' ' + p.d + ' ' + MON[p.m - 1] : NO_DATE; }, // Mon 28 Sep
+    dateLong: iso => { const p = dparts(iso); return p ? `${DOW_LONG[p.dow]} ${p.d} ${MON_LONG[p.m - 1]} ${p.y}` : NO_DATE; },
     // 22–28 Sep · 1 Jul – 28 Sep · 12 Nov 2026 – 20 Jan 2027
     span(a, b) {
       const p = dparts(a), q = dparts(b);
+      if (!p || !q) return NO_DATE;
       if (p.y !== q.y) return `${p.d} ${MON[p.m - 1]} ${p.y} – ${q.d} ${MON[q.m - 1]} ${q.y}`;
       if (p.m !== q.m) return `${p.d} ${MON[p.m - 1]} – ${q.d} ${MON[q.m - 1]}`;
       return p.d === q.d ? `${q.d} ${MON[q.m - 1]}` : `${p.d}–${q.d} ${MON[q.m - 1]}`;
     },
   });
+
+  // ── JSON fetch ───────────────────────────────────────────────────────────
+  // Every /api/* endpoint answers JSON, including {success:false} bodies on a
+  // 4xx/5xx — those are returned for the caller to show. A non-JSON answer
+  // (Vercel's HTML error page, a gateway timeout) becomes a readable error
+  // instead of "Unexpected token '<' … is not valid JSON".
+  // A request that never answers (a stalled connection, or the browser's HTTP
+  // cache lock held by an earlier request that hung) used to leave a page on
+  // "Loading…" for good with no Retry. After `timeout` ms (default 45 s, past
+  // the slowest cold endpoint; Vercel cuts functions at 60 s) it is aborted —
+  // which also releases that cache lock — and rejects like any other failure,
+  // so the caller shows its usual error and Retry.
+  MCX.FETCH_TIMEOUT_MS = 45000;
+  MCX.getJSON = function (url, init) {
+    const opts = Object.assign({}, init);
+    const ms = opts.timeout != null ? opts.timeout : MCX.FETCH_TIMEOUT_MS;
+    delete opts.timeout;
+    const ctrl = typeof AbortController === 'function' && !opts.signal && ms > 0 ? new AbortController() : null;
+    let timer = null, timedOut = false;
+    if (ctrl) {
+      opts.signal = ctrl.signal;
+      timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, ms);
+    }
+    const done = () => { if (timer) clearTimeout(timer); };
+    return fetch(url, opts).then(r => {
+      const ct = (r.headers && r.headers.get && r.headers.get('content-type')) || '';
+      if (ct && !/json/i.test(ct)) {
+        throw new Error(r.ok ? 'Unexpected response from the server' : 'Service unavailable (HTTP ' + r.status + ')');
+      }
+      return r.json().catch(e => {
+        if (timedOut) throw e;
+        throw new Error(r.ok ? 'Unreadable response from the server' : 'Service unavailable (HTTP ' + r.status + ')');
+      });
+    }).catch(e => {
+      if (timedOut) throw new Error('The server took too long to answer (over ' + Math.round(ms / 1000) + ' s)');
+      throw e;
+    }).then(d => { done(); return d; }, e => { done(); throw e; });
+  };
 
   // ── Timestamps ───────────────────────────────────────────────────────────
   // /api/refresh returns ISO 8601 on GET but "14:42 IST, 28 Sep 2026" after a
@@ -366,12 +409,33 @@
     updateRangeLabels(cfg, initial);
     return initial;
   }
-  // One request per URL until the cache is cleared (a refresh clears it)
+  const fetchAt = {};              // URL -> when it was fetched
+  // One request per URL until the cache is cleared (a refresh clears it).
+  // A failed answer — network error, non-JSON page, or {success:false} — is not
+  // kept, so the Retry buttons really retry instead of re-serving the error.
   function fetchRanged(url) {
-    if (!fetchCache[url]) fetchCache[url] = fetch(url).then(r => r.json()).catch(e => { delete fetchCache[url]; throw e; });
+    if (!fetchCache[url]) {
+      const p = MCX.getJSON(url).then(d => {
+        if (!d || d.success === false) { if (fetchCache[url] === p) delete fetchCache[url]; }
+        return d;
+      }, e => { if (fetchCache[url] === p) delete fetchCache[url]; throw e; });
+      fetchCache[url] = p;
+      fetchAt[url] = Date.now();
+    }
     return fetchCache[url];
   }
-  const clearRangedCache = () => Object.keys(fetchCache).forEach(k => { delete fetchCache[k]; });
+  // Views built on the relay's snapshots or on the row the close writes: the 2-minute
+  // refresh drops these. Everything else (commodity, margins, positioning, signals,
+  // valuation, analytics) is written once or twice a day, so it is kept for up to
+  // DAILY_TTL instead of being refetched on every refresh.
+  const LIVE_VIEW = /^\/api\/exchange_dashboard\b/;
+  const DAILY_TTL = 30 * 60 * 1000;
+  // clearRangedCache() drops everything; clearRangedCache({ liveOnly: true }) drops
+  // the live views and any other view older than DAILY_TTL.
+  const clearRangedCache = opts => Object.keys(fetchCache).forEach(k => {
+    if (opts && opts.liveOnly && !LIVE_VIEW.test(k) && Date.now() - (fetchAt[k] || 0) < DAILY_TTL) return;
+    delete fetchCache[k]; delete fetchAt[k];
+  });
   Object.assign(window, { RANGE_TRADING_DAYS, rangeState, makeRangeToggle, fetchRanged, clearRangedCache });
   MCX.range = { toggle: makeRangeToggle, fetch: fetchRanged, clear: clearRangedCache, state: rangeState, days: RANGE_TRADING_DAYS };
 

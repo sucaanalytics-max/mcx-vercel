@@ -1,6 +1,6 @@
 # ADR-Trend Edge Stress Test: Results
 
-Run 28 Oct 2026, following `Docs/ADR_Edge_StressTest_Preregistration.md` (3 deviations are logged there). Code: `scripts/adr_stress_test.py` (parts B, E, C) and `scripts/fetch_nse_fo_bhav.py` (NSE F&O bhavcopy: 56 monthly series, Dec 2021–Oct 2026, no missing days).
+Run 28 Oct 2026, following `Docs/ADR_Edge_StressTest_Preregistration.md` (3 deviations are logged there). Code: `research/adr_stress_test.py` (parts B, E, C) and `research/fetch_nse_fo_bhav.py` (NSE F&O bhavcopy: 56 monthly series, Dec 2021–Oct 2026, no missing days).
 
 ## Verdict
 

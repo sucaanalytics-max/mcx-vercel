@@ -7,59 +7,33 @@ Top 5 commodities + "OTHERS" bucket.
 
 Also serves margin data via ?view=margins (to stay within Vercel 12-function limit).
 """
-from http.server import BaseHTTPRequestHandler
-import json
+from lib.api_handler import JSONHandler, CACHE_DAILY
 from datetime import date, timedelta
 from collections import defaultdict
 from urllib.parse import urlparse, parse_qs
 
 from lib.mcx_config import (
-    SUPABASE_URL, SUPABASE_ANON_KEY, COMMODITY_MAP,
-    supabase_read_all, now_ist, make_cors_headers,
+    COMMODITY_MAP,
+    supabase_read_all, now_ist, 
+    BOUNDED_RANGE_DAYS as RANGE_DAYS, DEFAULT_RANGE,
 )
 from lib.margin_dashboard import generate_margin_dashboard
-from lib.oi_participants_dashboard import generate_oi_participants_dashboard
+from lib.oi_participants_dashboard import generate_oi_participants_dashboard, page_fields as oi_page_fields
 
 # Fee rates (SEBI Oct 2024)
-FUTURES_RATE = 210.0      # ₹ per crore notional (both sides)
-OPTIONS_RATE = 4180.0     # ₹ per crore premium (both sides)
 TOP_N = 5                 # Number of top commodities to show individually
 
 
-# ─── Date helpers (same as exchange_dashboard) ────────────────────────────
-
-def _fy_label(d):
-    if d.month >= 4:
-        return f"FY{str(d.year + 1)[-2:]}"
-    return f"FY{str(d.year)[-2:]}"
-
-def _quarter_key(d):
-    m, y = d.month, d.year
-    if m <= 3:
-        return f"Q4 FY{str(y)[-2:]}"
-    elif m <= 6:
-        return f"Q1 FY{str(y + 1)[-2:]}"
-    elif m <= 9:
-        return f"Q2 FY{str(y + 1)[-2:]}"
-    else:
-        return f"Q3 FY{str(y + 1)[-2:]}"
+# ─── Date helpers (lib.calendar: one copy for every dashboard) ─────────────
+from lib.mcx_config import FUTURES_RATE, OPTIONS_RATE  # noqa: E402  (fee schedule: one copy)
+from lib.calendar import (  # noqa: E402
+    fy_label as _fy_label, quarter_label as _quarter_key,
+    prev_quarter as _prev_quarter, yoy_quarter as _yoy_quarter,
+)
 
 def _month_key(d):
     fy = _fy_label(d)
     return f"{fy} {d.strftime('%B')}"
-
-def _prev_quarter(q):
-    q_num = int(q[1])
-    fy = q[3:]
-    if q_num == 1:
-        yy = int(fy[2:])
-        return f"Q4 FY{str(yy - 1).zfill(2)}"
-    return f"Q{q_num - 1} {fy}"
-
-def _yoy_quarter(q):
-    q_num = q[:2]
-    yy = int(q[5:])
-    return f"{q_num} FY{str(yy - 1).zfill(2)}"
 
 def _avg(vals):
     return sum(vals) / len(vals) if vals else 0
@@ -72,8 +46,7 @@ def _pct(cur, prev):
 
 # ─── Main computation ────────────────────────────────────────────────────
 
-RANGE_DAYS = {"30D": 30, "60D": 60, "Q": 63, "1Y": 252, "2Y": 504}
-DEFAULT_RANGE = "60D"
+# RANGE_DAYS: lib/mcx_config.BOUNDED_RANGE_DAYS (no Max: ?range=Max serves the 60D default).
 
 
 def generate_commodity_dashboard(range_key=DEFAULT_RANGE):
@@ -98,7 +71,12 @@ def generate_commodity_dashboard(range_key=DEFAULT_RANGE):
         f"?select=trading_date,commodity,instrument_type,turnover_cr,premium_turnover_cr"
         f"&trading_date=gte.{start_date.isoformat()}"
         f"&order=trading_date.asc",
-        max_rows=25000,
+        # The window is ~800 calendar days (~550 sessions) at ~42 rows/session
+        # = ~23k rows (21.9k on 17 Nov 2026), already near the old 25k cap,
+        # which as an ascending read would have dropped the NEWEST days.
+        # 30k leaves room; newest_first makes any overflow drop the oldest.
+        max_rows=30000,
+        newest_first=True,
     )
 
     if not rows:
@@ -328,9 +306,8 @@ def generate_commodity_dashboard(range_key=DEFAULT_RANGE):
 
 # ─── HTTP handler ────────────────────────────────────────────────────────
 
-class handler(BaseHTTPRequestHandler):
+class handler(JSONHandler):
     def do_GET(self):
-        headers = make_cors_headers()
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
         view = qs.get("view", [None])[0]
@@ -338,32 +315,19 @@ class handler(BaseHTTPRequestHandler):
         try:
             if view == "margins":
                 result = generate_margin_dashboard()
-                cache = "public, max-age=300, s-maxage=300"
+                cache = CACHE_DAILY
             elif view == "oi_participants":
                 result = generate_oi_participants_dashboard()
-                cache = "public, max-age=600, s-maxage=600"
+                if qs.get("fields", [None])[0] == "page":
+                    result = oi_page_fields(result)
+                cache = CACHE_DAILY
             else:
                 result = generate_commodity_dashboard(range_key=qs.get("range", [DEFAULT_RANGE])[0])
-                cache = "public, max-age=120, s-maxage=120"
+                cache = CACHE_DAILY      # mcx_commodity_daily: 05:30-07:00
 
-            self.send_response(200)
-            for k, v in headers.items():
-                self.send_header(k, v)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Cache-Control", cache)
-            self.end_headers()
-            self.wfile.write(json.dumps(result, default=str).encode())
+            # Origin is now reflected (make_cors_headers was called without it,
+            # so previews and localhost never matched).
+            self.send_json(result, cache=cache)
         except Exception as e:
-            self.send_response(500)
-            for k, v in headers.items():
-                self.send_header(k, v)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode())
+            self.send_error_json(e)
 
-    def do_OPTIONS(self):
-        headers = make_cors_headers()
-        self.send_response(204)
-        for k, v in headers.items():
-            self.send_header(k, v)
-        self.end_headers()

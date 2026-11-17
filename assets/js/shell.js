@@ -106,7 +106,7 @@
     rail.title = (v.live ? 'Projected revenue for today: ₹' : 'Final revenue for today: ₹') + MCX.fmt.num(v.value, 2) + ' Cr';
   });
 
-  // ── Theme and settings buttons (rail foot and More sheet) ───────────────
+  // ── Theme button (rail foot and More sheet) ───────────────
   const THEME_NAMES = { light: 'Light', dark: 'Dark', system: 'System' };
   function syncThemeButtons() {
     const mode = MCX.theme.mode(), next = MCX.theme.next();
@@ -121,7 +121,6 @@
     const b = e.target.closest && e.target.closest('[data-action]');
     if (!b) return;
     if (b.dataset.action === 'theme') { MCX.theme.cycle(); syncThemeButtons(); }
-    if (b.dataset.action === 'settings') { closeSheet(); openSettings(); }
     if (b.dataset.action === 'more') openSheet();
   });
   MCX.theme.onChange(() => MCX.router.retheme());
@@ -145,10 +144,10 @@
 
   // ── Live snapshot: the refresh button, a refresh every 2 minutes in trading hours, the header time ──
   const AUTO_REFRESH_MS = 2 * 60 * 1000;
-  let autoTimer = null, refreshing = false;
+  let refreshing = false, refreshPoll = null;
   const inTradingHours = () => { const t = MCX.market.ist(); return t.dow >= 1 && t.dow <= 5 && t.min >= 535 && t.min <= 1415; };
   function showSnapshotTime(d) {
-    const meta = $('refreshMeta'), t = MCX.parseTs(d.timestamp);   // ISO on GET, "HH:MM IST, DD Mon YYYY" after a manual refresh
+    const meta = $('refreshMeta'), t = MCX.parseTs(d.timestamp);   // ISO from GET /api/refresh
     if (!t) { meta.textContent = '—'; return; }
     const tz = { timeZone: 'Asia/Kolkata' };
     const hhmm = t.toLocaleTimeString('en-GB', { ...tz, hour: '2-digit', minute: '2-digit' });
@@ -160,32 +159,25 @@
   async function refresh(manual) {
     if (refreshing) return;
     refreshing = true;
+    if (refreshPoll) refreshPoll.last = Date.now();   // a manual refresh resets the 2-minute clock
     const btn = $('refreshBtn');
     btn.classList.add('loading'); btn.disabled = true; btn.setAttribute('aria-busy', 'true');
     try {
-      let data;
-      if (manual) {             // a manual refresh asks the server to fetch from MCX first, with the saved cookie if any
-        try {
-          const cookie = MCX.storage.get('mcxCookie');
-          data = await fetch('/api/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cookie ? { cookie } : {}) }).then(r => r.json());
-          if (!data.success) throw new Error(data.error);
-        } catch (e) { data = await fetch('/api/refresh').then(r => r.json()); }
-      } else {
-        data = await fetch('/api/refresh').then(r => r.json());
-      }
+      // The relay pushes a snapshot every 15 minutes; a manual refresh re-reads it.
+      // (The old POST path asked Vercel to fetch MCX itself, which Akamai blocks.)
+      const data = await MCX.getJSON('/api/refresh');
       MCX.store.set('refresh', data);
       if (data.success) {
-        clearRangedCache();
+        clearRangedCache(manual ? undefined : { liveOnly: true });   // the button refetches everything
         MCX.store.set('liveRevenue', { value: data.proj_rev_cr, live: !data.session_closed });
         showSnapshotTime(data);
         if (manual) MCX.ui.toast('Data refreshed');
-        if (!autoTimer && inTradingHours()) autoTimer = setInterval(() => { if (inTradingHours() && !document.hidden) refresh(false); }, AUTO_REFRESH_MS);
       } else if (manual) {
         MCX.ui.toast('Refresh failed' + (data.error ? ': ' + data.error : ''), 'error');
       }
     } catch (e) {
-      MCX.store.set('refresh', { success: false, error: 'Network error' });
-      if (manual) MCX.ui.toast('Network error', 'error');
+      MCX.store.set('refresh', { success: false, error: e && e.message ? e.message : 'Network error' });
+      if (manual) MCX.ui.toast(e && e.message ? e.message : 'Network error', 'error');
     } finally {
       refreshing = false;
       btn.classList.remove('loading'); btn.disabled = false; btn.removeAttribute('aria-busy');
@@ -193,37 +185,25 @@
   }
   $('refreshBtn').addEventListener('click', () => refresh(true));
   MCX.refresh = refresh;
+  // Armed at load, whatever the first refresh does: it used to start only after a
+  // successful refresh inside trading hours, so a tab opened before 08:55 IST or
+  // after one failed fetch never auto-refreshed again that day.
+  refreshPoll = MCX.poll.every('refresh', () => refresh(false), AUTO_REFRESH_MS,
+    () => inTradingHours() && !document.hidden);
 
-  // ── Share price: at load, then every minute in NSE hours on the pages that show it ──
+  // ── Share price: on the pages that show it (Fair value, Scenarios), when one opens and then
+  // every minute in NSE hours. Other pages never read it, so it no longer loads with every page.
+  const PRICE_PAGES = ['val-scen', 'val-fv'];
+  let priceAt = 0, pricePoll = null;
   function fetchPrice() {
-    return fetch('/api/mcxprice').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(d => { if (d.error) throw new Error(d.error); MCX.store.set('price', d); })
-      .catch(e => { console.warn('Share price:', e.message); MCX.store.set('priceStale', true); });
+    priceAt = Date.now();
+    if (pricePoll) pricePoll.last = priceAt;      // the pages' mount() kick then skips: one request, not two
+    return MCX.getJSON('/api/mcxprice')
+      .then(d => { if (!d || d.error) throw new Error((d && d.error) || 'No price'); MCX.store.set('price', d); })
+      .catch(e => { console.warn('Share price:', e.message); });
   }
-  MCX.poll.every('cmp', fetchPrice, 60 * 1000, () => MCX.market.nseOpen() && !document.hidden && ['val-scen', 'val-fv'].includes(MCX.router.current()));
-
-  // ── Data source settings: an MCX session cookie for the manual refresh ──
-  const dlg = $('settingsDialog');
-  function openSettings() {
-    const c = MCX.storage.get('mcxCookie');
-    $('cookieText').value = c || '';
-    $('cookieStatus').textContent = c ? `A cookie is saved in this browser (${c.length} characters).` : 'No cookie saved; the server tries to get one itself.';
-    if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', '');
-  }
-  $('settingsSave').addEventListener('click', () => {
-    const v = $('cookieText').value.trim();
-    MCX.storage.set('mcxCookie', v);
-    dlg.close();
-    MCX.ui.toast(v ? 'Cookie saved in this browser' : 'Cookie cleared');
-  });
-  $('settingsCancel').addEventListener('click', () => dlg.close());
-  dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });     // the backdrop
-  // ?cookie=… in the URL: save it, drop it from the address bar, refresh from MCX
-  const urlCookie = new URLSearchParams(location.search).get('cookie');
-  if (urlCookie) {
-    MCX.storage.set('mcxCookie', urlCookie);
-    history.replaceState({}, '', location.pathname + location.hash);
-  }
+  pricePoll = MCX.poll.every('cmp', fetchPrice, 60 * 1000, () => MCX.market.nseOpen() && !document.hidden && PRICE_PAGES.includes(MCX.router.current()));
+  MCX.router.onChange(r => { if (PRICE_PAGES.includes(r.id) && Date.now() - priceAt > 60 * 1000) fetchPrice(); });
 
   // ── Methodology drawer: opened from any [data-method] button, or ?m=<topic> in the URL ──
   const md = $('methodDrawer');
@@ -248,7 +228,6 @@
   const mParam = new URLSearchParams(location.search).get('m');
 
   MCX.router.start({ fallback: 'today', legacy: LEGACY });
-  setTimeout(() => refresh(!!urlCookie), 300);     // the first snapshot
-  fetchPrice();
+  setTimeout(() => refresh(false), 300);     // the first snapshot (the price loads with its pages: router.onChange above)
   if (mParam) setTimeout(() => openMethod(mParam), 400);
 })();
