@@ -293,7 +293,7 @@
     let started = false;
     const go = () => {
       if (started) return; started = true;
-      box.innerHTML = '<span class="skel"></span> <span class="note">Re-running 90 days of snapshots, about 15 seconds…</span>';
+      box.innerHTML = '<span class="skel"></span> <span class="note">Re-running 90 days of snapshots…</span>';
       fetchRanged('/api/analytics?section=hourly_accuracy').then(d => { if (!d.success) throw new Error(d.error || 'No data'); renderHourly(d); })
         .catch(e => MCX.ui.error(box, 'Could not load the intraday check: ' + (e.message || e), () => { started = false; go(); }));
     };
