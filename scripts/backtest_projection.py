@@ -13,7 +13,7 @@ Usage:
       projection from scratch using current model code (vs the proj_total_rev
       stored in the snapshot, which reflects the model at write-time)
 """
-import sys, os, csv, statistics
+import sys, os, csv, statistics, time
 from datetime import datetime, timedelta
 from collections import defaultdict
 
@@ -39,18 +39,40 @@ from lib.mcx_config import (
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
+# ~60 sequential reads per run: one timed-out read (18 Nov 2026 07:38, just
+# after the Mac woke) used to kill the whole job. Retry each read a few times.
+READ_TIMEOUT = 20
+READ_BACKOFF = (2, 5)          # seconds before the 2nd and 3rd attempt
+
+
+def _with_retry(fn, *args, sleep=None, **kwargs):
+    for wait in READ_BACKOFF + (None,):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            if wait is None:
+                raise
+            print(f"  read failed ({type(e).__name__}: {str(e)[:80]}); retrying in {wait}s",
+                  file=sys.stderr)
+            (sleep or time.sleep)(wait)
+
+
 def fetch_eod(date_iso):
-    rows = supabase_read(
+    rows = _with_retry(
+        supabase_read,
         "mcx_daily_revenue",
-        f"?trading_date=eq.{date_iso}&select=trading_date,total_rev_cr,fut_notl_cr,opt_prem_cr,source,day_type"
+        f"?trading_date=eq.{date_iso}&select=trading_date,total_rev_cr,fut_notl_cr,opt_prem_cr,source,day_type",
+        timeout=READ_TIMEOUT,
     )
     return rows[0] if rows else None
 
 
 def fetch_snaps(date_iso):
-    return supabase_read_all(
+    return _with_retry(
+        supabase_read_all,
         "mcx_snapshots",
-        f"?trading_date=eq.{date_iso}&select=captured_at,elapsed_min,fut_notl_cr,opt_prem_cr,total_rev_cr,proj_total_rev,confidence,day_type,session_closed&order=elapsed_min.asc"
+        f"?trading_date=eq.{date_iso}&select=captured_at,elapsed_min,fut_notl_cr,opt_prem_cr,total_rev_cr,proj_total_rev,confidence,day_type,session_closed&order=elapsed_min.asc",
+        timeout=READ_TIMEOUT,
     )
 
 
