@@ -420,7 +420,7 @@
     const dq = d.data_quality || {};
     const date = t.date || dq.latest_date;
     $('cmSigSub').textContent = date ? `Turnover and activity on ${fmt.day(date)}; exchange turnover ₹${num(t.exchange_turnover_cr || 0, 0)} Cr across ${(t.commodities || []).length} commodities` : '';
-    $('cmSignals').innerHTML = table(['Commodity', 'Sector', 'Turnover ₹ Cr', 'Share', 'Signal', 'Composite z', 'Turnover z', 'Open interest z', 'Volume z'],
+    $('cmSignals').innerHTML = table(['Commodity', 'Sector', 'Turnover ₹ Cr', 'Share', 'Signal', 'Composite z', 'Turnover z', 'Open interest z (₹)', 'Volume z'],
       (t.commodities || []).map(c => [cname(c.commodity), esc(String(c.head).charAt(0) + String(c.head).slice(1).toLowerCase()), num(c.turnover_cr || 0, 0),
         `${num((c.weight || 0) * 100, 1)}%`, signalPill(c.signal), z(c.composite_z), z(c.turnover_z), z(c.oi_z), z(c.volume_z)]));
     $('cmMovers').innerHTML = table(['Commodity', 'Sector', 'z before', 'z now', 'Change', 'Signal'],
