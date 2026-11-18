@@ -18,9 +18,9 @@ from lib.mcx_config import (
 )
 
 # Legacy fragmented commodity symbols whose data is now consolidated into the
-# parent (per lib/mcx_config.COMMODITY_MAP). Old signal rows for these may
-# still exist in mcx_commodity_signals until the cleanup SQL has been run; we
-# defensively skip them at the API layer so the UI only ever sees parents.
+# parent (per lib/mcx_config.COMMODITY_MAP). Their old mcx_commodity_signals
+# rows were deleted on 18 Nov 2026 (scripts/sql/cleanup_legacy_consolidated_
+# signals.sql); the API still skips them so a stray row never reaches the UI.
 LEGACY_CHILD_SYMBOLS = frozenset(COMMODITY_MAP.keys())
 
 
