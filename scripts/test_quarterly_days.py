@@ -161,11 +161,11 @@ check_q3("bhav_refresh backfills the Muhurat Sunday but not an ordinary Sunday",
 SMALL = {"total_rev_cr": 0.4964, "fut_rev_cr": 0.2, "opt_rev_cr": 0.2964,
          "fut_notl_cr": 4639.49, "opt_prem_cr": 360.67}
 dv.fetch_mcx_historical = lambda iso: dict(SMALL)
-dv.supabase_upsert = lambda table, rec: None
+dv.supabase_upsert = lambda table, rec, **k: None
 br.check_relay_eod = lambda iso: None
 br.fetch_mcx_historical = lambda iso: dict(SMALL)
-check_q3("daily_verify backfills a Rs 0.4964 Cr Muhurat row", dv.backfill_from_historical("2026-11-08") is not None)
-check_q3("daily_verify still rejects Rs 0.4964 Cr on a normal day", dv.backfill_from_historical("2026-11-06") is None)
+check_q3("daily_verify backfills a Rs 0.4964 Cr Muhurat row", dv.backfill_from_historical("2026-11-08")[0] is not None)
+check_q3("daily_verify still rejects Rs 0.4964 Cr on a normal day", dv.backfill_from_historical("2026-11-06")[0] is None)
 check_q3("bhav_refresh keeps a Rs 0.4964 Cr Muhurat row", br.fetch_and_compute("2026-11-08") is not None)
 check_q3("bhav_refresh still rejects Rs 0.4964 Cr on a normal day", br.fetch_and_compute("2026-11-06") is None)
 stored = lambda iso, v: {"trading_date": iso, "total_rev_cr": v, "source": "mcx_historical",

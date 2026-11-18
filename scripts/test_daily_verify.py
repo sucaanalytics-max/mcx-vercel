@@ -10,6 +10,12 @@ choice, after the 10 Nov 2026 failure:
     The run printed "All checks passed" with 9 Nov missing from
     mcx_commodity_daily.
 
+And step 1 (the revenue row), after the 18 Nov 2026 run: it read 16 Nov
+during a dark wake, the read timed out, and get_daily_revenue's `except`
+turned that into "no row". The backfill then inserted without on_conflict,
+hit the unique trading_date (409, the row was there all along), and the run
+reported "MISSING ... Historical API also unavailable" for a stored day.
+
 Offline: Supabase, MCX and subprocesses are faked.
 Run:  python3 scripts/test_daily_verify.py
 """
@@ -148,6 +154,98 @@ def test_interpreter_needs_packages():
     dv._PY_HAS_DEPS.clear()
 
 
+HIST = {"total_rev_cr": 15.9058, "fut_rev_cr": 2.1, "opt_rev_cr": 13.8058,
+        "fut_notl_cr": 50000, "opt_prem_cr": 33000}
+
+
+def _verify_revenue(revenue_read, backfill):
+    """verify_date('2026-11-16') with only step 1 (the revenue row) under test.
+    revenue_read: a row, None (no row), or an Exception the read raises.
+    backfill: what backfill_from_historical returns, as (record, why)."""
+    calls = []
+    saved = (dv.get_daily_revenue, dv.backfill_from_historical, dv.fetch_mcx_historical,
+             dv.get_snapshot_summary, dv.check_commodity_breakdown)
+
+    def read(d):
+        if isinstance(revenue_read, Exception):
+            raise revenue_read
+        return revenue_read
+    dv.get_daily_revenue = read
+    dv.backfill_from_historical = lambda d: (calls.append(d), backfill)[1]
+    dv.fetch_mcx_historical = lambda d: dict(HIST)
+    dv.get_snapshot_summary = lambda d: dict(GOOD_SNAP)
+    dv.check_commodity_breakdown = lambda d, result: None
+    try:
+        return dv.verify_date("2026-11-16"), calls
+    finally:
+        (dv.get_daily_revenue, dv.backfill_from_historical, dv.fetch_mcx_historical,
+         dv.get_snapshot_summary, dv.check_commodity_breakdown) = saved
+
+
+def test_revenue_read_failure_is_not_missing():
+    print("\n[7] A failed revenue read is reported as a read failure, not a missing row")
+    saved = dv.supabase_read
+    dv.supabase_read = lambda *a, **k: (_ for _ in ()).throw(TimeoutError("The read operation timed out"))
+    try:
+        try:
+            dv.get_daily_revenue("2026-11-16")
+            raised = False
+        except TimeoutError:
+            raised = True
+    finally:
+        dv.supabase_read = saved
+    check("get_daily_revenue raises on a failed read (doesn't return None)", raised)
+
+    r, calls = _verify_revenue(TimeoutError("The read operation timed out"), (None, "should not run"))
+    check("status ISSUES", r["status"] == "ISSUES", str(r["issues"]))
+    check("issue says the read failed, with the error",
+          any("read failed" in i and "timed out" in i for i in r["issues"]), str(r["issues"]))
+    check("not reported as MISSING", not any("MISSING" in i for i in r["issues"]), str(r["issues"]))
+    check("no backfill attempted", calls == [], str(calls))
+
+
+def test_missing_row_backfill_outcomes():
+    print("\n[8] A really missing row: backfill result is reported as it happened")
+    rec = {"trading_date": "2026-11-16", "total_rev_cr": 15.9058}
+    r, calls = _verify_revenue(None, (rec, None))
+    check("backfilled: action names the figure",
+          any("Backfilled" in a and "15.9058" in a for a in r["actions"]), str(r["actions"]))
+    check("backfilled: called once for the date", calls == ["2026-11-16"], str(calls))
+
+    why = "upsert failed: Supabase upsert 409: duplicate key"
+    r, _ = _verify_revenue(None, (None, why))
+    check("upsert failure: issue carries the reason", any(why in i for i in r["issues"]), str(r["issues"]))
+    check("upsert failure: not blamed on the historical API",
+          not any("Historical API also unavailable" in i for i in r["issues"]), str(r["issues"]))
+
+
+def test_backfill_upsert_merges_on_trading_date():
+    print("\n[9] backfill_from_historical upserts on trading_date and reports why it didn't write")
+    seen = []
+    saved = (dv.fetch_mcx_historical, dv.supabase_upsert)
+    dv.fetch_mcx_historical = lambda d: dict(HIST)
+    try:
+        dv.supabase_upsert = lambda table, rec, **k: (seen.append((table, k)), [rec])[1]
+        rec, why = dv.backfill_from_historical("2026-11-16")
+        check("writes and returns the record", rec is not None and why is None, f"{rec} {why}")
+        check("on_conflict=trading_date", seen == [("mcx_daily_revenue", {"on_conflict": "trading_date"})],
+              str(seen))
+
+        def conflict(table, rec, **k):
+            raise Exception('Supabase upsert 409: {"code":"23505"}')
+        dv.supabase_upsert = conflict
+        rec, why = dv.backfill_from_historical("2026-11-16")
+        check("upsert error -> (None, 'upsert failed: ...')",
+              rec is None and why and why.startswith("upsert failed") and "409" in why, f"{rec} {why}")
+
+        dv.fetch_mcx_historical = lambda d: None
+        rec, why = dv.backfill_from_historical("2026-11-16")
+        check("no report -> (None, reason names the report)",
+              rec is None and why and "historical report" in why, f"{rec} {why}")
+    finally:
+        dv.fetch_mcx_historical, dv.supabase_upsert = saved
+
+
 if __name__ == "__main__":
     print("=" * 72)
     print("daily_verify tests")
@@ -158,6 +256,9 @@ if __name__ == "__main__":
     test_presence_ignores_oi_stubs()
     test_main_exits_nonzero()
     test_interpreter_needs_packages()
+    test_revenue_read_failure_is_not_missing()
+    test_missing_row_backfill_outcomes()
+    test_backfill_upsert_merges_on_trading_date()
     print("\n" + "=" * 72)
     if FAILED:
         print(f"{len(FAILED)} FAILED: {', '.join(FAILED)}")

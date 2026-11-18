@@ -143,15 +143,14 @@ def fetch_mcx_historical(date_iso):
 
 
 def get_daily_revenue(date_iso):
-    """Read daily revenue record from Supabase."""
-    try:
-        rows = supabase_read(
-            "mcx_daily_revenue",
-            f"?trading_date=eq.{date_iso}&limit=1"
-        )
-        return rows[0] if rows else None
-    except Exception:
-        return None
+    """Read daily revenue record from Supabase: the row, or None if there is
+    none. A failed read raises. On 18 Nov 2026 a timed-out read returned None
+    here, so a stored day was reported MISSING and re-inserted (409)."""
+    rows = supabase_read(
+        "mcx_daily_revenue",
+        f"?trading_date=eq.{date_iso}&limit=1"
+    )
+    return rows[0] if rows else None
 
 
 def get_snapshot_summary(date_iso):
@@ -179,23 +178,26 @@ def get_snapshot_summary(date_iso):
 
 
 def backfill_from_historical(date_iso):
-    """Backfill daily revenue + commodities from Historical API."""
+    """Write a missing mcx_daily_revenue row from MCX's historical report.
+    Returns (record, None) on success, else (None, why it wasn't written)."""
     hist = fetch_mcx_historical(date_iso)
-    # A ~1-hour special session books well under Rs 0.5 Cr some years (2024: 0.4964).
     if not hist:
-        return None
+        if _hist_unavailable:
+            return None, f"MCX historical client unavailable ({_hist_unavailable})"
+        return None, "MCX historical report unavailable"
     rev = hist["total_rev_cr"]
+    # A ~1-hour special session books well under Rs 0.5 Cr some years (2024: 0.4964).
     too_low = rev <= 0 if date_iso in MCX_SPECIAL_SESSIONS else rev < 0.5
     if too_low or rev > 50.0:
-        return None
+        return None, f"historical figure {rev:.4f} Cr outside the plausible range, not written"
 
     record = historical_record(date_iso, hist)
     try:
-        supabase_upsert("mcx_daily_revenue", record)
-        return record
+        # Merge on the unique trading_date, not the surrogate id (see supabase_upsert).
+        supabase_upsert("mcx_daily_revenue", record, on_conflict="trading_date")
     except Exception as e:
-        print(f"  Upsert failed: {e}")
-        return None
+        return None, f"upsert failed: {str(e)[:200]}"
+    return record, None
 
 
 _PY_HAS_DEPS = {}
@@ -385,9 +387,17 @@ def verify_date(date_iso):
     # snapshots are expected there, not faults.
     special = date_iso in MCX_SPECIAL_SESSIONS
 
-    # 1. Check daily revenue record
-    rev = get_daily_revenue(date_iso)
-    if rev:
+    # 1. Check daily revenue record. A failed read is not a missing row: say
+    # so and leave the row alone rather than backfill over a day that exists.
+    read_error = None
+    try:
+        rev = get_daily_revenue(date_iso)
+    except Exception as e:
+        rev, read_error = None, f"{type(e).__name__}: {str(e)[:150]}"
+    if read_error:
+        result["issues"].append(
+            f"mcx_daily_revenue read failed ({read_error}) — row not checked, no backfill attempted")
+    elif rev:
         result["revenue"] = rev["total_rev_cr"]
         result["source"] = rev["source"]
 
@@ -442,13 +452,13 @@ def verify_date(date_iso):
     else:
         result["issues"].append("MISSING from mcx_daily_revenue")
         # Try to backfill
-        rec = backfill_from_historical(date_iso)
+        rec, why = backfill_from_historical(date_iso)
         if rec:
             result["revenue"] = rec["total_rev_cr"]
             result["source"] = "mcx_historical"
             result["actions"].append(f"Backfilled: {rec['total_rev_cr']:.4f} Cr")
         else:
-            result["issues"].append("Historical API also unavailable")
+            result["issues"].append(f"Backfill not written: {why}")
 
     # 2. Check relay snapshots
     snap = get_snapshot_summary(date_iso)
