@@ -25,11 +25,15 @@ ROLLING_WINDOW = 60
 # Top commodities by turnover — skip tiny ones to keep compute fast
 MIN_AVG_TURNOVER_CR = 50  # minimum avg daily turnover to process
 
-# OI z-score is computed and stored but kept OUT of the composite until tested.
-# Dhan OI history (2022+) was backfilled 29 Oct 2026; adding it would flip
-# ~35-39% of signals, and part of that is an expiry-cycle effect (monthly
-# contracts shed OI in expiry week) rather than information.
+# OI z-score is computed and shown but kept OUT of the composite. Tested 18 Nov
+# 2026 (docs/OI_Zscore_Results.md, pre-registered): OI in Rs value adds a small
+# real increment over turnover + volume (test IC 0.11 at 10 days), but averaged
+# in at equal weight it lowers the 1-2 week accuracy, so it stays out.
 OI_IN_COMPOSITE = False
+# The OI z-score is computed on futures OI in Rs value, not lots: summing lots
+# across a complex adds 1 g gold-petal lots to 1 kg gold lots, and the study
+# found value beats lots at every horizon (lots added nothing over the composite).
+OI_Z_BASIS = "value"
 
 
 def _zscore(values, idx, window):
@@ -138,8 +142,9 @@ def compute_commodity_signals(mode="recent"):
     results = []
     for c, hist in filtered.items():
         turnovers = [h["total_turnover_cr"] for h in hist]
-        ois = [None if h.get("oi_missing") or not h["total_open_interest"]
-               else float(h["total_open_interest"]) for h in hist]
+        oi_field = "total_oi_value_cr" if OI_Z_BASIS == "value" else "total_open_interest"
+        ois = [None if h.get("oi_missing") or not h[oi_field] or h[oi_field] <= 0
+               else float(h[oi_field]) for h in hist]
         volumes = [float(h["total_volume_lots"]) for h in hist]
 
         # Determine slice based on mode
