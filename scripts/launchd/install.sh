@@ -5,7 +5,9 @@
 #   scripts/launchd/install.sh freshness ...   # specific jobs, by name
 #
 # Production set: relay, daily-verify, commodity-eod, backtest. Optional:
-# freshness (headless Claude), options-paper (Dhan paper trading).
+# freshness-alert (read-only scan + macOS notification, no Claude),
+# freshness (headless Claude agent that also repairs data), options-paper
+# (Dhan paper trading).
 # Logs go to ~/Library/Logs/mcx/ (survives reboots, outside Dropbox). The
 # plists carry this Mac's absolute paths (/Users/pranayagarwal/...).
 #
