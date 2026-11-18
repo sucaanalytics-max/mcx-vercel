@@ -543,6 +543,37 @@ def _compute_adaptive_weights(vol_fn=None, close_min=None):
         return None
 
 
+def _other_season_close(close):
+    """The other standard close (23:30 <-> 23:55), or None for an override close."""
+    return {SESSION_END_US_DST: SESSION_END_US_STD,
+            SESSION_END_US_STD: SESSION_END_US_DST}.get(close)
+
+
+def season_transfer(weights, from_close, to_close):
+    """Map a fitted 7-bucket curve from one season's close to the other's.
+
+    The first six buckets cover the same clock times in both seasons; only the
+    late bucket (22:00 to the close) differs, by 23:30-23:55, which carries
+    WINTER_EXTENSION_SHARE of a winter day (the static curve's rule). Summer
+    -> winter scales the six down and gives the extension to the late bucket;
+    winter -> summer reverses it. Used for the first days after each switch,
+    before ADAPTIVE_MIN_DAYS same-season days exist. Walk-forward on 2-17 Nov
+    2026 (10-11 days, curve-only projection), median / MAE at 75% elapsed:
+    static winter curve +11.5% / 12.6, summer curve moved to winter hours
+    +1.4% / 8.2; at 50%: -6.4% / 9.3 vs -4.4% / 9.4."""
+    if not weights or from_close == to_close:
+        return weights
+    ext = WINTER_EXTENSION_SHARE
+    if from_close == SESSION_END_US_DST and to_close == SESSION_END_US_STD:
+        return [w * (1 - ext) for w in weights[:-1]] + [weights[-1] * (1 - ext) + ext]
+    if from_close == SESSION_END_US_STD and to_close == SESSION_END_US_DST:
+        late = max(0.0, weights[-1] - ext)
+        out = list(weights[:-1]) + [late]
+        tot = sum(out)
+        return [w / tot for w in out] if tot > 0 else None
+    return None
+
+
 def get_adaptive_bucket_weights(trading_date=None):
     """Return EWMA-weighted bucket weights from recent snapshots (combined Fut+Opt)
     for trading_date's season. Returns list of 7 floats summing to ~1.0, or None
@@ -552,6 +583,10 @@ def get_adaptive_bucket_weights(trading_date=None):
     if hit and (_time.time() - hit["ts"]) < ADAPTIVE_TTL:
         return hit["weights"]
     result = _compute_adaptive_weights(vol_fn=None, close_min=close)
+    other = _other_season_close(close)
+    if result is None and other:
+        result = season_transfer(_compute_adaptive_weights(vol_fn=None, close_min=other),
+                                 other, close)
     _adaptive_cache[close] = {"weights": result, "ts": _time.time()}
     return result
 
@@ -570,6 +605,13 @@ def get_adaptive_bucket_weights_split(trading_date=None):
     fut_w = _compute_adaptive_weights(vol_fn=lambda s: s.get("fut_notl_cr") or 0, close_min=close)
     opt_w = _compute_adaptive_weights(vol_fn=lambda s: s.get("opt_prem_cr") or 0, close_min=close)
     result = (fut_w, opt_w) if (fut_w and opt_w) else None
+    other = _other_season_close(close)
+    if result is None and other:
+        fut_o = _compute_adaptive_weights(vol_fn=lambda s: s.get("fut_notl_cr") or 0, close_min=other)
+        opt_o = _compute_adaptive_weights(vol_fn=lambda s: s.get("opt_prem_cr") or 0, close_min=other)
+        if fut_o and opt_o:
+            fut_t, opt_t = season_transfer(fut_o, other, close), season_transfer(opt_o, other, close)
+            result = (fut_t, opt_t) if (fut_t and opt_t) else None
     _adaptive_split_cache[close] = {"weights": result, "ts": _time.time()}
     return result
 
@@ -597,44 +639,35 @@ def _interpolate_vol(snapshots, target_elapsed):
     return _vol(snapshots[-1])
 
 
-def _multiplier_from_curve(time_pct, hist_wt, day_type, regime_drift_factor=1.0):
-    """Compute the projection multiplier given time elapsed and historical weight.
+def _multiplier_from_curve(time_pct, hist_wt, day_type):
+    """Projection multiplier at time_pct of the session: 1 / the curve's
+    cumulative share, times the day-type prior faded by elapsed time.
 
-    Lean on the volume curve (mult_b = 1/hist_wt) and only blend toward linear
-    extrapolation (mult_a = 1/time_pct) once the session is mostly complete.
-    Confidence in the curve grows with elapsed time. Fades the day-type prior.
-    Optionally scales mult_b by a regime-drift factor (Phase 4).
+    Until Nov 2026 this blended toward linear extrapolation (1 / time_pct,
+    weight time_pct ** 1.5) and scaled the curve by a regime-drift ratio. The
+    split curves are accurate (Sep-Oct 2026, 50% elapsed: futures 0.425 vs
+    0.427 actual, options 0.246 vs 0.242), but options trade late, so the
+    linear term pulled projections ~19% low at mid-session. The drift ratio
+    compared today's partial-day bucket shares with full-day shares, so it
+    sat above 1 almost every day and roughly cancelled the blend in summer;
+    in winter, with no same-season curve, both were off and live projections
+    ran ~20% low. Walk-forward MAE, new vs old (25% / 50% / 75% elapsed):
+    35 summer days 16.1 / 12.2 / 6.4 vs 20.2 / 12.2 / 6.2; 10 winter days
+    (with season_transfer) 15.5 / 9.4 / 8.2 vs 19.5 / 17.4 / 8.6.
     """
     if time_pct <= 0:
         return 1.0
-    mult_a = 1.0 / time_pct
-    mult_b = (1.0 / hist_wt) if hist_wt > 0 else mult_a
-    # Phase 4: regime drift scales the curve multiplier; capped at +/-25%
-    # to allow real corrections on systematically back/front-loaded days.
-    drift = max(0.75, min(1.25, regime_drift_factor))
-    mult_b *= drift
-
-    # Blend: trust the curve early in session, blend toward linear late.
-    # Earlier formula (sqrt(hist_wt)) over-weighted mult_a in the first half
-    # which assumes uniform pace and produced the systematic under-projection.
-    blend = time_pct ** 1.5  # 0.18 at t=0.25, 0.35 at t=0.5, 0.65 at t=0.75
-    mult_c = blend * mult_a + (1 - blend) * mult_b
-
+    mult = (1.0 / hist_wt) if hist_wt > 0 else (1.0 / time_pct)
     raw_day_mult = DAY_MULTIPLIER.get(day_type, 1.0)
     effective_day_mult = 1.0 + (raw_day_mult - 1.0) * (1.0 - time_pct)
-    return mult_c * effective_day_mult
+    return mult * effective_day_mult
 
 
 def project_full_day(realized_fut, realized_opt, elapsed_min, day_type="LOW",
-                     today_snapshots=None, trading_date=None):
+                     trading_date=None):
     """Project full-day Fut/Opt notionals using separate adaptive curves.
 
     Returns (proj_fut, proj_opt, confidence_label).
-
-    today_snapshots (optional): list of today's mcx_snapshots rows, used by
-    check_regime_drift() to detect bucket-level divergence and scale the
-    volume-curve multiplier in real time. Falls back to static behavior if
-    not provided or if drift detection has insufficient data.
 
     trading_date (optional, default today IST) picks the session length and
     curve: 870 min to 23:30 in summer, 895 min to 23:55 in winter.
@@ -676,25 +709,8 @@ def project_full_day(realized_fut, realized_opt, elapsed_min, day_type="LOW",
     fut_hist_wt = get_intraday_weight_dynamic(elapsed_min, fut_wts, trading_date)
     opt_hist_wt = get_intraday_weight_dynamic(elapsed_min, opt_wts, trading_date)
 
-    # Phase 4: regime-drift correction. If today's actual bucket shape
-    # diverges from the baseline by >2σ, scale the curve multiplier
-    # toward today's pace. Capped at ±20% in _multiplier_from_curve().
-    fut_drift = opt_drift = 1.0
-    if today_snapshots and len(today_snapshots) >= 3:
-        try:
-            drift_alerts = check_regime_drift(today_snapshots, threshold_z=2.0,
-                                              trading_date=trading_date)
-            if drift_alerts:
-                # Average drift ratio across flagged buckets — completed buckets only
-                ratios = [a.get("ratio") for a in drift_alerts if a.get("completed")]
-                if ratios:
-                    avg_ratio = sum(ratios) / len(ratios)
-                    fut_drift = opt_drift = avg_ratio
-        except Exception:
-            pass
-
-    mult_fut = _multiplier_from_curve(time_pct, fut_hist_wt, day_type, fut_drift)
-    mult_opt = _multiplier_from_curve(time_pct, opt_hist_wt, day_type, opt_drift)
+    mult_fut = _multiplier_from_curve(time_pct, fut_hist_wt, day_type)
+    mult_opt = _multiplier_from_curve(time_pct, opt_hist_wt, day_type)
 
     conf_label = ("HIGH" if time_pct > 0.70
                   else "MEDIUM" if time_pct > 0.35
@@ -703,8 +719,13 @@ def project_full_day(realized_fut, realized_opt, elapsed_min, day_type="LOW",
 
 
 def check_regime_drift(today_snapshots, threshold_z=2.0, trading_date=None):
-    """Compare today's developing volume shape against adaptive baseline.
-    Returns list of bucket alerts where z-score > threshold, or empty list."""
+    """Compare today's developing volume shape against the adaptive baseline.
+    Returns list of bucket alerts where z-score > threshold, or empty list.
+
+    Diagnostic only (the relay logs it); it no longer scales the projection.
+    Each completed bucket's share of today's volume so far is compared with
+    the curve's share of the same partial day (its weight / the curve's
+    cumulative share at max_elapsed), not with its share of a full day."""
     if not today_snapshots or len(today_snapshots) < 3:
         return []
     adaptive_wts = get_adaptive_bucket_weights(trading_date)
@@ -713,7 +734,8 @@ def check_regime_drift(today_snapshots, threshold_z=2.0, trading_date=None):
     # Derive today's completed bucket weights
     max_elapsed = max(s["elapsed_min"] for s in today_snapshots)
     total_vol = _interpolate_vol(today_snapshots, max_elapsed)
-    if total_vol <= 0:
+    cum_curve = get_intraday_weight_dynamic(max_elapsed, adaptive_wts, trading_date)
+    if total_vol <= 0 or cum_curve <= 0:
         return []
     alerts = []
     buckets = intraday_buckets(trading_date)
@@ -727,7 +749,7 @@ def check_regime_drift(today_snapshots, threshold_z=2.0, trading_date=None):
         cum = _interpolate_vol(today_snapshots, edge_end)
         today_w = max(0, cum - prev_cum) / total_vol
         prev_cum = cum
-        adapt_w = adaptive_wts[i]
+        adapt_w = adaptive_wts[i] / cum_curve
         # Use 15% of adaptive weight as approximate σ (robust estimate)
         sigma = max(adapt_w * 0.15, 0.005)
         z = abs(today_w - adapt_w) / sigma

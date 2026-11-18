@@ -225,20 +225,7 @@ def run_snapshot():
         return False
 
     day_type = get_day_type(capture)
-    # Phase 4: pass today's prior snapshots so regime-drift detection can
-    # adjust the projection if today's bucket pace diverges from baseline.
-    today_snaps = None
-    try:
-        from lib.mcx_config import supabase_read as _sb_read
-        today_iso = capture.strftime("%Y-%m-%d")
-        today_snaps = _sb_read(
-            "mcx_snapshots",
-            f"?trading_date=eq.{today_iso}&select=elapsed_min,fut_notl_cr,opt_prem_cr&order=elapsed_min.asc"
-        )
-    except Exception:
-        today_snaps = None
     proj_fut, proj_opt, conf = project_full_day(fut_notl, opt_prem, elapsed, day_type,
-                                                 today_snapshots=today_snaps,
                                                  trading_date=capture)
     fut_rev, opt_rev, tx_rev, total_rev = calc_revenue(proj_fut, proj_opt)
 
