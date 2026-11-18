@@ -380,7 +380,7 @@ def generate_hourly_accuracy(lookback_days=90):
             # fitted on the last ADAPTIVE_LOOKBACK_DAYS of snapshots, the same
             # days scored here: on those days the revenue errors are in-sample
             # (optimistic). Days before the window are out-of-sample.
-            "curve": "adaptive EWMA (falls back to the static curve)",
+            "curve": "adaptive EWMA; until a season has 3 fitted days, the other season's curve moved to its hours (else the static curve)",
             "curve_fitted_in_sample": bool(overlap),
             "curve_training_days": ADAPTIVE_LOOKBACK_DAYS,
             "in_sample_days": len(overlap),
