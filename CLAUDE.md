@@ -84,7 +84,8 @@ interpreter that can import curl_cffi + pandas).
 | 07:00 | `com.mcx.daily-verify` → `daily_verify.py --days 3` | reconciles revenue vs MCX's report (>1% → replace), commodity breakdown, iCOMDEX, commodity prices, margins (MCXCCL), OI participants, futures OI from MCX's Bhavcopy (`backfill_commodity_oi.py --nightly`), then valuation → models → momentum → commodity_signals |
 | 19:30 / 19:45 / 19:50 | Vercel crons: valuation, models, commodity_signals | `mcx_valuation`, `mcx_model_signals`, `mcx_commodity_signals` |
 | 08:00 Tue–Sat | Vercel cron: momentum | `mcx_momentum_signals` |
-| 09:00 (optional) | `com.mcx.freshness` → headless `/freshness-check` | `.claude/state/freshness-status.json` |
+| 09:00 Mon–Sat | `com.mcx.freshness-alert` → `freshness_alert.py` (read-only scan) | nothing; a macOS notification when any domain is not OK |
+| 09:00 (optional) | `com.mcx.freshness` → headless `/freshness-check` (also repairs data) | `.claude/state/freshness-status.json` |
 
 The session closes 23:30, or 23:55 while the US is on standard time
 (`lib.calendar.session_end`). An unidentified writer also rewrites recent
