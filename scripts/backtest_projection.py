@@ -2,7 +2,7 @@
 """
 MCX Projection Backtest Harness
 
-For each historical trading day, finds snapshots at 25/50/75% elapsed
+For each historical trading day, finds snapshots at 5/10/25/50/75% elapsed
 and compares the projection to the day's final EOD revenue. Outputs
 a CSV log and a stdout summary table.
 
@@ -109,6 +109,8 @@ def percentile(xs, p):
 # Fractions of the day's session: 870 min to 23:30, or 895 min to 23:55 while
 # the US is on standard time.
 ELAPSED_TARGETS = [
+    (0.05, "5%"),      # ~09:45: the opening bucket (see OPEN_BUCKET_ALPHA)
+    (0.10, "10%"),
     (0.25, "25%"),
     (0.50, "50%"),
     (0.75, "75%"),
