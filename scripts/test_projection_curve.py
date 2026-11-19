@@ -11,6 +11,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from lib import mcx_config as m   # noqa: E402
 
+# Offline: the trailing-mean prior reads mcx_daily_revenue. Off unless a test
+# sets it (section [6]).
+_REAL_PRIOR = m.eod_prior
+m.eod_prior = lambda trading_date=None: None
+
 FAILED = []
 
 
@@ -88,6 +93,80 @@ try:
     check("on-curve day raises no drift alert", m.check_regime_drift(snaps, trading_date=d) == [])
 finally:
     m._compute_adaptive_weights = orig
+    for c in (m._adaptive_cache, m._adaptive_split_cache):
+        c.clear()
+
+print("\n[5] the opening bucket is front-loaded")
+static = [w for *_, w in m.intraday_buckets("2026-10-15")]
+first = static[0]
+for e in (10, 25, 45, 70):
+    got = m.get_intraday_weight_dynamic(e, static, "2026-10-15")
+    check(f"{e} min: share = w0 * (e/90) ** alpha",
+          close(got, first * (e / 90) ** m.OPEN_BUCKET_ALPHA), f"{got:.5f}")
+    check(f"{e} min: static curve agrees", close(m.get_intraday_weight(e, "2026-10-15"), got))
+check("10 min share is over twice the linear one",
+      m.get_intraday_weight(10, "2026-10-15") > 2 * first * 10 / 90)
+check("continuous at the end of the bucket",
+      close(m.get_intraday_weight(90, "2026-10-15"), first)
+      and close(m.get_intraday_weight(89.999, "2026-10-15"), first, 1e-4))
+check("later buckets stay linear",
+      close(m.get_intraday_weight(150, "2026-10-15"), first + static[1] * 60 / 120))
+series = [m.get_intraday_weight(e, "2026-11-18") for e in range(0, 896)]
+check("curve stays monotonic", all(a <= b + 1e-12 for a, b in zip(series, series[1:])))
+
+print("\n[6] early projections shrink toward the trailing mean")
+check("no prior: curve unchanged", m._blend_with_prior(50.0, None, 0.01, 0.01, "LOW") == 50.0)
+k0 = m.PRIOR_STRENGTH
+w_early = k0 * 0.99 ** m.PRIOR_FADE_POWER / (0.01 + k0 * 0.99 ** m.PRIOR_FADE_POWER)
+check("first minutes: mostly prior",
+      close(m._blend_with_prior(50.0, 20.0, 0.01, 0.01, "LOW"), (1 - w_early) * 50 + w_early * 20))
+check("prior carries the day-type multiplier",
+      m._blend_with_prior(20.0, 20.0, 0.01, 0.01, "HIGH") > m._blend_with_prior(20.0, 20.0, 0.01, 0.01, "LOW"))
+late = m._blend_with_prior(50.0, 20.0, 0.6, 0.75, "LOW")
+check("75% elapsed: under 2% pulled", abs(late - 50.0) < 0.02 * 50, f"{late:.3f}")
+check("at the close: none", m._blend_with_prior(50.0, 20.0, 1.0, 1.0, "LOW") == 50.0)
+
+rows = [{"trading_date": d, "fut_notl_cr": f, "opt_prem_cr": o, "source": src}
+        for d, f, o, src in [
+            ("2026-11-02", 60000, 15000, "mcx_relay_eod"), ("2026-11-03", 62000, 15500, "mcx_historical"),
+            ("2026-11-04", 58000, 14000, "mcx_relay_eod"), ("2026-11-05", 64000, 16000, "mcx_relay_eod"),
+            ("2026-11-06", 61000, 15200, "mcx_relay_eod"),
+            ("2026-11-09", 1, 1, "mcx_relay_partial"),          # not a final row
+            ("2026-11-10", 20000, 5000, "mcx_relay_eod"),       # part-day session (evening only)
+            ("2026-11-11", 70000, 17000, "mcx_relay_eod"),      # same day as asked: excluded
+        ]]
+real_read, real_now = m.supabase_read_all, m.now_ist
+try:
+    m.eod_prior = _REAL_PRIOR
+    m.supabase_read_all = lambda *a, **k: rows
+    m.now_ist = lambda: __import__("datetime").datetime(2026, 11, 11, 9, 10)
+    m._eod_history_cache.clear()
+    pr = m.eod_prior("2026-11-11")
+    check("prior: mean of final full sessions before the day",
+          pr and close(pr[0], 61000) and close(pr[1], 15140), str(pr))
+    check("prior: too few days → None", m.eod_prior("2026-11-05") is None)
+    m.supabase_read_all = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("down"))
+    m._eod_history_cache.clear()
+    check("prior: a failed read → None", m.eod_prior("2026-11-11") is None)
+
+    # end to end: a 10-minute opening burst lands near the prior, not at 2x
+    m.supabase_read_all = lambda *a, **k: rows
+    m._eod_history_cache.clear()
+    m._compute_adaptive_weights = lambda vol_fn=None, close_min=None: None
+    for c in (m._adaptive_cache, m._adaptive_split_cache):
+        c.clear()
+    d = "2026-11-11"
+    share10 = m.get_intraday_weight(10, d)
+    pf, po, _ = m.project_full_day(61000 * share10 * 1.3, 15140 * share10 * 1.3, 10, "LOW", trading_date=d)
+    check("10 min on a +30% day: between prior and curve",
+          61000 < pf < 61000 * 1.3 and 15140 < po < 15140 * 1.3, f"{pf:.0f}/{po:.0f}")
+    pf2, _, _ = m.project_full_day(1e6, 1.0, 10, "LOW", trading_date=d)
+    check("never below what has traded", pf2 >= 1e6)
+finally:
+    m.supabase_read_all, m.now_ist = real_read, real_now
+    m._compute_adaptive_weights = orig
+    m.eod_prior = lambda trading_date=None: None
+    m._eod_history_cache.clear()
     for c in (m._adaptive_cache, m._adaptive_split_cache):
         c.clear()
 

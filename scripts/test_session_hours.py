@@ -41,6 +41,7 @@ def check(name, cond, detail=""):
 # test_curves_skip_short_days needs the real one, so keep a reference.
 _REAL_ADAPTIVE = cfg._compute_adaptive_weights
 cfg._compute_adaptive_weights = lambda vol_fn=None, close_min=None: None
+cfg.eod_prior = lambda trading_date=None: None   # no trailing-mean prior either
 
 
 def test_switch_dates_match_circulars():

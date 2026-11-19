@@ -294,17 +294,36 @@ def get_day_type(dt: datetime) -> str:
 
 # ─── SHARED FUNCTIONS ────────────────────────────────────────────────────────
 
+# Shape of the opening bucket (09:00-10:30): the share of its volume traded by
+# fraction x of the bucket is x ** OPEN_BUCKET_ALPHA, not x. The open is a
+# burst: on 54 days (Jun-Nov 2026) with a snapshot by 09:15, the median share
+# of the bucket's volume done at 10 / 25 / 40 / 55 / 70 min was 0.25 / 0.46 /
+# 0.62 / 0.75 / 0.88 for futures and 0.28 / 0.52 / 0.66 / 0.77 / 0.88 for
+# options premium, against 0.11 / 0.28 / 0.44 / 0.61 / 0.78 if it traded
+# evenly; x ** 0.55 fits both. Interpolating linearly put the curve's share at
+# 10 min at less than half the real one, so the first hour's projections ran
+# about 2x high (walk-forward median error +65% under 60 min, Jun-Nov 2026).
+# The other buckets interpolate linearly: from 10% elapsed the error is
+# centred (median within +-3%).
+OPEN_BUCKET_ALPHA = 0.55
+
+
+def _bucket_progress(i, x):
+    """Share of bucket i's volume traded by fraction x (0-1) of its span."""
+    return x ** OPEN_BUCKET_ALPHA if i == 0 else x
+
+
 def get_intraday_weight(elapsed_minutes: int, trading_date=None) -> float:
     """Return cumulative volume fraction completed at elapsed_minutes into session."""
     e = min(elapsed_minutes, session_total(trading_date))
     cumulative = 0.0
-    for start, end, share in intraday_buckets(trading_date):
+    for i, (start, end, share) in enumerate(intraday_buckets(trading_date)):
         s  = start - SESSION_START
         en = end   - SESSION_START
         if e >= en:
             cumulative += share
         elif e > s:
-            cumulative += share * (e - s) / (en - s)
+            cumulative += share * _bucket_progress(i, (e - s) / (en - s))
         else:
             break
     return min(cumulative, 1.0)
@@ -326,7 +345,7 @@ def get_intraday_weight_dynamic(elapsed_minutes: int, bucket_weights: list = Non
         if e >= en:
             cumulative += w
         elif e > s:
-            cumulative += w * (e - s) / (en - s)
+            cumulative += w * _bucket_progress(i, (e - s) / (en - s))
         else:
             break
     return min(cumulative, 1.0)
@@ -663,6 +682,78 @@ def _multiplier_from_curve(time_pct, hist_wt, day_type):
     return mult * effective_day_mult
 
 
+# ─── EARLY-SESSION PRIOR ────────────────────────────────────────────────────
+# Early in the day the realized volume is a few percent of the day and its
+# share is noisy (at 10 min the futures share of the day ran 1.8-4.9%, p10-p90),
+# so the curve projection alone swings +-30%. project_full_day blends it with
+# the mean of the last PRIOR_DAYS full sessions (times the day-type multiplier):
+#   weight on the prior = k / (curve share + k),  k = PRIOR_STRENGTH * (1 - t) ** PRIOR_FADE_POWER
+# so the prior dominates in the first minutes and fades as volume comes in
+# (curve share 0.10 at ~90 min: prior weight ~0.26; at 50% elapsed ~0.05;
+# at 75% ~0.02). Walk-forward, 100 days Jun-Nov 2026, with the opening shape
+# above, MAE % without -> with the prior at 5 / 10 / 25 / 50 / 75% elapsed:
+# 21.6 / 21.6 / 17.2 / 12.4 / 6.1 -> 15.2 / 15.7 / 14.9 / 11.9 / 6.1; under
+# 60 min 23.6 -> 15.7. The grid (N 5-20, k 0.03-0.06, fade power 1-3) was flat
+# within ~2 points; 20 days, k 0.04, linear fade sit mid-grid.
+PRIOR_DAYS = 20
+PRIOR_MIN_DAYS = 5
+PRIOR_STRENGTH = 0.04
+PRIOR_FADE_POWER = 1
+PRIOR_HISTORY_DAYS = 400   # calendar days of mcx_daily_revenue read (one read, cached)
+
+_eod_history_cache = {}
+
+
+def _eod_history():
+    """{trading_date: (fut_notl_cr, opt_prem_cr)} of final full-session rows,
+    one read of mcx_daily_revenue per ADAPTIVE_TTL."""
+    start = (now_ist() - timedelta(days=PRIOR_HISTORY_DAYS)).strftime("%Y-%m-%d")
+    hit = _eod_history_cache.get(start)
+    if hit and (_time.time() - hit["ts"]) < ADAPTIVE_TTL:
+        return hit["rows"]
+    rows = supabase_read_all(
+        "mcx_daily_revenue",
+        f"?select=trading_date,fut_notl_cr,opt_prem_cr,source"
+        f"&trading_date=gte.{start}&order=trading_date.asc",
+        max_rows=2000,
+    )
+    out = {}
+    for r in rows or []:
+        f, o = safe_float(r.get("fut_notl_cr")), safe_float(r.get("opt_prem_cr"))
+        if (r.get("source") in FINAL_ROW_SOURCES and f and o and f > 0 and o > 0
+                and session_shape(r["trading_date"])["type"] == SESSION_FULL):
+            out[r["trading_date"]] = (f, o)
+    _eod_history_cache.clear()
+    _eod_history_cache[start] = {"rows": out, "ts": _time.time()}
+    return out
+
+
+def eod_prior(trading_date=None):
+    """(fut_notl_cr, opt_prem_cr): mean of the last PRIOR_DAYS full sessions
+    before trading_date, or None (fewer than PRIOR_MIN_DAYS, or the read failed)."""
+    d = (_as_date(trading_date) if trading_date is not None else now_ist().date()).isoformat()
+    try:
+        hist = _eod_history()
+    except Exception:
+        return None
+    prev = [hist[k] for k in sorted(hist) if k < d][-PRIOR_DAYS:]
+    if len(prev) < PRIOR_MIN_DAYS:
+        return None
+    return (sum(f for f, _ in prev) / len(prev), sum(o for _, o in prev) / len(prev))
+
+
+def _blend_with_prior(curve_proj, prior, hist_wt, time_pct, day_type):
+    """Shrink a curve projection toward the trailing-mean prior; the prior's
+    weight is k / (hist_wt + k) with k fading to 0 at the close."""
+    if not prior or prior <= 0:
+        return curve_proj
+    k = PRIOR_STRENGTH * (1.0 - time_pct) ** PRIOR_FADE_POWER
+    if k <= 0:
+        return curve_proj
+    w = k / (max(hist_wt, 0.0) + k)
+    return (1.0 - w) * curve_proj + w * prior * DAY_MULTIPLIER.get(day_type, 1.0)
+
+
 def project_full_day(realized_fut, realized_opt, elapsed_min, day_type="LOW",
                      trading_date=None):
     """Project full-day Fut/Opt notionals using separate adaptive curves.
@@ -711,11 +802,19 @@ def project_full_day(realized_fut, realized_opt, elapsed_min, day_type="LOW",
 
     mult_fut = _multiplier_from_curve(time_pct, fut_hist_wt, day_type)
     mult_opt = _multiplier_from_curve(time_pct, opt_hist_wt, day_type)
+    proj_fut, proj_opt = realized_fut * mult_fut, realized_opt * mult_opt
+
+    prior = eod_prior(trading_date)
+    if prior:
+        proj_fut = _blend_with_prior(proj_fut, prior[0], fut_hist_wt, time_pct, day_type)
+        proj_opt = _blend_with_prior(proj_opt, prior[1], opt_hist_wt, time_pct, day_type)
+        # never below what has already traded
+        proj_fut, proj_opt = max(proj_fut, realized_fut), max(proj_opt, realized_opt)
 
     conf_label = ("HIGH" if time_pct > 0.70
                   else "MEDIUM" if time_pct > 0.35
                   else "LOW")
-    return realized_fut * mult_fut, realized_opt * mult_opt, conf_label
+    return proj_fut, proj_opt, conf_label
 
 
 def check_regime_drift(today_snapshots, threshold_z=2.0, trading_date=None):
