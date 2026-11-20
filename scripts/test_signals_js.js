@@ -163,5 +163,22 @@ check('track rows drop shadows and attach the backtest', M.trackRows(
   [{ variant: 'v45_20', book: 'PCS', shadow: false, n: 1 }, { variant: 'v45_20', book: 'PCS', shadow: true, n: 1 }],
   { PCS: { mean: 0.22 } }), [{ variant: 'v45_20', book: 'PCS', shadow: false, n: 1, ref: { mean: 0.22 } }]);
 
+// ── ADR bands (lib/strategy_bands.py; /api/models?view=bands on 20 Nov 2026) ─────
+const bSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'strategy_bands.py'), 'utf8');
+check('strategy_bands.py states match the page', ['TURNING UP', 'TURNING DOWN', 'AT LOWER', 'AT UPPER', 'IN BAND'].every(k => bSrc.includes(`"${k}"`) && M.BAND[k]), true);
+const mcxT = { date: '2026-11-19', close: 3645, line: 3333.7, z: 0.896, ratio: 1.0253, lo1: 2986.2, state: 'IN BAND' };
+const bseT = { date: '2026-11-19', close: 3765, line: 4063.9, z: -0.9, ratio: 0.949, lo1: 3732.6, state: 'IN BAND' };
+const bl = M.bandLede([{ name: 'MCX', available: true, today: mcxT }, { name: 'BSE', available: true, today: bseT }]);
+check('bands headline with no flag', bl.head, 'No buy flag today: MCX above its line (+0.9 SD); BSE below its line (−0.9 SD).');
+check('bands deck', bl.deck, 'MCX: ₹3,645 against a line of ₹3,334; the 10-day revenue average is above the 45-day (1.03×). '
+  + 'BSE: ₹3,765 against a line of ₹4,064; the 10-day revenue average is below the 45-day (0.95×).');
+check('bands headline names a flagged stock', M.bandLede([{ name: 'BSE', available: true, today: { ...bseT, z: -1.2, ratio: 1.02, state: 'TURNING UP' } },
+  { name: 'MCX', available: false }]).head, 'BSE is flagged: turning up.');
+check('bands headline when nothing loaded', M.bandLede([{ name: 'BSE', available: false }]).head, 'No stock could be computed.');
+check('turn-up needs price only', M.turnUpText(mcxT), 'Needs the price below ₹2,986 (18.1% lower).');
+check('turn-up needs price and trend', M.turnUpText(bseT), 'Needs the price below ₹3,733 and the 10-day revenue average back above the 45-day.');
+check('turn-up needs trend only', M.turnUpText({ ...bseT, close: 3700 }), 'Needs the 10-day revenue average back above the 45-day.');
+check('turning up now', M.turnUpText({ ...bseT, state: 'TURNING UP' }), 'Turning up now.');
+
 console.log(failed ? `\n${failed} FAILED` : '\nAll Signals model tests passed.');
 process.exit(failed ? 1 : 0);

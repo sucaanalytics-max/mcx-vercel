@@ -404,3 +404,31 @@ def fetch_all(table, select, order="trading_date", params="", timeout=15):
     unique key as tiebreaker. `params` adds filters ("&trading_date=gte.…")."""
     return supabase_read_all(table, f"?select={select}{params}&order={order}.asc",
                              max_rows=None, timeout=timeout)
+
+
+# ─── The NSE-BSE project (read-only) ─────────────────────────────────────────
+# BSE's daily revenue lives in a second Supabase project (codex_bse_daily). Its
+# tables have no anon policy, so reading it needs a key with read access set as
+# NSEBSE_SUPABASE_KEY (and NSEBSE_SUPABASE_URL). Without both, callers skip BSE.
+NSEBSE_SUPABASE_URL = os.environ.get("NSEBSE_SUPABASE_URL", "")
+NSEBSE_SUPABASE_KEY = os.environ.get("NSEBSE_SUPABASE_KEY", "")
+
+
+def nsebse_read_all(table, params="", page_size=1000, max_rows=20000, timeout=15):
+    """Every row of a NSE-BSE project table, paged by offset. params must carry a
+    total order (e.g. "?select=date,total_rev&order=date.asc"). [] if unconfigured."""
+    if not (NSEBSE_SUPABASE_URL and NSEBSE_SUPABASE_KEY):
+        return []
+    rows, off = [], 0
+    sep = "&" if "?" in params else "?"
+    while off < max_rows:
+        req = urllib.request.Request(
+            f"{NSEBSE_SUPABASE_URL}/rest/v1/{table}{params}{sep}offset={off}&limit={page_size}",
+            headers=supabase_headers(NSEBSE_SUPABASE_KEY))
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            batch = json.loads(resp.read().decode())
+        rows += batch
+        if len(batch) < page_size:
+            break
+        off += page_size
+    return rows

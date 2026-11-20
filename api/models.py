@@ -423,6 +423,80 @@ def generate_options_response():
     }
 
 
+# ─── ADR band tracker (lib/strategy_bands.py) ───────────────────────────────
+
+BAND_STOCKS = [
+    # name, NSE ticker, where the daily revenue comes from
+    ("MCX", "MCX.NS", "mcx_daily_revenue (this project)"),
+    ("BSE", "BSE.NS", "codex_bse_daily (NSE-BSE project)"),
+]
+
+
+def _mcx_band_inputs():
+    from lib.mcx_config import FINAL_ROW_SOURCES
+    today = now_ist().strftime("%Y-%m-%d")
+    rev = supabase_read_all("mcx_daily_revenue",
+                            "?select=trading_date,total_rev_cr,day_type,source&order=trading_date.asc", max_rows=20000)
+    rev_rows = [(r["trading_date"], float(r["total_rev_cr"])) for r in rev
+                if _f(r.get("total_rev_cr")) and float(r["total_rev_cr"]) > 0
+                and "muhurat" not in (r.get("day_type") or "").lower()
+                and (r["trading_date"] < today or r.get("source") in FINAL_ROW_SOURCES)]
+    px = supabase_read_all("mcx_share_price", "?select=trading_date,close&order=trading_date.asc", max_rows=20000)
+    price_rows = [(r["trading_date"], float(r["close"])) for r in px if _f(r.get("close"))]
+    return rev_rows, price_rows
+
+
+def _bse_band_inputs():
+    from lib.supabase import nsebse_read_all, NSEBSE_SUPABASE_KEY
+    if not NSEBSE_SUPABASE_KEY:
+        return None, None, "BSE revenue is not connected yet: needs a read key for the NSE-BSE project (NSEBSE_SUPABASE_KEY)"
+    rev = nsebse_read_all("codex_bse_daily", "?select=date,total_rev&order=date.asc")
+    rev_rows = [(r["date"], float(r["total_rev"])) for r in rev if _f(r.get("total_rev")) and float(r["total_rev"]) > 0]
+    import yfinance as yf
+    d = yf.download("BSE.NS", start=rev_rows[0][0] if rev_rows else "2023-01-01", interval="1d",
+                    auto_adjust=True, progress=False)
+    closes = d["Close"]
+    if hasattr(closes, "columns"):
+        closes = closes.iloc[:, 0]
+    price_rows = [(i.strftime("%Y-%m-%d"), float(v)) for i, v in closes.dropna().items()]
+    return rev_rows, price_rows, None
+
+
+def generate_bands_response(range_key="1Y"):
+    from lib import strategy_bands as sb
+    days = RANGE_DAYS.get(range_key, 252)
+    stocks = []
+    for name, ticker, source in BAND_STOCKS:
+        entry = {"name": name, "ticker": ticker, "source": source}
+        try:
+            if name == "MCX":
+                rev_rows, price_rows, why = (*_mcx_band_inputs(), None)
+            else:
+                rev_rows, price_rows, why = _bse_band_inputs()
+            if why:
+                entry.update(available=False, reason=why)
+            else:
+                rows = sb.compute(rev_rows, price_rows)
+                if not rows:
+                    entry.update(available=False, reason="Not enough history to fit the line")
+                else:
+                    today = sb.summary(rows)
+                    entry.update(available=True, today=today, flags=sb.flags(rows),
+                                 line_at={str(a): sb.line_at(today, a) for a in _adr_steps(today["adr45"])},
+                                 history=rows[-days:] if days else rows)
+        except Exception as e:
+            entry.update(available=False, reason=f"Could not load: {str(e)[:120]}")
+        stocks.append(entry)
+    return {"success": any(s.get("available") for s in stocks), "as_of": now_ist().strftime("%Y-%m-%d %H:%M IST"),
+            "window": sb.WINDOW, "fast": sb.FAST, "min_obs": sb.MIN_OBS, "verdict": sb.VERDICT, "stocks": stocks,
+            "error": None if any(s.get("available") for s in stocks) else "No stock could be computed"}
+
+
+def _adr_steps(adr):
+    """Round ADR levels around today's for the input-output table: -20%, today, +20%, +40%."""
+    return [round(adr * k, 1) for k in (0.8, 1.0, 1.2, 1.4)]
+
+
 class handler(JSONHandler):
     default_cache = CACHE_DAILY
 
@@ -438,6 +512,8 @@ class handler(JSONHandler):
                 result = generate_momentum_response(range_key=range_key)
             elif view == "options":
                 result = generate_options_response()
+            elif view == "bands":
+                result = generate_bands_response(qs.get("range", ["1Y"])[0])
             else:
                 range_key = qs.get("range", [DEFAULT_RANGE])[0]
                 result = generate_models_response(range_key=range_key)

@@ -27,6 +27,8 @@
       mount: () => MCX.signals.ensemble.mount() },
     { id: 'sig-opt', path: '/signals/options', section: 'signals', title: 'Options', pages: ['pageSigOptions'],
       mount: () => MCX.signals.options.mount() },
+    { id: 'sig-bands', path: '/signals/bands', section: 'signals', title: 'ADR bands', pages: ['pageSigBands'],
+      mount: () => MCX.signals.bands.mount() },
     { id: 'lab-diag', path: '/lab/diagnostics', section: 'lab', title: 'Diagnostics', pages: ['tabAnalytics'], legacy: 'tabAnalytics',
       mount: () => MCX.lab.diagnostics.mount() },
     { id: 'lab-pos', path: '/lab/positioning', section: 'lab', title: 'Positioning', pages: ['tabOIP'], legacy: 'tabOIP',

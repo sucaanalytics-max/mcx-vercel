@@ -8,14 +8,14 @@ keep it true when you change the layout.
 MCX (Multi Commodity Exchange of India) revenue analytics. A local relay on the
 production Mac scrapes MCX every 15 minutes and writes Supabase; Vercel Python
 functions read Supabase; a static single-page frontend (`index.html` +
-`assets/js/*.js`, hand-built SVG charts, no build step) renders 13 pages:
+`assets/js/*.js`, hand-built SVG charts, no build step) renders 14 pages:
 
 | Section | Pages (route) |
 |---|---|
 | Today | `/today` |
 | Revenue | `/revenue/trends`, `/revenue/seasonality`, `/revenue/commodities` |
 | Earnings & value | `/value/quarter`, `/value/fair-value`, `/value/scenarios` |
-| Signals | `/signals/momentum`, `/signals/ensemble`, `/signals/options` |
+| Signals | `/signals/momentum`, `/signals/ensemble`, `/signals/options`, `/signals/bands` |
 | Lab | `/lab/diagnostics`, `/lab/positioning`, `/lab/margins` |
 
 Routes live in `assets/js/shell.js`. MCX's Akamai front end blocks Vercel and
@@ -41,7 +41,7 @@ lib/            Shared code, imported by api/ and scripts/
   api_handler.py  JSONHandler: JSON + CORS + OPTIONS + no-cache-on-error
   cron_*.py       signal / valuation / margin / OI jobs (Vercel cron + local)
   home_view.py, intraday_curves.py, hourly_analysis.py, margin_dashboard.py,
-  oi_participants_dashboard.py, house_model.py, options_costs.py, dhan_client.py,
+  oi_participants_dashboard.py, house_model.py, strategy_bands.py (ADR band tracker), options_costs.py, dhan_client.py,
   mcx_bhavcopy.py (futures OI from MCX's daily Bhavcopy; local only)
 scripts/        Local jobs, never deployed (.vercelignore)
   mcx_relay.py      15-min snapshots, EOD revenue, margins, OI participants
