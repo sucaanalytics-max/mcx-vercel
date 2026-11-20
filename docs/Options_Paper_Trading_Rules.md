@@ -68,7 +68,9 @@ After **6 completed series** (about April 2027), compare each book's mean return
 
 | Book | Backtest reference |
 |---|---|
-| PCS, signal > 0, Schedule B | +22.0% per trade, 75% hit rate (2.5% spread haircut) |
-| CDS, signal > 0, Schedule B | +32.0% per trade, 61% hit rate |
+| PCS, signal > 0, Schedule B | +14.6% per trade, 68% hit rate (2.5% spread haircut) |
+| CDS, signal > 0, Schedule B | +23.5% per trade, 61% hit rate |
+
+Corrected 20 Nov 2026 to point-in-time revenue (was +22.0% / 75% and +32.0% / 61%). The stress test now fails its pre-registered criterion 1, so these books test a hypothesis, not a passed edge; see the correction in `Docs/ADR_Edge_StressTest_Results.md`.
 
 Real-money trading is considered only if PCS for at least one variant has a mean > 0, and the paper fills' realised spread cost stays within the calibration above. Six trades cannot prove anything statistically. The gate is there to catch a clear failure (consistent losses, or fills much worse than modelled), not to confirm success.

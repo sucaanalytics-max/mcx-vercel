@@ -46,7 +46,7 @@ row = md._trade_row({"id": "x", "status": "closed", "ret": 0.2, "record": {
     "flags": ["late_exit"]}})
 check("trade row keeps legs without broker ids", row["legs"], [{"strike": 3150.0, "type": "PE", "qty": -1, "fill": 117.15, "exit": 60.0}])
 check("trade row keeps flags", row["flags"], ["late_exit"])
-check("backtest references are Schedule B, signal > 0", (md.OPTIONS_BACKTEST["PCS"]["mean"], md.OPTIONS_BACKTEST["CDS"]["mean"]), (0.22, 0.32))
+check("backtest references are Schedule B, signal > 0", (md.OPTIONS_BACKTEST["PCS"]["mean"], md.OPTIONS_BACKTEST["CDS"]["mean"]), (0.146, 0.235))
 
 print(f"\n{failed} FAILED" if failed else "\nAll options feed tests passed.")
 sys.exit(1 if failed else 0)
