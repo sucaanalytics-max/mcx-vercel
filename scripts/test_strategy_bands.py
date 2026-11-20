@@ -70,12 +70,13 @@ check(".env.local loader takes the NSE-BSE URL and key",
 # 5. Angel One on the tracker: four segments summed per day, days missing one dropped, latest run used
 import api.models as am
 calls = []
+RUN = "f1c823bf-3515-4daf-b2a5-eee6f92c4bad"
 
 
 def fake_read(table, params="", **kw):
     calls.append((table, params))
     if table == "sb_runs":
-        return [{"run_id": "RUN1"}]
+        return [{"run_id": RUN}]
     if table == "sb_daily_revenue":
         seg = params.split("segment=eq.")[1].split("&")[0]
         out = [{"trade_date": "2026-01-02", "segment": seg, "revenue_cr": 1.0},
@@ -91,8 +92,18 @@ try:
 finally:
     sbase.nsebse_read_all, sbase.NSEBSE_SUPABASE_KEY = orig
 check("Angel One: four segments summed, incomplete day dropped", (rev_rows, why) == ([("2026-01-02", 4.0)], None), rev_rows)
-check("Angel One: reads the latest run only", all("run_id=eq.RUN1" in p for t, p in calls if t == "sb_daily_revenue"))
+check("Angel One: reads the latest run only", all(f"run_id=eq.{RUN}" in p for t, p in calls if t == "sb_daily_revenue"))
 check("Angel One: price read starts at the first revenue day", any("trade_date=gte.2026-01-02" in p for t, p in calls if t == "sb_share_prices"))
+
+# 6. A run id that isn't a UUID never reaches a query filter
+RUN, calls[:] = "x&segment=eq.fo", []
+sbase.nsebse_read_all, sbase.NSEBSE_SUPABASE_KEY = fake_read, "test-key"
+try:
+    bad = am._angel_band_inputs()
+finally:
+    sbase.nsebse_read_all, sbase.NSEBSE_SUPABASE_KEY = orig
+check("Angel One: non-UUID run id is refused", bad[0] is None and "not a UUID" in bad[2], bad)
+check("Angel One: no revenue query made with it", not any(t == "sb_daily_revenue" for t, _ in calls), calls)
 
 print(f"\n{'ALL PASS' if not failed else str(failed) + ' FAILED'}")
 sys.exit(1 if failed else 0)

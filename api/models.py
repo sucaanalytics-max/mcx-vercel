@@ -476,7 +476,10 @@ def _angel_band_inputs():
     if not runs:
         return None, None, "No Angel One revenue run found"
     from concurrent.futures import ThreadPoolExecutor
-    run = runs[0]["run_id"]
+    import re
+    run = str(runs[0].get("run_id"))
+    if not re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", run):
+        return None, None, "Angel One revenue run id is not a UUID"     # never put an unchecked value in a filter
     with ThreadPoolExecutor(max_workers=len(ANGEL_SEGMENTS)) as pool:   # one page per segment, fetched together
         parts = pool.map(lambda seg: nsebse_read_all(
             "sb_daily_revenue", f"?select=trade_date,segment,revenue_cr&run_id=eq.{run}&segment=eq.{seg}"
