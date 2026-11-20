@@ -7,6 +7,8 @@ pass 2 downloads the entry/exit days of the ADR stress-test schedules
 
 Usage:
   python3 -I research/fetch_nse_fo_bhav.py OUT_DIR [SYMBOL]
+Needs OUT_DIR/nse_days.json first: a JSON list of NSE trading days (ISO dates), e.g. the
+index of yf.download("MCX.NS", start="2021-12-01", end=...).
 Writes OUT_DIR/<symbol>_bhav.csv (normalised rows) and OUT_DIR/schedule.json.
 """
 from __future__ import annotations

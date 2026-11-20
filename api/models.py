@@ -361,10 +361,11 @@ def generate_momentum_response(range_key=DEFAULT_RANGE):
 # Written by scripts/options_paper.py after each 15:10 IST run (tables:
 # scripts/sql/create_options_feed.sql). Paper trades only; no orders are placed.
 # Backtest references: Docs/ADR_Edge_StressTest_Results.md — Schedule B, signal > 0,
-# 2.5% half-spread per leg plus costs, 2022–2026.
+# 2.5% half-spread per leg plus costs, 2022–2026, on point-in-time revenue (correction of
+# 20 Nov 2026; was PCS +22.0% / 75%, CDS +32.0% / 61% on revenue scaled to reported results).
 OPTIONS_BACKTEST = {
-    "PCS": {"label": "Put credit spread", "mean": 0.220, "hit": 0.75, "n": 28},
-    "CDS": {"label": "Call debit spread", "mean": 0.320, "hit": 0.607, "n": 28},
+    "PCS": {"label": "Put credit spread", "mean": 0.146, "hit": 0.679, "n": 28},
+    "CDS": {"label": "Call debit spread", "mean": 0.235, "hit": 0.607, "n": 28},
 }
 
 

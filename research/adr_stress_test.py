@@ -6,10 +6,13 @@ C = option pricing from NSE bhavcopy (needs research/fetch_nse_fo_bhav.py output
 
 Run:
   scripts/mcx_uv.sh --extra research \
-    python -I research/adr_stress_test.py B|E|C [BHAV_DIR]
+    python -I research/adr_stress_test.py B|E|C [BHAV_DIR] [--rev reported|pit|flat]
+  ... adr_stress_test.py Bcmp     # part B on all three revenue series, side by side
+
+--rev picks the Jan 2022 - Aug 2024 revenue series (see REV_MODE below); default reported.
 """
 from __future__ import annotations
-import sys, json, math, urllib.request
+import sys, json, math, functools, urllib.request
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np, pandas as pd, yfinance as yf
@@ -55,9 +58,62 @@ def ic_nonoverlap(df, sig, ret, h, min_n=8):
     return {"ic": round(m, 3), "t": round(t, 2), "n": n}
 
 
-def revenue():
-    rev = fetch("mcx_daily_revenue", "trading_date,total_rev_cr", "trading_date.asc")
+# ---------------------------------------------------------------- revenue series
+# mcx_daily_revenue rows from Jan 2022 to Aug 2024 (source mcx_historical_backfill) were
+# rebuilt from MCX notional with a per-quarter scale k_q fitted to MCX's *reported*
+# quarterly revenue: fut_rev = fut_notl * k_q * 2 / 1e7, opt_rev = opt_notl * 0.016 * k_q * 2 / 1e7,
+# plus Rs 0.95 Cr non-transaction revenue. Results come out ~45 days after the quarter ends,
+# so the "reported" series carries look-ahead. REV_MODE picks the series (correction 20 Nov 2026):
+#   reported  the table as stored (the original 28 Oct 2026 run)
+#   pit       point-in-time: each backfill row re-scaled with the k of the latest quarter whose
+#             results were out (quarter end + 45 days, usable from the next day); the first
+#             quarter's k before any result is out
+#   flat      one k (the first quarter's) for every backfill row: notional only, no results input
+BACKFILL_SOURCE = "mcx_historical_backfill"
+RESULTS_LAG_DAYS = 45
+REV_MODES = ("reported", "pit", "flat")
+REV_MODE = "reported"
+
+
+def quarter_k(bf: pd.DataFrame) -> pd.Series:
+    """Per calendar quarter k_q, read back from the backfill rows (constant within a quarter)."""
+    k = bf["fut_rev_cr"] / bf["fut_notl_cr"] * 1e7 / 2
+    q = bf["trading_date"].dt.to_period("Q")
+    g = k.groupby(q)
+    spread = (g.max() - g.min()).max()
+    assert spread < 0.5, f"k_q not constant within a quarter (spread {spread:.2f})"
+    return g.median()
+
+
+def pit_k(dates: pd.Series, kq: pd.Series, lag_days: int = RESULTS_LAG_DAYS) -> pd.Series:
+    """k of the latest quarter whose results were public before each date."""
+    out_on = pd.Series(kq.index.to_timestamp(how="end").normalize() + pd.Timedelta(days=lag_days), index=kq.index)
+    def k_for(d):
+        known = kq[out_on < d]
+        return float(known.iloc[-1]) if len(known) else float(kq.iloc[0])
+    return dates.map(k_for)
+
+
+def rescale_backfill(rev: pd.DataFrame, mode: str) -> pd.Series:
+    """total_rev_cr with the backfill rows re-scaled for the given mode."""
+    total = rev["total_rev_cr"].astype(float).copy()
+    if mode == "reported":
+        return total
+    bf = rev[rev["source"] == BACKFILL_SOURCE]
+    kq = quarter_k(bf)
+    k_row = bf["trading_date"].dt.to_period("Q").map(kq).astype(float)
+    k_new = pit_k(bf["trading_date"], kq) if mode == "pit" else pd.Series(float(kq.iloc[0]), index=bf.index)
+    tx = bf["fut_rev_cr"].astype(float) + bf["opt_rev_cr"].astype(float)
+    total.loc[bf.index] = tx * k_new / k_row + bf["nontx_rev_cr"].astype(float)
+    return total
+
+
+def revenue(mode: str | None = None):
+    mode = mode or REV_MODE
+    rev = fetch("mcx_daily_revenue", "trading_date,source,fut_rev_cr,fut_notl_cr,opt_rev_cr,nontx_rev_cr,total_rev_cr",
+                "trading_date.asc")
     rev["trading_date"] = pd.to_datetime(rev["trading_date"])
+    rev["total_rev_cr"] = rescale_backfill(rev, mode)
     return rev[rev["total_rev_cr"] > 0].set_index("trading_date")["total_rev_cr"].sort_index()
 
 
@@ -66,6 +122,7 @@ def adr_trend(rev, w, L):
     return np.log(adr / adr.shift(L))
 
 
+@functools.lru_cache(maxsize=1)
 def stock_daily():
     d = yf.download("MCX.NS", start="2021-12-01", interval="1d", auto_adjust=True, progress=False)
     d.columns = [c[0] if isinstance(c, tuple) else c for c in d.columns]
@@ -334,7 +391,41 @@ def part_c(bhav_dir: Path):
     return out
 
 
+def part_b_compare():
+    """Part B on each revenue series, plus a compact side-by-side table."""
+    global REV_MODE
+    full = {}
+    for m in REV_MODES:
+        REV_MODE = m
+        full[m] = part_b()
+    REV_MODE = "reported"
+
+    def ic(x):
+        return f"{x['ic']:+.2f} (t {x['t']:.2f})" if x else "-"
+    rows = {}
+    for h in (10, 20):
+        rows[f"pooled_oos_primary_{h}d"] = {m: ic(full[m]["pooled_oos_primary"][h]) for m in REV_MODES}
+    for y in range(2022, 2027):
+        rows[f"primary_20d_{y}"] = {m: ic(full[m]["per_year_primary"][y][20]) for m in REV_MODES}
+    for k in full["reported"]["variants_pooled_oos_20d"]:
+        rows[f"variant_{k}_20d"] = {m: ic(full[m]["variants_pooled_oos_20d"][k]) for m in REV_MODES}
+    for y in TEST_YEARS:
+        rows[f"wf_{y}"] = {m: f"{full[m]['walk_forward_selection'][y]['picked']} "
+                              f"{ic(full[m]['walk_forward_selection'][y]['test_ic_20d'])}" for m in REV_MODES}
+    for h in (10, 20):
+        rows[f"wf_pooled_oos_{h}d"] = {m: ic(full[m]["walk_forward_selection"]["pooled_oos"][h]) for m in REV_MODES}
+    for c in full["reported"]["criteria"]:
+        rows[c] = {m: full[m]["criteria"][c] for m in REV_MODES}
+    return {"table": rows, "full": full}
+
+
 if __name__ == "__main__":
-    part = sys.argv[1]
-    res = {"B": part_b, "E": part_e}.get(part, lambda: part_c(Path(sys.argv[2])))()
+    args = sys.argv[1:]
+    if "--rev" in args:
+        i = args.index("--rev")
+        REV_MODE = args[i + 1]
+        assert REV_MODE in REV_MODES, f"--rev must be one of {REV_MODES}"
+        del args[i:i + 2]
+    part = args[0]
+    res = {"B": part_b, "E": part_e, "Bcmp": part_b_compare}.get(part, lambda: part_c(Path(args[1])))()
     print(json.dumps(res, indent=1, default=str))
