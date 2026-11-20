@@ -127,5 +127,10 @@ check("flags: latest episode start, sessions ago, count",
       (fl["turning_up"]["date"], fl["turning_up"]["sessions_ago"], fl["turning_up"]["episodes"],
        fl["lower_band"]["sessions_ago"], fl["upper_band"]) == ("d4", 2, 2, 1, None), fl)
 
+# 10. The BSE key in .env.local is actually loaded (the loader takes only allow-listed names)
+from lib import supabase as sbase
+check(".env.local loader takes the NSE-BSE URL and key",
+      {"NSEBSE_SUPABASE_URL", "NSEBSE_SUPABASE_KEY"} <= set(sbase._PROJECT_ENV_KEYS))
+
 print(f"\n{'ALL PASS' if not failed else str(failed) + ' FAILED'}")
 sys.exit(1 if failed else 0)
