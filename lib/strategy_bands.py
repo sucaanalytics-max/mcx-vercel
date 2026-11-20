@@ -128,13 +128,33 @@ def compute(rev_rows, price_rows, window=WINDOW, fast=FAST, min_obs=MIN_OBS):
     return rows
 
 
+FLAG_TESTS = (("turning_up", lambda r: r["state"] == "TURNING UP"),
+              ("lower_band", lambda r: r["z"] <= -2),
+              ("upper_band", lambda r: r["z"] >= 2),
+              ("turning_down", lambda r: r["state"] == "TURNING DOWN"))
+
+
+def episodes(rows, n=5, h=20):
+    """The last n flag episode starts (any flag), newest first, each with the change in the
+    close h rows later (close to close on revenue days; None until h rows have passed)."""
+    out = []
+    for key, test in FLAG_TESTS:
+        prev = False
+        for i, r in enumerate(rows):
+            on = test(r)
+            if on and not prev:
+                j = i + h
+                ret = round(rows[j]["close"] / r["close"] - 1, 4) if j < len(rows) and r["close"] else None
+                out.append({"flag": key, "date": r["date"], "z": r["z"], "close": r["close"], "ret": ret, "h": h})
+            prev = on
+    out.sort(key=lambda e: e["date"], reverse=True)
+    return out[:n]
+
+
 def flags(rows):
     """The latest start of each flag (non-overlapping episodes) and how long ago it was."""
     out = {}
-    for key, test in (("turning_up", lambda r: r["state"] == "TURNING UP"),
-                      ("lower_band", lambda r: r["z"] <= -2),
-                      ("upper_band", lambda r: r["z"] >= 2),
-                      ("turning_down", lambda r: r["state"] == "TURNING DOWN")):
+    for key, test in FLAG_TESTS:
         last, prev, count = None, False, 0
         for i, r in enumerate(rows):
             on = test(r)

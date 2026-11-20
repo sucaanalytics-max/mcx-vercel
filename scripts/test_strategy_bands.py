@@ -63,6 +63,17 @@ check("flags: latest episode start, sessions ago, count",
       (fl["turning_up"]["date"], fl["turning_up"]["sessions_ago"], fl["turning_up"]["episodes"],
        fl["lower_band"]["sessions_ago"], fl["upper_band"]) == ("d4", 2, 2, 1, None), fl)
 
+# 3b. Recent flag episodes: starts only, newest first, last n, scored after h rows
+ep_rows = [{"date": f"2026-01-{i + 1:02d}", "state": st, "z": z, "close": 100.0 + i}
+           for i, (st, z) in enumerate([("IN BAND", 0), ("TURNING UP", -1.2), ("TURNING UP", -1.3), ("IN BAND", 0),
+                                         ("AT UPPER", 2.1), ("AT UPPER", 2.2), ("IN BAND", 0.5), ("TURNING UP", -1.1)])]
+ep = sb.episodes(ep_rows, n=5, h=3)
+check("episodes: starts only, newest first", [(e["flag"], e["date"]) for e in ep]
+      == [("turning_up", "2026-01-08"), ("upper_band", "2026-01-05"), ("turning_up", "2026-01-02")], ep)
+check("episodes: change over h rows, close to close", abs(ep[2]["ret"] - (104.0 / 101.0 - 1)) < 1e-4, ep[2])
+check("episodes: open until h rows have passed", ep[0]["ret"] is None and abs(ep[1]["ret"] - (107.0 / 104.0 - 1)) < 1e-4, ep[:2])
+check("episodes: last n only", len(sb.episodes(ep_rows, n=2, h=3)) == 2)
+
 # 4. The BSE / Angel One key in .env.local is actually loaded (the loader takes only allow-listed names)
 check(".env.local loader takes the NSE-BSE URL and key",
       {"NSEBSE_SUPABASE_URL", "NSEBSE_SUPABASE_KEY"} <= set(sbase._PROJECT_ENV_KEYS))

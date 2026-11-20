@@ -518,7 +518,7 @@ def generate_bands_response(range_key="1Y"):
                     entry.update(available=False, reason="Not enough history to fit the line")
                 else:
                     today = sb.summary(rows)
-                    entry.update(available=True, today=today, flags=sb.flags(rows),
+                    entry.update(available=True, today=today, flags=sb.flags(rows), episodes=sb.episodes(rows),
                                  line_at={str(a): sb.line_at(today, a) for a in _adr_steps(today["adr45"])},
                                  history=rows[-days:] if days else rows)
         except Exception as e:

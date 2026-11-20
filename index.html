@@ -20,11 +20,11 @@
 <script defer src="/_vercel/insights/script.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400&family=Source+Serif+4:opsz,wght@8..60,600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/tokens.css?v=c41f07d6">
-<link rel="stylesheet" href="/assets/css/base.css?v=c41f07d6">
-<link rel="stylesheet" href="/assets/css/components.css?v=c41f07d6">
-<link rel="stylesheet" href="/assets/css/shell.css?v=c41f07d6">
-<link rel="stylesheet" href="/assets/css/v2.css?v=c41f07d6">
+<link rel="stylesheet" href="/assets/css/tokens.css?v=5e2b9d14">
+<link rel="stylesheet" href="/assets/css/base.css?v=5e2b9d14">
+<link rel="stylesheet" href="/assets/css/components.css?v=5e2b9d14">
+<link rel="stylesheet" href="/assets/css/shell.css?v=5e2b9d14">
+<link rel="stylesheet" href="/assets/css/v2.css?v=5e2b9d14">
 </head>
 <body>
 
@@ -404,35 +404,43 @@
   <p class="deck" id="bdDeck"></p>
 </header>
 
-<div class="td-hero sg-hero">
-  <div class="td-stats" id="bdStats">
-    <div class="stat stat--lead"><div class="stat-label">&nbsp;</div><div class="stat-value"><span class="skel"></span></div></div>
-  </div>
+<div class="bd-cards" id="bdCards" aria-label="Where each stock sits">
+  <div class="bd-card"><span class="skel"></span></div>
 </div>
 
-<section class="sec" aria-labelledby="bdTableTitle">
-  <div class="sec-head"><div><h2 id="bdTableTitle">Where each stock sits</h2>
-    <div class="sec-sub">Price against the line fitted on its 45-day average daily revenue; turning up = 10-day revenue average above the 45-day and the price at least 1 SD below the line</div></div></div>
-  <div id="bdTable"></div>
-</section>
-
 <section class="sec" aria-labelledby="bdChartTitle">
-  <div class="sec-head"><div><h2 id="bdChartTitle">Price, line and bands <span id="bdRangeLabel">(1 year)</span></h2>
-    <div class="sec-sub">The line on each day uses only the days before it, so past bands are what the tracker would have shown then</div></div>
+  <div class="sec-head"><div><h2 id="bdChartTitle">Price against its revenue line <span id="bdRangeLabel">(1 year)</span></h2>
+    <div class="sec-sub">The line on each day uses only the days before it, so past bands are what the tracker showed then</div></div>
     <span id="bdRange"></span></div>
-  <div id="bdCharts"></div>
+  <div class="bd-tabs" id="bdTabs" role="group" aria-label="Stock"></div>
+  <div class="chart-box" id="bdChart"></div>
+  <div class="legend" id="bdLegend"></div>
 </section>
 
-<section class="sec" aria-labelledby="bdIOTitle">
-  <div class="sec-head"><div><h2 id="bdIOTitle">What the line implies</h2>
-    <div class="sec-sub">Revenue in, price out: today&rsquo;s line at other levels of the 45-day average</div></div></div>
-  <div id="bdIO"></div>
-</section>
+<div class="two-col">
+  <section class="sec" aria-labelledby="bdCalcTitle">
+    <div class="sec-head"><div><h2 id="bdCalcTitle">Revenue in, price out</h2>
+      <div class="sec-sub" id="bdCalcSub">Today&rsquo;s line at a 45-day average revenue you choose</div></div></div>
+    <div id="bdCalc"></div>
+  </section>
+  <section class="sec" aria-labelledby="bdFlagsTitle">
+    <div class="sec-head"><div><h2 id="bdFlagsTitle">Recent flags</h2>
+      <div class="sec-sub">The last five flags for this stock, and the price 20 sessions later</div></div></div>
+    <div id="bdFlags"></div>
+  </section>
+</div>
 
-<section class="sec" aria-labelledby="bdVerdictTitle">
-  <div class="sec-head"><div><h2 id="bdVerdictTitle">What the test found</h2>
-    <div class="sec-sub">The CIO&rsquo;s rules, tested before this page went live</div></div></div>
-  <div id="bdVerdict"></div>
+<section class="sec" aria-labelledby="bdUseTitle">
+  <div class="sec-head"><div><h2 id="bdUseTitle">How to use this page</h2></div></div>
+  <ul class="bd-use" id="bdUse">
+    <li><span class="pill pill--strong-up"><span aria-hidden="true">&#9650;</span>Turning up</span> The one live signal: the 10-day revenue average is above the 45-day and the price is at least 1 SD below its line. Long only, small size until it has more history.</li>
+    <li><span class="pill pill--up"><span aria-hidden="true">&#9650;</span>At lower band</span> Buy-watch: the price is 2 SD or more below its line.</li>
+    <li><span class="pill pill--caution"><span aria-hidden="true">!</span>At upper band / turning down</span> Exit flag: returns afterwards were below average. Trim longs; don&rsquo;t short.</li>
+  </ul>
+  <details class="bd-details">
+    <summary>What the test found</summary>
+    <div id="bdVerdict"></div>
+  </details>
 </section>
 
 <footer class="v2-foot">
@@ -880,12 +888,12 @@ fair value   = run-rate EPS × median P/E of the last 252 days</pre>
 </dialog>
 
 <!-- ═══ JAVASCRIPT ═══════════════════════════════════════════════════════════ -->
-<script src="/assets/js/core.js?v=c41f07d6"></script>
-<script src="/assets/js/today.js?v=c41f07d6"></script>
-<script src="/assets/js/revenue.js?v=c41f07d6"></script>
-<script src="/assets/js/value.js?v=c41f07d6"></script>
-<script src="/assets/js/lab.js?v=c41f07d6"></script>
-<script src="/assets/js/signals.js?v=c41f07d6"></script>
-<script src="/assets/js/shell.js?v=c41f07d6"></script>
+<script src="/assets/js/core.js?v=5e2b9d14"></script>
+<script src="/assets/js/today.js?v=5e2b9d14"></script>
+<script src="/assets/js/revenue.js?v=5e2b9d14"></script>
+<script src="/assets/js/value.js?v=5e2b9d14"></script>
+<script src="/assets/js/lab.js?v=5e2b9d14"></script>
+<script src="/assets/js/signals.js?v=5e2b9d14"></script>
+<script src="/assets/js/shell.js?v=5e2b9d14"></script>
 </body>
 </html>

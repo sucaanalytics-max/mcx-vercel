@@ -512,3 +512,73 @@ html.dark .td-panel { box-shadow: none; }
 
 /* Signals → Options: the daily note keeps its line breaks */
 .op-note { margin: 0; white-space: pre-line; font-size: 14px; line-height: 1.6; }
+
+/* ── ADR bands page (/signals/bands): action cards, gauge, focus chart, ribbon ── */
+.bd-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 8px 0 36px; }
+.bd-card { display: block; width: 100%; text-align: left; font: inherit; color: inherit; padding: 16px 18px; border: 1px solid var(--mcx-border);
+  border-radius: 10px; background: var(--mcx-surface); cursor: pointer; transition: border-color .15s; }
+.bd-card:hover { border-color: var(--mcx-border-strong); }
+.bd-card:focus-visible { outline: 2px solid var(--mcx-focus); outline-offset: 2px; }
+.bd-card[aria-pressed="true"] { border-color: var(--mcx-text); box-shadow: inset 0 0 0 1px var(--mcx-text); }
+.bd-card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.bd-card-name { font-size: 15px; font-weight: 600; }
+.bd-gauge { position: relative; height: 30px; margin: 14px 0 2px; }
+.bd-gauge-track { position: absolute; left: 0; right: 0; top: 11px; height: 8px; display: flex; border-radius: 2px; overflow: hidden; }
+.bd-gauge-ends { display: flex; justify-content: space-between; font-size: 11px; color: var(--mcx-text-3); }
+.bd-card-price { margin-top: 12px; font-size: 22px; font-weight: 600; letter-spacing: -0.2px; font-variant-numeric: tabular-nums; }
+.bd-card-price small { margin-left: 6px; font-size: 13px; font-weight: 400; color: var(--mcx-text-2); letter-spacing: 0; }
+.bd-card-line { margin-top: 4px; font-size: 13px; line-height: 1.45; color: var(--mcx-text-2); }
+.bd-card-flip { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--mcx-border); font-size: 13px; line-height: 1.45; }
+.bd-card--na { cursor: default; color: var(--mcx-text-2); }
+.bd-g-buy { background: color-mix(in srgb, var(--mcx-up) 60%, transparent); }
+.bd-g-turn { background: color-mix(in srgb, var(--mcx-up) 25%, transparent); }
+.bd-g-band { background: var(--mcx-band); }
+.bd-g-caution { background: color-mix(in srgb, var(--mcx-caution) 25%, transparent); }
+.bd-g-trim { background: color-mix(in srgb, var(--mcx-caution) 60%, transparent); }
+.bd-g-dot { position: absolute; top: 8px; width: 14px; height: 14px; border-radius: 50%; transform: translateX(-50%);
+  background: var(--mcx-text); border: 2px solid var(--mcx-surface); }
+.bd-g-avg { position: absolute; top: 4px; height: 22px; border-left: 1.5px dashed var(--mcx-text-2); transform: translateX(-0.75px); }
+.bd-tabs { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px; margin: 0 0 12px; border-radius: 6px; background: var(--mcx-surface-2); }
+.bd-tab { font: inherit; font-size: 13px; padding: 5px 12px; border: 0; border-radius: 5px; background: transparent; color: var(--mcx-text-2); cursor: pointer; }
+.bd-tab[aria-pressed="true"] { background: var(--mcx-surface); color: var(--mcx-text); font-weight: 600; box-shadow: var(--mcx-shadow-sm); }
+.bd-tab:hover { color: var(--mcx-text); }
+.bd-tab:focus-visible { outline: 2px solid var(--mcx-focus); outline-offset: 1px; }
+.c-band-2 { fill: var(--mcx-band); }
+.c-band-1 { fill: var(--mcx-text-3); fill-opacity: .16; }
+.c-turn-up { fill: var(--mcx-up); }
+.bd-rib-up { fill: var(--mcx-up); }
+.bd-rib-lower { fill: var(--mcx-up); fill-opacity: .45; }
+.bd-rib-band { fill: var(--mcx-border-strong); fill-opacity: .55; }
+.bd-rib-upper { fill: var(--mcx-caution); fill-opacity: .45; }
+.bd-rib-down { fill: var(--mcx-caution); }
+.sw--band2 { background: var(--mcx-band); }
+.sw--band1 { background: color-mix(in srgb, var(--mcx-text-3) 22%, var(--mcx-band)); }
+.sw--rib-up { background: var(--mcx-up); }
+.sw--rib-down { background: var(--mcx-caution); }
+.bd-calc-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.bd-calc-row label { font-size: 13px; color: var(--mcx-text-2); }
+.bd-calc-row input { width: 96px; font: inherit; font-size: 15px; padding: 6px 8px; border: 1px solid var(--mcx-border-strong); border-radius: 6px;
+  background: var(--mcx-surface); color: var(--mcx-text); font-variant-numeric: tabular-nums; }
+.bd-calc-row input:focus-visible { outline: 2px solid var(--mcx-focus); outline-offset: 1px; }
+.bd-calc-row button { font: inherit; font-size: 13px; padding: 6px 10px; border: 1px solid var(--mcx-border); border-radius: 6px; background: var(--mcx-surface); color: var(--mcx-text); cursor: pointer; }
+.bd-calc-row button:focus-visible { outline: 2px solid var(--mcx-focus); outline-offset: 1px; }
+.bd-calc-out { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.bd-calc-out .stat { padding: 0; border: 0; }
+.bd-calc-out .stat-value { font-size: 22px; }
+.bd-calc-err { margin-top: 8px; font-size: 13px; color: var(--mcx-down); }
+.bd-flags { list-style: none; margin: 0; padding: 0; }
+.bd-flags li { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 0; border-top: 1px solid var(--mcx-border); font-size: 13px; }
+.bd-flags li:first-child { border-top: 0; }
+.bd-flags .num { text-align: right; font-variant-numeric: tabular-nums; }
+.bd-flags .pill { justify-self: start; }
+.bd-use { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 10px; }
+.bd-use li { font-size: 14px; line-height: 1.5; }
+.bd-use .pill { margin-right: 8px; }
+.bd-details { border-top: 1px solid var(--mcx-border); padding-top: 10px; }
+.bd-details summary { cursor: pointer; font-size: 14px; font-weight: 600; padding: 4px 0; }
+.bd-details summary:focus-visible { outline: 2px solid var(--mcx-focus); outline-offset: 2px; }
+.bd-details .v2-table td, .bd-details .v2-table th { text-align: left; }
+@media (max-width: 720px) {
+  .bd-cards { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .bd-calc-out { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+}

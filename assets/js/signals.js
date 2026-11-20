@@ -308,9 +308,51 @@
     return 'Needs the 10-day revenue average back above the 45-day.';
   }
 
+  // The card's "what flips it" line: exit flags read as an action, the rest as the turn-up condition
+  function flipText(t) {
+    if (t.state === 'TURNING DOWN' || t.state === 'AT UPPER') return 'Exit flag: trim longs, don’t short.';
+    if (t.state === 'AT LOWER') return `Buy-watch. ${turnUpText(t)}`;
+    return turnUpText(t);
+  }
+
+  // Band gauge: z clamped to −3…+3 SD, mapped across the gauge width
+  const GAUGE_LIM = 3;
+  const gaugeX = (z, w) => (Math.max(-GAUGE_LIM, Math.min(GAUGE_LIM, z)) + GAUGE_LIM) / (2 * GAUGE_LIM) * w;
+
+  // Ribbon colour group for a day's state
+  const RIBBON = { 'TURNING UP': 'up', 'AT LOWER': 'lower', 'IN BAND': 'band', 'AT UPPER': 'upper', 'TURNING DOWN': 'down' };
+  // Consecutive days in the same ribbon group: [{key, from, to}] as row indexes
+  function stateRuns(rows) {
+    const out = [];
+    rows.forEach((r, i) => {
+      const k = RIBBON[r.state] || 'band', last = out[out.length - 1];
+      if (last && last.key === k) last.to = i; else out.push({ key: k, from: i, to: i });
+    });
+    return out;
+  }
+
+  // Revenue in, price out: the latest line at a chosen 45-day ADR, with the ±2 SD band
+  function calcLine(t, adr) {
+    const a = Number(adr);
+    if (!(a > 0) || !isFinite(a)) return { error: 'Enter a 45-day revenue above ₹0 Cr.' };
+    if (a > t.adr45 * 5) return { error: `Enter a figure within 5× today’s ₹${num(t.adr45, 2)} Cr.` };
+    const line = t.a + t.b * a;
+    return { line, buyWatch: line - 2 * t.sd, trim: line + 2 * t.sd };
+  }
+
+  // The count line under the headline
+  function bandCount(stocks) {
+    const ok = (stocks || []).filter(s => s.available && s.today);
+    const buy = ok.filter(s => s.today.state === 'TURNING UP' || s.today.state === 'AT LOWER').length;
+    const exit = ok.filter(s => s.today.state === 'TURNING DOWN' || s.today.state === 'AT UPPER').length;
+    const pl = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+    return `${pl(ok.length, 'stock')} · ${pl(buy, 'buy flag')} · ${pl(exit, 'exit flag')}`;
+  }
+
   MCX.signalsModel = { HOT, COLD, W, streak, cushion, changes, momLede, overlayText, forward, contributions, ensLede, ecmText, pill,
                        MOM_RULES_FIXED, afterRules, inStudy, tradeBacktest, momCaveat,
-                       COMPOSITE, REGIME, OVERLAY, ECM, ACTIVITY, optLede, legsText, trackRows, BOOK, BAND, bandLede, turnUpText };
+                       COMPOSITE, REGIME, OVERLAY, ECM, ACTIVITY, optLede, legsText, trackRows, BOOK, BAND, bandLede, turnUpText,
+                       flipText, gaugeX, stateRuns, calcLine, bandCount };
   if (window.MCX_TEST) return;
 
   // ════════════════════════════════════════════════════════════════════════
@@ -849,11 +891,16 @@
 
   // ════════════════════════════════════════════════════════════════════════
   //  ADR bands (/api/models?view=bands; lib/strategy_bands.py)
+  //  Action cards per stock, then one focus chart with a state ribbon, a revenue-in
+  //  calculator and the recent flags for the selected stock.
   // ════════════════════════════════════════════════════════════════════════
-  const BD = { data: null, err: null, width: 0 };
+  const BD = { data: null, err: null, width: 0, sel: null, calc: {} };
   const BAND_RANGES = ['Q', '1Y', '2Y', 'Max'];
   const bdUrl = () => '/api/models?view=bands&range=' + (rangeState.bands || '1Y');
   const sdTxt = v => `${v >= 0 ? '+' : '−'}${num(Math.abs(v), 2)}`;
+  const pctTxt = v => `${v >= 0 ? '+' : '−'}${num(Math.abs(v * 100), 1)}%`;
+  const FLAG_STATE = { turning_up: 'TURNING UP', lower_band: 'AT LOWER', upper_band: 'AT UPPER', turning_down: 'TURNING DOWN' };
+  const bdOk = () => (BD.data ? BD.data.stocks.filter(s => s.available && s.today) : []);
 
   function loadBands() {
     return fetchRanged(bdUrl()).then(d => {
@@ -861,117 +908,179 @@
     }).catch(e => { BD.err = e.message || String(e); renderBands(); });
   }
 
+  // The selected stock: last choice if still available, else the first stock with a flag, else the first
+  function bdSelected() {
+    const ok = bdOk();
+    if (!ok.length) return null;
+    const want = BD.sel || MCX.storage.get('mcx.bands.stock');
+    const flagged = ok.find(s => s.today.state !== 'IN BAND');
+    return ok.find(s => s.name === want) || flagged || ok[0];
+  }
+  function bdSelect(name) {
+    BD.sel = name;
+    MCX.storage.set('mcx.bands.stock', name);
+    renderBandCards(BD.data);
+    renderBandFocus();
+  }
+
   function renderBands() {
     const d = BD.data;
     if (BD.err || !d) {
       $('bdHead').textContent = 'The ADR bands could not be loaded.';
-      MCX.ui.error($('bdTable'), 'Could not load the ADR bands: ' + (BD.err || 'no data'), loadBands);
+      $('bdDeck').textContent = '';
+      MCX.ui.error($('bdCards'), 'Could not load the ADR bands: ' + (BD.err || 'no data'), loadBands);
       return;
     }
-    const ok = d.stocks.filter(s => s.available), l = bandLede(d.stocks);
+    const ok = bdOk();
     const thru = ok.length ? ok.map(s => s.today.date).sort().pop() : null;
     $('bdKicker').textContent = `ADR bands · under validation${thru ? ` · data through ${fmt.day(thru)}` : ''}`;
-    $('bdHead').textContent = l.head;
-    $('bdDeck').textContent = l.deck;
-    $('bdStats').innerHTML = d.stocks.map((s, k) => {
-      if (!s.available) return stat(esc(s.name), pillRow(pill(BAND, 'NO DATA')), esc(s.reason || 'Not available'));
-      const t = s.today;
-      return stat(esc(s.name), pillRow(pill(BAND, t.state)),
-        `z ${sdTxt(t.z)} (week ${sdTxt(t.z_week)}) · ₹${num(t.close, 0)} vs line ₹${num(t.line, 0)} · 10d/45d ${num(t.ratio, 2)}`, k === 0);
-    }).join('');
-    renderBandTable(d);
-    renderBandCharts(d);
-    renderBandIO(d);
+    $('bdHead').textContent = bandLede(d.stocks).head;
+    $('bdDeck').textContent = bandCount(d.stocks);
+    renderBandCards(d);
+    renderBandFocus();
     renderVerdict(d.verdict);
     $('bdFoot').textContent = `Line refitted each day on the days before it (at least ${d.min_obs}); ${d.window}-day and ${d.fast}-day revenue averages; computed on request from the stored revenue and share price, ${d.as_of}.`;
     BD.width = $('bands').clientWidth;
   }
 
-  function renderBandTable(d) {
-    const ago = f => (!f ? '—' : f.active ? 'now' : `${fmt.day(f.date)}<small>${num(f.sessions_ago)} sessions ago · ${num(f.episodes)} in all</small>`);
-    const rows = d.stocks.map(s => {
-      if (!s.available) return `<tr><td>${esc(s.name)}<small>${esc(s.ticker)}</small></td><td colspan="7"><span class="note">${esc(s.reason || 'Not available')}</span></td></tr>`;
-      const t = s.today;
-      return `<tr><td>${esc(s.name)}<small>${esc(s.ticker)}</small></td><td>${pill(BAND, t.state)}</td>`
-        + `<td>₹${num(t.close, 0)}<small>line ₹${num(t.line, 0)}</small></td><td>${sdTxt(t.z)}<small>week ${sdTxt(t.z_week)}</small></td>`
-        + `<td>₹${num(t.lo2, 0)} – ₹${num(t.hi2, 0)}<small>±1 SD ₹${num(t.lo1, 0)} – ₹${num(t.hi1, 0)}</small></td>`
-        + `<td>${num(t.ratio, 2)}×<small>₹${num(t.adr10, 2)} / ₹${num(t.adr45, 2)} Cr</small></td>`
-        + `<td>${ago(s.flags.turning_up)}</td><td>${ago(s.flags.lower_band)}</td></tr>`;
-    });
-    $('bdTable').innerHTML = tradeTable(rows, ['Stock', 'State', 'Price', 'z (SD)', '±2 SD band', '10d / 45d revenue', 'Last turning up', 'Last at lower band'])
-      + '<p class="note">' + d.stocks.filter(s => s.available).map(s => `${esc(s.name)}: ${esc(turnUpText(s.today))}`).join(' ') + '</p>';
+  // −3…+3 SD strip: buy-watch, turn zone, in band, caution, trim; dot = today, dashed tick = 5-day average
+  // HTML, not SVG, so the dot stays round at any card width (positions are % of the track)
+  function gaugeHtml(t) {
+    const zones = [[-3, -2, 'buy'], [-2, -1, 'turn'], [-1, 1, 'band'], [1, 2, 'caution'], [2, 3, 'trim']];
+    return `<div class="bd-gauge" role="img" aria-label="z ${sdTxt(t.z)} SD from the line; 5-day average ${sdTxt(t.z_week)}">`
+      + '<div class="bd-gauge-track">' + zones.map(([a, b, k]) => `<span class="bd-g-${k}" style="width:${(gaugeX(b, 100) - gaugeX(a, 100)).toFixed(2)}%"></span>`).join('') + '</div>'
+      + `<span class="bd-g-avg" style="left:${gaugeX(t.z_week, 100).toFixed(2)}%"></span>`
+      + `<span class="bd-g-dot" style="left:${gaugeX(t.z, 100).toFixed(2)}%"></span></div>`;
   }
 
-  function renderBandCharts(d) {
-    const box = $('bdCharts');
-    const ok = d.stocks.filter(s => s.available && (s.history || []).length > 1);
-    if (!ok.length) { box.innerHTML = '<p class="note">Not enough history for a chart.</p>'; return; }
-    box.innerHTML = ok.map((s, i) => `<figure class="td-figure"><figcaption><strong>${esc(s.name)}</strong> · price against the line on its 45-day revenue average, with ±1 and ±2 SD bands; z below</figcaption>`
-      + `<div class="chart-box" id="bdChart${i}"></div></figure>`).join('')
-      + '<div class="legend"><span><i class="sw sw--line"></i>Share price (upper); z (lower); dots are turning-up days</span><span><i class="sw sw--typical"></i>Line, fitted on the days before each day</span>'
-      + '<span><i class="sw sw--band"></i>±1 SD (darker) and ±2 SD</span></div>';
-    ok.forEach((s, i) => bandChart($('bdChart' + i), s));
+  function renderBandCards(d) {
+    const sel = bdSelected();
+    $('bdCards').innerHTML = d.stocks.map(s => {
+      if (!s.available || !s.today) {
+        return `<div class="bd-card bd-card--na"><div class="bd-card-head"><span class="bd-card-name">${esc(s.name)}</span>${pill(BAND, 'NO DATA')}</div>`
+          + `<p class="bd-card-line">${esc(s.reason || 'Not available')}</p></div>`;
+      }
+      const t = s.today, gap = t.close / t.line - 1, on = sel && sel.name === s.name;
+      return `<button type="button" class="bd-card" data-stock="${esc(s.name)}" aria-pressed="${on}">`
+        + `<div class="bd-card-head"><span class="bd-card-name">${esc(s.name)}</span>${pill(BAND, t.state)}</div>`
+        + gaugeHtml(t) + '<div class="bd-gauge-ends" aria-hidden="true"><span>buy-watch</span><span>in band</span><span>trim</span></div>'
+        + `<div class="bd-card-price">₹${num(t.close, 0)}<small>${pctTxt(gap)} vs line ₹${num(t.line, 0)}</small></div>`
+        + `<div class="bd-card-line">z ${sdTxt(t.z)} (5-day ${sdTxt(t.z_week)}) · revenue trend ${t.ratio > 1 ? '↑' : '↓'} ${num(t.ratio, 2)}× · ${fmt.dayMonth(t.date)}</div>`
+        + `<div class="bd-card-flip">${esc(flipText(t))}</div></button>`;
+    }).join('');
+  }
+
+  function renderBandFocus() {
+    const s = bdSelected(), ok = bdOk();
+    if (!s) {
+      $('bdTabs').innerHTML = ''; $('bdChart').innerHTML = '<p class="note">No stock could be computed.</p>';
+      $('bdLegend').innerHTML = ''; $('bdCalc').innerHTML = ''; $('bdFlags').innerHTML = '';
+      return;
+    }
+    $('bdTabs').innerHTML = ok.map(x => `<button type="button" class="bd-tab" data-stock="${esc(x.name)}" aria-pressed="${x.name === s.name}">${esc(x.name)}</button>`).join('');
+    if ((s.history || []).length > 1) bandChart($('bdChart'), s);
+    else $('bdChart').innerHTML = '<p class="note">Not enough history for a chart.</p>';
+    $('bdLegend').innerHTML = '<span><i class="sw sw--line"></i>Share price</span><span><i class="sw sw--typical"></i>Revenue line</span>'
+      + '<span><i class="sw sw--band1"></i>±1 SD</span><span><i class="sw sw--band2"></i>±2 SD</span>'
+      + '<span><i class="sw sw--rib-up"></i>Ribbon: turning up (light: at lower band)</span><span><i class="sw sw--rib-down"></i>Turning down (light: at upper band)</span>';
+    renderBandCalc(s);
+    renderBandFlags(s);
   }
 
   function bandChart(box, s) {
     const rows = s.history;
     const w = Math.round(box.clientWidth) || 900, compact = w < 520;
     const long = ['1Y', '2Y', 'Max'].includes(rangeState.bands || '1Y') && rows.length > 200;
-    const pl = compact ? 46 : 58, pr = compact ? 10 : 112, aTop = 10, aH = compact ? 170 : 230, gap = 24, bH = compact ? 80 : 100;
-    const bTop = aTop + aH + gap, h = bTop + bH + 26, iw = w - pl - pr, X = i => pl + iw * i / (rows.length - 1);
+    const pl = compact ? 46 : 58, pr = compact ? 10 : 112, aTop = 10, aH = compact ? 200 : 280;
+    const ribY = aTop + aH + 10, ribH = 8, h = ribY + ribH + 28, iw = w - pl - pr;
+    const X = i => pl + iw * i / (rows.length - 1), step = iw / Math.max(1, rows.length - 1);
     const [aLo, aHi] = span(rows.flatMap(r => [r.close, r.lo2, r.hi2]), 0.04);
     const YA = v => aTop + aH * (1 - (v - aLo) / (aHi - aLo));
-    const zLim = Math.max(2.6, Math.ceil(Math.max(...rows.map(r => Math.abs(r.z))) * 2) / 2 + 0.2);
-    const YB = v => bTop + bH * (1 - (v + zLim) / (2 * zLim));
     const last = rows[rows.length - 1];
     const sv = [V.open(w, h, `${s.name}: price ₹${num(last.close, 0)} against the revenue line ₹${num(last.line, 0)}, z ${sdTxt(last.z)}, ${fmt.span(rows[0].date, last.date)}`)];
-    V.niceTicks(aHi, compact ? 3 : 4, aLo).forEach(v => sv.push(`<line x1="${pl}" x2="${w - pr}" y1="${YA(v).toFixed(1)}" y2="${YA(v).toFixed(1)}" class="c-grid"/>`,
+    V.niceTicks(aHi, compact ? 3 : 5, aLo).forEach(v => sv.push(`<line x1="${pl}" x2="${w - pr}" y1="${YA(v).toFixed(1)}" y2="${YA(v).toFixed(1)}" class="c-grid"/>`,
       txt(pl - 8, YA(v) + 4, 'c-tick', `₹${num(v, 0)}`, 'end')));
-    sv.push(`<path d="${bandPath(rows, X, YA, r => r.lo2, r => r.hi2)}" class="c-band"/>`,
-            `<path d="${bandPath(rows, X, YA, r => r.lo1, r => r.hi1)}" class="c-band"/>`,
+    sv.push(`<path d="${bandPath(rows, X, YA, r => r.lo2, r => r.hi2)}" class="c-band-2"/>`,
+            `<path d="${bandPath(rows, X, YA, r => r.lo1, r => r.hi1)}" class="c-band-1"/>`,
             `<path d="${path(rows, X, YA, 'line')}" class="c-typical"/>`, `<path d="${path(rows, X, YA, 'close')}" class="c-line"/>`);
-    rows.forEach((r, i) => { if (r.state === 'TURNING UP') sv.push(`<circle cx="${X(i).toFixed(1)}" cy="${YA(r.close).toFixed(1)}" r="2.5" class="c-dot"/>`); });
-    [-2, -1, 1, 2].forEach(v => sv.push(`<line x1="${pl}" x2="${w - pr}" y1="${YB(v).toFixed(1)}" y2="${YB(v).toFixed(1)}" class="${Math.abs(v) === 2 ? 'c-typical' : 'c-grid'}"/>`));
-    sv.push(`<line x1="${pl}" x2="${w - pr}" y1="${YB(0).toFixed(1)}" y2="${YB(0).toFixed(1)}" class="c-axis"/>`);
-    [[-2, '−2'], [0, '0'], [2, '+2']].forEach(([v, t]) => sv.push(txt(pl - 8, YB(v) + 4, 'c-tick', t, 'end')));
-    sv.push(`<path d="${path(rows, X, YB, 'z')}" class="c-line"/>`);
+    // Turning-up starts as small up-triangles under the price
+    rows.forEach((r, i) => {
+      if (r.state === 'TURNING UP' && (i === 0 || rows[i - 1].state !== 'TURNING UP')) {
+        const x = X(i), y = YA(r.close) + 10;
+        sv.push(`<path d="M${(x - 5).toFixed(1)},${(y + 7).toFixed(1)}L${(x + 5).toFixed(1)},${(y + 7).toFixed(1)}L${x.toFixed(1)},${y.toFixed(1)}Z" class="c-turn-up"/>`);
+      }
+    });
+    // State ribbon: one coloured run per stretch of the same state
+    stateRuns(rows).forEach(run => {
+      const x0 = Math.max(pl, X(run.from) - step / 2), x1 = Math.min(w - pr, X(run.to) + step / 2);
+      sv.push(`<rect x="${x0.toFixed(1)}" y="${ribY}" width="${Math.max(1, x1 - x0).toFixed(1)}" height="${ribH}" class="bd-rib-${run.key}"/>`);
+    });
     if (!compact) {
       const xl = w - pr + 10;
       const ia = [{ y: YA(last.close) + 4, s: `₹${num(last.close, 0)}`, cls: 'c-label' }, { y: YA(last.line) + 4, s: `Line ₹${num(last.line, 0)}`, cls: 'c-label2' },
                   { y: YA(last.hi2) + 4, s: `+2 SD ₹${num(last.hi2, 0)}`, cls: 'c-label3' }, { y: YA(last.lo2) + 4, s: `−2 SD ₹${num(last.lo2, 0)}`, cls: 'c-label3' }];
       V.spread(ia, 15, aTop, aTop + aH).forEach(it => sv.push(txt(xl, it.y, it.cls, it.s)));
-      sv.push(txt(xl, YB(last.z) + 4, 'c-label', `z ${sdTxt(last.z)}`));
+      sv.push(txt(xl, ribY + ribH - 1, 'c-label3', 'State'));
     }
-    sv.push(txt(pl + 4, aTop + 12, 'c-label3', 'Share price and the revenue line', null, true), txt(pl + 4, bTop + 12, 'c-label3', 'z, SD from the line', null, true));
     sv.push(dateTicks(rows, X, h - 6, long, compact), '</svg>');
     box.innerHTML = sv.join('');
-    V.hover(box, { pl, pt: aTop, iw, ih: bTop + bH - aTop, h, pb: h - bTop - bH }, rows.map((_, i) => X(i)), i => {
+    V.hover(box, { pl, pt: aTop, iw, ih: ribY + ribH - aTop, h, pb: h - ribY - ribH }, rows.map((_, i) => X(i)), i => {
       const r = rows[i];
       return `<strong>${fmt.day(r.date)}</strong> · ${esc(label(BAND, r.state))}<br>₹${num(r.close, 0)} vs line ₹${num(r.line, 0)} · z ${sdTxt(r.z)}`
         + `<br><span class="c-tip-sub">45-day revenue ₹${num(r.adr45, 2)} Cr · 10d/45d ${r.ratio === null ? '—' : num(r.ratio, 2)}</span>`;
     });
   }
 
-  // Input → output: the price the latest line implies at a few 45-day revenue levels
-  function renderBandIO(d) {
-    const ok = d.stocks.filter(s => s.available && s.line_at);
-    $('bdIO').innerHTML = ok.map(s => {
-      const t = s.today, ks = Object.keys(s.line_at);
-      return `<div class="table-scroll"><table class="v2-table"><thead><tr><th scope="col">${esc(s.name)}: 45-day revenue, ₹ Cr</th>`
-        + ks.map(k => `<th scope="col">${num(+k, 1)}${Math.abs(+k - t.adr45) < 0.06 ? ' (today)' : ''}</th>`).join('') + '</tr></thead><tbody>'
-        + `<tr><td>Price on the line</td>${ks.map(k => `<td>₹${num(s.line_at[k], 0)}</td>`).join('')}</tr>`
-        + `<tr><td>Buy-watch (−2 SD)</td>${ks.map(k => `<td>₹${num(s.line_at[k] - 2 * t.sd, 0)}</td>`).join('')}</tr></tbody></table></div>`
-        + `<p class="note">Line: price = ${num(t.a, 0)} + ${num(t.b, 1)} × 45-day revenue (₹ Cr), fitted on ${num(t.n)} days; SD ₹${num(t.sd, 0)}. Line values, not targets.</p>`;
-    }).join('');
+  // Revenue in, price out (the CIO's "inputs in, answer out"), for the selected stock
+  function renderBandCalc(s) {
+    const t = s.today, v = BD.calc[s.name] !== undefined ? BD.calc[s.name] : t.adr45;
+    $('bdCalcSub').textContent = `${s.name}: today’s line at a 45-day average revenue you choose`;
+    $('bdCalc').innerHTML = `<div class="bd-calc-row"><label for="bdAdr">45-day revenue, ₹ Cr</label>`
+      + `<input id="bdAdr" type="number" inputmode="decimal" min="0" step="0.1" value="${esc(String(v))}">`
+      + '<button type="button" data-step="-0.1">−10%</button><button type="button" data-step="0.1">+10%</button><button type="button" data-step="0">Today</button></div>'
+      + '<div id="bdCalcOut"></div>'
+      + `<p class="note">Line: price = ${num(t.a, 0)} + ${num(t.b, 1)} × 45-day revenue, fitted on ${num(t.n)} days before today; SD ₹${num(t.sd, 0)}. Line values, not targets.</p>`;
+    bandCalcOut(s);
+  }
+  function bandCalcOut(s) {
+    const r = calcLine(s.today, $('bdAdr').value);
+    $('bdCalcOut').innerHTML = r.error ? `<p class="bd-calc-err" role="alert">${esc(r.error)}</p>`
+      : '<div class="bd-calc-out">' + stat('On the line', val(`₹${num(r.line, 0)}`)) + stat('Buy-watch below', val(`₹${num(r.buyWatch, 0)}`), '−2 SD')
+        + stat('Trim above', val(`₹${num(r.trim, 0)}`), '+2 SD') + '</div>';
+  }
+
+  function renderBandFlags(s) {
+    const ep = s.episodes || [];
+    if (!ep.length) { $('bdFlags').innerHTML = '<p class="note">No flags in this stock’s history yet.</p>'; return; }
+    $('bdFlags').innerHTML = '<ul class="bd-flags">' + ep.map(e => `<li>${pill(BAND, FLAG_STATE[e.flag])}`
+      + `<span>${fmt.day(e.date)}<small class="bd-card-line"> · z ${sdTxt(e.z)}</small></span>`
+      + `<span class="num">${e.ret === null ? '<span class="bd-card-line">open</span>' : `<span class="${e.ret >= 0 ? 'up' : 'down'}">${pctTxt(e.ret)}</span>`}</span></li>`).join('')
+      + '</ul><p class="note">Close to close over the next 20 revenue days, for the record; not a backtest.</p>';
   }
 
   function renderVerdict(v) {
     if (!v) { $('bdVerdict').innerHTML = ''; return; }
     $('bdVerdict').innerHTML = tradeTable(v.rules.map(r => `<tr><td>${esc(r.rule)}</td><td><strong>${esc(r.verdict)}</strong></td><td>${esc(r.detail)}</td></tr>`),
       ['Rule', 'Verdict', 'Out of sample, after costs'])
-      + `<p class="note">Pre-registered test on MCX (2022–2026), BSE (2024–2026) and Angel One (2025–2026; its revenue is a model), ${esc(fmt.day(v.as_of))}. Treat <strong>turning up</strong> as the one live signal, long only and small until it has more history; the lower band is a buy-watch flag. Use the upper band and turning down to trim longs, not to short. Full memo: <code>${esc(v.doc)}</code>.</p>`;
+      + `<p class="note">Pre-registered test on MCX (2022–2026), BSE (2024–2026) and Angel One (2025–2026; its revenue is a model), ${esc(fmt.day(v.as_of))}. Full memo: ${esc(v.doc)}.</p>`;
   }
 
+  // Card and tab clicks select a stock; the calculator recomputes as you type
+  $('bdCards').addEventListener('click', e => { const b = e.target.closest('button[data-stock]'); if (b) bdSelect(b.dataset.stock); });
+  $('bdTabs').addEventListener('click', e => { const b = e.target.closest('button[data-stock]'); if (b) bdSelect(b.dataset.stock); });
+  $('bdCalc').addEventListener('input', e => {
+    if (e.target.id !== 'bdAdr') return;
+    const s = bdSelected(); if (!s) return;
+    BD.calc[s.name] = e.target.value; bandCalcOut(s);
+  });
+  $('bdCalc').addEventListener('click', e => {
+    const b = e.target.closest('button[data-step]'), s = bdSelected();
+    if (!b || !s) return;
+    const st = Number(b.dataset.step), cur = Number($('bdAdr').value) || s.today.adr45;
+    const nv = st === 0 ? s.today.adr45 : cur * (1 + st);
+    $('bdAdr').value = (st === 0 ? nv : Math.round(nv * 100) / 100).toString();
+    BD.calc[s.name] = $('bdAdr').value; bandCalcOut(s);
+  });
   makeRangeToggle({ key: 'bands', containerId: 'bdRange', ranges: BAND_RANGES, defaultRange: '1Y', labelIds: ['bdRangeLabel'],
                     onChange: () => loadBands() });
   if (window.ResizeObserver) {
@@ -979,7 +1088,11 @@
     new ResizeObserver(() => {
       if (queued) return;
       queued = true;
-      requestAnimationFrame(() => { queued = false; const el = $('bands'); if (BD.data && el.clientWidth && Math.abs(el.clientWidth - BD.width) > 2) renderBands(); });
+      requestAnimationFrame(() => {
+        queued = false;
+        const el = $('bands'), s = bdSelected();
+        if (BD.data && s && el.clientWidth && Math.abs(el.clientWidth - BD.width) > 2) { BD.width = el.clientWidth; if ((s.history || []).length > 1) bandChart($('bdChart'), s); }
+      });
     }).observe($('bands'));
   }
 
