@@ -174,6 +174,11 @@ check('bands deck', bl.deck, 'MCX: ₹3,645 against a line of ₹3,334; the 10-d
   + 'BSE: ₹3,765 against a line of ₹4,064; the 10-day revenue average is below the 45-day (0.95×).');
 check('bands headline names a flagged stock', M.bandLede([{ name: 'BSE', available: true, today: { ...bseT, z: -1.2, ratio: 1.02, state: 'TURNING UP' } },
   { name: 'MCX', available: false }]).head, 'BSE is flagged: turning up.');
+const angT = { date: '2026-11-18', close: 338.3, line: 304.9, z: 1.03, ratio: 0.98, lo1: 272.5, state: 'TURNING DOWN' };
+check('bands headline names an exit flag', M.bandLede([{ name: 'MCX', available: true, today: mcxT }, { name: 'Angel One', available: true, today: angT }]).head,
+  'No buy flag today. Exit flag: Angel One (turning down).');
+check('bands headline with a buy and an exit flag', M.bandLede([{ name: 'BSE', available: true, today: { ...bseT, z: -1.2, ratio: 1.02, state: 'TURNING UP' } },
+  { name: 'Angel One', available: true, today: angT }]).head, 'BSE is flagged: turning up. Exit flag: Angel One (turning down).');
 check('bands headline when nothing loaded', M.bandLede([{ name: 'BSE', available: false }]).head, 'No stock could be computed.');
 check('turn-up needs price only', M.turnUpText(mcxT), 'Needs the price below ₹2,986 (18.1% lower).');
 check('turn-up needs price and trend', M.turnUpText(bseT), 'Needs the price below ₹3,733 and the 10-day revenue average back above the 45-day.');

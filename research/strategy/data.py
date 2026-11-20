@@ -39,6 +39,38 @@ def bse_revenue() -> pd.Series:
     return s[s > 0].rename("rev")
 
 
+ANGEL_SEGMENTS = ("fo", "cash", "comm", "mtf_net")
+
+
+def angel_daily() -> pd.DataFrame:
+    """Angel One's modelled daily revenue and orders (sb_daily_revenue, NSE-BSE project),
+    from the latest successful run, summed over F&O, cash, commodity and net MTF interest.
+    Cached to data/angel_daily.csv on the first fetch (each run rewrites the whole history,
+    so the cache is the snapshot the study used). Starts Oct 2024, when F&O and cash start."""
+    cache = DATA / "angel_daily.csv"
+    if not cache.exists():
+        from lib.supabase import nsebse_read_all
+        runs = nsebse_read_all("sb_runs", "?select=run_id,as_of_date,finished_at&broker_id=eq.ANGELONE"
+                                          "&status=eq.success&order=finished_at.desc", page_size=1, max_rows=1)
+        if not runs:
+            raise RuntimeError("No Angel One run readable: is NSEBSE_SUPABASE_KEY set?")
+        rows = nsebse_read_all("sb_daily_revenue",
+                               f"?select=trade_date,segment,orders_mn,revenue_cr,regime&run_id=eq.{runs[0]['run_id']}"
+                               f"&segment=in.({','.join(ANGEL_SEGMENTS)})&order=trade_date.asc,segment.asc")
+        df = pd.DataFrame(rows)
+        df["trade_date"] = pd.to_datetime(df["trade_date"])
+        wide = df.pivot_table(index="trade_date", columns="segment", values="revenue_cr", aggfunc="sum")
+        orders = df[df.segment.isin(["fo", "cash", "comm"])].groupby("trade_date")["orders_mn"].sum()
+        proj = df.groupby("trade_date")["regime"].agg(lambda r: (r == "projected").any())
+        out = pd.DataFrame({"rev": wide.sum(axis=1, min_count=1), "orders_mn": orders, "projected": proj,
+                            **{f"rev_{k}": wide[k] for k in wide.columns}})
+        out = out[wide["fo"].notna() & wide["cash"].notna()]
+        DATA.mkdir(exist_ok=True)
+        out.to_csv(cache)
+        (DATA / "angel_run.txt").write_text(f"{runs[0]['run_id']} as_of {runs[0]['as_of_date']}\n")
+    return pd.read_csv(cache, index_col=0, parse_dates=True)
+
+
 def prices(ticker: str, start: str = "2021-12-01") -> pd.DataFrame:
     cache = DATA / f"px_{ticker.replace('.', '_')}.csv"
     if cache.exists():
@@ -55,7 +87,13 @@ def prices(ticker: str, start: str = "2021-12-01") -> pd.DataFrame:
 
 def panel(name: str) -> pd.DataFrame:
     """Daily frame on revenue dates: rev, and the last known close (as of that day)."""
-    rev = {"MCX": mcx_revenue, "BSE": bse_revenue}[name]()
-    px = prices({"MCX": "MCX.NS", "BSE": "BSE.NS"}[name])
+    if name in ("ANGEL", "ANGEL_ORD"):
+        a = angel_daily()
+        a = a[a[[f"rev_{k}" for k in ANGEL_SEGMENTS]].notna().all(axis=1)]   # every segment present
+        rev = a["rev" if name == "ANGEL" else "orders_mn"].astype(float)
+        rev = rev[rev > 0].rename("rev")
+    else:
+        rev = {"MCX": mcx_revenue, "BSE": bse_revenue}[name]()
+    px = prices({"MCX": "MCX.NS", "BSE": "BSE.NS", "ANGEL": "ANGELONE.NS", "ANGEL_ORD": "ANGELONE.NS"}[name])
     close = px["Close"].reindex(rev.index, method="ffill")   # MCX trades some NSE holidays
     return pd.DataFrame({"rev": rev, "close": close}).dropna()

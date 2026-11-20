@@ -286,9 +286,12 @@
     const flagged = ok.filter(s => s.today.state === 'TURNING UP' || s.today.state === 'AT LOWER');
     const z = s => `${s.today.z >= 0 ? '+' : '−'}${num(Math.abs(s.today.z), 1)} SD`;
     const where = s => `${s.name} ${s.today.z >= 0 ? 'above' : 'below'} its line (${z(s)})`;
+    // Exit flags (trim longs, not shorts): the verdict found below-average returns follow these
+    const exits = ok.filter(s => s.today.state === 'TURNING DOWN' || s.today.state === 'AT UPPER');
+    const exitTxt = exits.length ? ` Exit flag: ${exits.map(s => `${s.name} (${label(BAND, s.today.state).toLowerCase()})`).join(', ')}.` : '';
     const head = flagged.length
-      ? `${flagged.map(s => s.name).join(' and ')} ${flagged.length === 1 ? 'is' : 'are'} flagged: ${flagged.map(s => label(BAND, s.today.state).toLowerCase()).join(', ')}.`
-      : `No buy flag today: ${ok.map(where).join('; ')}.`;
+      ? `${flagged.map(s => s.name).join(' and ')} ${flagged.length === 1 ? 'is' : 'are'} flagged: ${flagged.map(s => label(BAND, s.today.state).toLowerCase()).join(', ')}.${exitTxt}`
+      : exits.length ? `No buy flag today.${exitTxt}` : `No buy flag today: ${ok.map(where).join('; ')}.`;
     const parts = ok.map(s => {
       const t = s.today, trend = t.ratio > 1 ? 'above' : 'below';
       return `${s.name}: ₹${num(t.close, 0)} against a line of ₹${num(t.line, 0)}; the 10-day revenue average is ${trend} the 45-day (${num(t.ratio, 2)}×).`;
@@ -903,11 +906,11 @@
     const box = $('bdCharts');
     const ok = d.stocks.filter(s => s.available && (s.history || []).length > 1);
     if (!ok.length) { box.innerHTML = '<p class="note">Not enough history for a chart.</p>'; return; }
-    box.innerHTML = ok.map(s => `<figure class="td-figure"><figcaption><strong>${esc(s.name)}</strong> · price against the line on its 45-day revenue average, with ±1 and ±2 SD bands; z below</figcaption>`
-      + `<div class="chart-box" id="bdChart${esc(s.name)}"></div></figure>`).join('')
+    box.innerHTML = ok.map((s, i) => `<figure class="td-figure"><figcaption><strong>${esc(s.name)}</strong> · price against the line on its 45-day revenue average, with ±1 and ±2 SD bands; z below</figcaption>`
+      + `<div class="chart-box" id="bdChart${i}"></div></figure>`).join('')
       + '<div class="legend"><span><i class="sw sw--line"></i>Share price (upper); z (lower); dots are turning-up days</span><span><i class="sw sw--typical"></i>Line, fitted on the days before each day</span>'
       + '<span><i class="sw sw--band"></i>±1 SD (darker) and ±2 SD</span></div>';
-    ok.forEach(s => bandChart($('bdChart' + s.name), s));
+    ok.forEach((s, i) => bandChart($('bdChart' + i), s));
   }
 
   function bandChart(box, s) {
@@ -966,7 +969,7 @@
     if (!v) { $('bdVerdict').innerHTML = ''; return; }
     $('bdVerdict').innerHTML = tradeTable(v.rules.map(r => `<tr><td>${esc(r.rule)}</td><td><strong>${esc(r.verdict)}</strong></td><td>${esc(r.detail)}</td></tr>`),
       ['Rule', 'Verdict', 'Out of sample, after costs'])
-      + `<p class="note">Pre-registered test on MCX (2022–2026) and BSE (2024–2026), ${esc(fmt.day(v.as_of))}. Treat <strong>turning up</strong> as the one live signal, long only and small until it has more history; the lower band is a buy-watch flag. Do not short off the upper band. Full memo: <code>${esc(v.doc)}</code>.</p>`;
+      + `<p class="note">Pre-registered test on MCX (2022–2026), BSE (2024–2026) and Angel One (2025–2026; its revenue is a model), ${esc(fmt.day(v.as_of))}. Treat <strong>turning up</strong> as the one live signal, long only and small until it has more history; the lower band is a buy-watch flag. Use the upper band and turning down to trim longs, not to short. Full memo: <code>${esc(v.doc)}</code>.</p>`;
   }
 
   makeRangeToggle({ key: 'bands', containerId: 'bdRange', ranges: BAND_RANGES, defaultRange: '1Y', labelIds: ['bdRangeLabel'],

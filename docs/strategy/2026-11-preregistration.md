@@ -120,10 +120,41 @@ not traded, kept in the tracker as information.
 - **BSE stock futures** exist only from BSE's F&O inclusion date. Before it,
   short results are hypothetical.
 
+## Addendum A: Angel One (written 20 Nov 2026, before any Angel One result)
+
+- **Data:**
+  - `sb_daily_revenue` (NSE-BSE project), latest successful run; the run id is
+    saved to `research/strategy/data/angel_run.txt`.
+  - Daily revenue = F&O + cash + commodity + net MTF interest. Only days with
+    all four segments are used: 1 Oct 2024 → 18 Nov 2026, about 530 days.
+  - This covers about 89% of FY26 operating revenue (₹3,429 of ₹3,872 Cr).
+  - Price: ANGELONE.NS from yfinance, split-adjusted.
+- **Known look-ahead (stated before results).** The series is a model, not a
+  record:
+  - every day is scaled by take rates fitted to that quarter's reported results,
+    which are published weeks after the quarter ends;
+  - monthly order shares come from Angel's monthly business update, a few days
+    after month end;
+  - every nightly run rewrites the whole history, and the first saved run is
+    21 Oct 2026, so there's no point-in-time record to rebuild.
+- **The variant that reduces this:** run the same rules on **orders**
+  (`orders_mn`, F&O + cash + commodity) instead of revenue. That keeps the
+  activity signal without the quarterly take-rate scaling.
+- **Rules, grid, costs and pass criteria:** unchanged from above.
+- **Evaluation window:**
+  - the 120-pair fit leaves signals from about mid-2025;
+  - evaluate from **1 Jul 2025**;
+  - train through **31 Dec 2025**, test **1 Jan 2026 →**.
+  - About 340 evaluation days: Angel One adds events to the pooled panel, and on
+    its own it is too short to pass anything.
+- **Pooled panel:** MCX + BSE + Angel One (revenue version). The orders version
+  is reported beside it, not pooled, so the same stock isn't counted twice.
+
 ## Deviations
 
-1. **20 Nov 2026, re-entry after a time stop.** I wrote this after the first run
-   and before reading any result.
+1. **20 Nov 2026, re-entry after a time stop.** Found in the first run's trade
+   log, so it was fixed after results had been seen. The fix only made the time
+   stop do what the rule already said. The memo quotes the corrected run.
    - In the first run, a position closed by the 60-day stop re-opened the same day
      whenever z was still beyond the band, so the stop never took effect. One MCX
      short was held 180 days and lost 99.8%.
