@@ -26,6 +26,10 @@
   const ECM = { STRONG_REVERT_UP: ['strong-up', '▲▲', 'Gap well below its norm'], MILD_REVERT_UP: ['up', '▲', 'Gap below its norm'],
                 NEUTRAL: ['', '■', 'Gap near its norm'], MILD_EXTEND_DOWN: ['down', '▼', 'Gap above its norm'],
                 STRONG_EXTEND_DOWN: ['strong-down', '▼▼', 'Gap well above its norm'] };
+  // Multi-factor: described as activity, so the panel does not show a second "Buy" beside the ensemble's
+  const ACTIVITY = { STRONG_BUY: ['strong-up', '▲▲', 'Activity well above its norm'], BUY: ['up', '▲', 'Activity above its norm'],
+                     NEUTRAL: ['', '■', 'Activity near its norm'], SELL: ['down', '▼', 'Activity below its norm'],
+                     STRONG_SELL: ['strong-down', '▼▼', 'Activity well below its norm'] };
 
   function pill(map, key) {
     const m = map[key] || ['none', '', 'No data'];
@@ -231,8 +235,8 @@
     const z = e.z_score;
     t += ` so today it is ${num(Math.abs(z), 2)} standard deviations ${z < 0 ? 'below' : 'above'} its norm.`;
     t += Math.abs(z) <= 0.5 ? ' The model sees no pull either way.'
-      : z < 0 ? ' The model expects the gap to widen back toward its norm, which reads as room for the price to rise relative to fair value.'
-      : ' The model expects the gap to narrow back toward its norm, which reads as a drag on the price relative to fair value.';
+      : z < 0 ? ' The model expects the gap to rise back toward its norm, which reads as room for the price to gain on fair value.'
+      : ' The model expects the gap to fall back toward its norm, which reads as a drag on the price relative to fair value.';
     return t;
   }
 
@@ -271,7 +275,7 @@
 
   MCX.signalsModel = { HOT, COLD, W, streak, cushion, changes, momLede, overlayText, forward, contributions, ensLede, ecmText, pill,
                        MOM_RULES_FIXED, afterRules, inStudy, tradeBacktest, momCaveat,
-                       COMPOSITE, REGIME, OVERLAY, ECM, optLede, legsText, trackRows, BOOK };
+                       COMPOSITE, REGIME, OVERLAY, ECM, ACTIVITY, optLede, legsText, trackRows, BOOK };
   if (window.MCX_TEST) return;
 
   // ════════════════════════════════════════════════════════════════════════
@@ -325,8 +329,8 @@
   function evidenceHtml(ev, map, h, note = SAME_HISTORY) {
     if (!ev || !ev.all) return '<p class="note">Not enough history yet.</p>';
     const row = (lab, s, cls) => `<tr${cls ? ` class="${cls}"` : ''}><td>${lab}</td><td>${num(s.n)}</td><td>${pctCell(s.avg)}</td><td>${num(s.up, 0)}%</td></tr>`;
-    return `<div class="table-scroll"><table class="v2-table"><thead><tr><th scope="col">Signal that day</th><th scope="col">Days</th>`
-      + `<th scope="col">Average change over ${h} days</th><th scope="col">Share of days up</th></tr></thead><tbody>`
+    return `<div class="table-scroll"><table class="v2-table sg-ev"><thead><tr><th scope="col">Signal that day</th><th scope="col">Days</th>`
+      + `<th scope="col">Avg. change, ${h} days</th><th scope="col">Days up</th></tr></thead><tbody>`
       + ev.rows.map(r => row(pill(map, r.key), r)).join('')
       + `${row('All days', ev.all, 'total')}</tbody></table></div>`
       + `<p class="note">Signal days ${fmt.span(ev.first, ev.last)}. Each change runs from the next day’s close, the first chance to act, since a day’s signal needs MCX’s revenue from its evening session. It covers ${h} trading days, so the windows overlap and the counts overstate how much independent evidence there is. `
@@ -546,20 +550,19 @@
     const e = s.ensemble || {}, pos = s.position || {}, ecm = s.ecm || {}, mf = s.multi_factor || {};
     const sc = e.score;
     $('enStats').innerHTML = stat('Ensemble score', val(sc === null || sc === undefined ? '—' : signed(sc, 2)) + pillRow(pill(COMPOSITE, e.signal)),
-        'Buy above +0.5, strong buy above +1.5; sell below −0.5, strong sell below −1.5', true)
+        'Neutral from −0.5 to +0.5; strong beyond ±1.5', true)
       + stat('Position the model implies', val(pos.score === null || pos.score === undefined ? '—' : `${num(Math.abs(pos.score) * 100, 0)}%<small>${pos.score >= 0 ? 'long' : 'short'}</small>`),
         `of a full position: the score ÷ 2, capped at 100%${pos.velocity_1d !== null && pos.velocity_1d !== undefined ? `; ${signed(pos.velocity_1d * 100, 1)} points on the day` : ''}`)
       + stat('Price gap to fair value', val(ecm.spread_pct === null || ecm.spread_pct === undefined ? '—' : `${signed(ecm.spread_pct)}%`),
         last.ecm_band_mean !== undefined && last.ecm_band_mean !== null ? `60-day average ${signed(last.ecm_band_mean)}%; z ${signed(ecm.z_score, 2)}` : '')
       + stat('Exchange activity', val(mf.composite_z === null || mf.composite_z === undefined ? '—' : signed(mf.composite_z, 2)),
-        'standard deviations from the 60-day norm, revenue and turnover blended 3 : 4');
+        'z-score: revenue and turnover against their 60-day norm, blended 3 : 4');
     renderBuild(s);
     renderEnHist();
     $('enEcmPill').innerHTML = pill(ECM, ecm.signal);
     $('enEcm').innerHTML = `<p class="sg-para">${esc(ecmText(s, last.ecm_band_mean))}</p>`
-      + (ecm.half_life_days ? `<p class="note">The job also reports a reversion time of ${num(ecm.half_life_days, 1)} days. That is a rule of thumb, 60 ÷ (1 + |z|), not an estimate from the data.</p>` : '')
       + '<p class="note">Fair value here is the data-driven base on the Fair value page. The gap’s z-score uses the last 60 trading days (at least 30).</p>';
-    $('enMfPill').innerHTML = pill(COMPOSITE, mf.signal);
+    $('enMfPill').innerHTML = pill(ACTIVITY, mf.signal);
     $('enMf').innerHTML = factorsHtml(mf);
     $('enFoot').textContent = `Computed after each close by the model job, after the fair-value job; data through ${fmt.day(s.date)}.`;
     EN.width = $('ensemble').clientWidth;
@@ -570,7 +573,7 @@
     const box = $('enBuild'), c = contributions(s);
     if (!c) { box.innerHTML = '<p class="note">Not enough data for today’s score.</p>'; $('enWeights').innerHTML = ''; return; }
     const w = Math.round(box.clientWidth) || 700, compact = w < 520;
-    const lw = compact ? 96 : 176, rw = compact ? 44 : 64, top = 26, rowH = compact ? 30 : 34;
+    const lw = compact ? 104 : 176, rw = compact ? 44 : 64, top = 26, rowH = 42;
     const h = top + rowH * 4 + 24;
     const lim = Math.max(3, Math.ceil(Math.max(Math.abs(c.total), ...c.parts.map(p => Math.abs(p.value))) + 0.5));
     const X = v => lw + (w - lw - rw) * (v + lim) / (2 * lim);
@@ -587,7 +590,9 @@
       const y = top + rowH * k + rowH / 2, a = X(run), b = X(run + p.value);
       sv.push(`<rect x="${Math.min(a, b).toFixed(1)}" y="${(y - 7).toFixed(1)}" width="${Math.max(Math.abs(b - a), 1.5).toFixed(1)}" height="14" rx="2" class="c-bar"/>`);
       if (k) sv.push(`<line x1="${a.toFixed(1)}" x2="${a.toFixed(1)}" y1="${(y - rowH + 7).toFixed(1)}" y2="${(y - 7).toFixed(1)}" class="c-cross"/>`);
-      sv.push(txt(0, y + 4, 'c-label2', esc(compact ? p.label.replace('Price gap to fair value', 'Price gap') : `${p.label} (${num(p.weight * 100, 0)}%)`)));
+      // Name, then reading × weight underneath: the arithmetic behind the bar
+      sv.push(txt(0, y - 3, 'c-label2', esc(compact ? p.label.replace('Price gap to fair value', 'Price gap') : p.label)));
+      sv.push(txt(0, y + 13, 'c-label3', `${signed(p.reading, 2)} × ${num(p.weight * 100, 0)}%`));
       sv.push(txt(w, y + 4, 'c-label', signed(p.value, 2), 'end'));
       run += p.value;
     });
@@ -597,14 +602,9 @@
     [-lim, -1.5, -0.5, 0, 0.5, 1.5, lim].forEach(v => { if (!compact || Number.isInteger(v)) sv.push(txt(X(v), h - 6, 'c-tick', v === 0 ? '0' : signed(v, Number.isInteger(v) ? 0 : 1), 'middle')); });
     sv.push('</svg>');
     box.innerHTML = sv.join('');
-    const mf = s.multi_factor || {};
-    $('enWeights').innerHTML = `<div class="table-scroll"><table class="v2-table sg-weights"><caption>How the score is built (lib/cron_models.py)</caption>`
-      + '<thead><tr><th scope="col">Part</th><th scope="col">Reading today</th><th scope="col">Weight</th><th scope="col">Contribution</th></tr></thead><tbody>'
-      + `<tr><td>Revenue z-score<small>daily F&amp;O revenue against its last 60 days</small></td><td>${signed(mf.revenue_z, 2)}</td><td>30%<small>70% × 3/7</small></td><td>${signed(c.parts[0].value, 2)}</td></tr>`
-      + `<tr><td>Turnover z-score<small>futures notional + option premium</small></td><td>${signed(mf.turnover_z, 2)}</td><td>40%<small>70% × 4/7</small></td><td>${signed(c.parts[1].value, 2)}</td></tr>`
-      + `<tr><td>Price gap z-score, sign flipped<small>a gap below its norm counts in favour</small></td><td>${signed(-s.ecm.z_score, 2)}</td><td>30%</td><td>${signed(c.parts[2].value, 2)}</td></tr>`
-      + `<tr class="total"><td>Ensemble score</td><td></td><td>100%</td><td>${signed(c.total, 2)}</td></tr></tbody></table></div>`
-      + (Math.abs(c.total - s.ensemble.score) > 0.01 ? `<p class="note">The job stores ${signed(s.ensemble.score, 2)}; the parts above are rounded.</p>` : '');
+    $('enWeights').innerHTML = '<p class="note">Each reading is a z-score: today against its last 60 trading days. '
+      + 'Revenue is daily F&amp;O revenue; turnover is futures notional plus option premium. The price gap’s sign is flipped, so a gap below its norm counts in favour.'
+      + (Math.abs(c.total - s.ensemble.score) > 0.01 ? ` The job stores ${signed(s.ensemble.score, 2)}; the parts above are rounded.` : '') + '</p>';
   }
 
   function factorsHtml(mf) {
@@ -613,15 +613,14 @@
       const c = Math.max(-3, Math.min(3, z)), wd = Math.abs(c) / 3 * 50;
       return `<span class="sg-zbar" aria-hidden="true"><i style="left:${(c >= 0 ? 50 : 50 - wd).toFixed(1)}%;width:${wd.toFixed(1)}%"></i></span>`;
     };
-    const row = (lab, sub, z, ref) => `<div class="sg-factor${ref ? ' sg-factor--ref' : ''}"><span class="sg-fname">${lab}<small>${sub}</small></span>${bar(z)}`
-      + `<span class="sg-fval">${z === null || z === undefined ? '—' : signed(z, 2)}</span></div>`;
+    const zs = z => (z === null || z === undefined ? '—' : signed(z, 2));
+    const row = (lab, sub, z, cls) => `<div class="sg-factor${cls ? ' ' + cls : ''}"><span class="sg-fname">${lab}${sub ? `<small>${sub}</small>` : ''}</span>${bar(z)}`
+      + `<span class="sg-fval">${zs(z)}</span></div>`;
     return `<div class="sg-factors"><div class="sg-factor sg-factor--head" aria-hidden="true"><span></span><span class="sg-zscale"><span>−3</span><span>0</span><span>+3</span></span><span></span></div>`
-      + row('Revenue', 'weight 3/7 of this model', mf.revenue_z)
-      + row('Turnover', 'weight 4/7 of this model', mf.turnover_z)
-      + `<div class="sg-factor sg-factor--total"><span class="sg-fname">Composite</span>${bar(mf.composite_z)}<span class="sg-fval">${mf.composite_z === null || mf.composite_z === undefined ? '—' : signed(mf.composite_z, 2)}</span></div>`
-      + row('Share volume', 'computed, not in the score', mf.volume_z, true)
-      + row('Intraday calm', 'inverse of the high–low range; computed, not in the score', mf.volatility_z, true)
-      + '</div><p class="note">Each factor is today’s value in standard deviations from its last 60 trading days. Volume and intraday calm were dropped from the score after a factor review found they added nothing; they stay here for reference.</p>';
+      + row('Revenue', 'weight 3/7', mf.revenue_z)
+      + row('Turnover', 'weight 4/7', mf.turnover_z)
+      + row('Composite', '', mf.composite_z, 'sg-factor--total')
+      + `</div><p class="note">Each factor is today’s value in standard deviations from its last 60 trading days. Share volume (${zs(mf.volume_z)}) and intraday calm (${zs(mf.volatility_z)}) are computed too, but were dropped from the score after a factor review found they added nothing.</p>`;
   }
 
   // Score (upper panel) and price gap (lower panel) on one time axis

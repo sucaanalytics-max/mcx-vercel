@@ -105,6 +105,9 @@ def test_oi_order():
     check("OI backfill before commodity_signals",
           names.index("backfill_commodity_oi.py") < names.index("commodity_signals"), str(names))
     check("valuation recomputed before models", names.index("valuation") < names.index("models"), str(names))
+    modes = {c[1][0]: c[1][1] for c in calls if c[0] == "run_cron.py"}
+    check("models recomputed in full, so old rows follow fair-value history changes",
+          modes.get("models") == "backfill" and modes.get("valuation") == "recent", str(modes))
 
     cmd = dv.commodity_oi_command(uv="/opt/homebrew/bin/uv")
     check("uv: runs from the project lock (mcx_uv.sh)",
