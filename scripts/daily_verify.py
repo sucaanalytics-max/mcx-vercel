@@ -596,9 +596,14 @@ def main():
     # mid-Oct 2026; recomputing the last 30 days here puts them back on the
     # current constants before models reads them. Until that writer is found
     # and stopped, rows written after 01:57 and before 07:00 are on its basis.
+    # models runs in full ("backfill"): its rows hold each day's fair value and
+    # 60-day z-scores, so a recent-only run leaves every older row on whatever
+    # fair values it last saw. After the Nov 2026 valuation backfill, 1,127 rows
+    # kept the old basis and the Model ensemble page's 60-day gap average
+    # disagreed with its own z-score. A full run is ~1,200 idempotent upserts.
     print("\nDerived signal refresh (valuation / models / momentum / commodity_signals)...")
     for _job in ("valuation", "models", "momentum", "commodity_signals"):
-        if _run_script("run_cron.py", [_job, "recent"], timeout=180):
+        if _run_script("run_cron.py", [_job, "backfill" if _job == "models" else "recent"], timeout=180):
             print(f"  {_job} OK")
         else:
             print(f"  {_job} FAILED (non-fatal; freshness scanner will flag if stale)")

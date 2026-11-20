@@ -131,7 +131,12 @@ check('price gap in the lead', M.ensLede(Object.assign({}, es, { ecm: Object.ass
   'The model ensemble reads buy, led by the price’s gap to fair value sitting well below its 60-day norm.');
 check('ECM paragraph', M.ecmText(es, 16.32),
   'The price, ₹3,263.5, is 11.0% above the data-driven fair value of ₹2,941. Over the last 60 days the gap has averaged +16.3%, so today it is 0.73 standard deviations below its norm. '
-  + 'The model expects the gap to widen back toward its norm, which reads as room for the price to rise relative to fair value.');
+  + 'The model expects the gap to rise back toward its norm, which reads as room for the price to gain on fair value.');
+check('ECM paragraph, gap above its norm', / expects the gap to fall back toward its norm, which reads as a drag /.test(M.ecmText(Object.assign({}, es, { ecm: Object.assign({}, es.ecm, { z_score: 1.2 }) }), 16.32)), true);
+check('activity pill describes the multi-factor reading, not a second buy/sell call',
+  ['STRONG_BUY', 'BUY', 'NEUTRAL', 'SELL', 'STRONG_SELL'].map(k => M.ACTIVITY[k][2]),
+  ['Activity well above its norm', 'Activity above its norm', 'Activity near its norm', 'Activity below its norm', 'Activity well below its norm']);
+check('activity pill keeps the composite states', ['STRONG_BUY', 'SELL'].map(k => M.ACTIVITY[k][0]), [M.COMPOSITE.STRONG_BUY[0], M.COMPOSITE.SELL[0]]);
 
 // ── Options feed (fixture: the paper trader's feed preview on 28 Oct 2026) ──
 const feed = {
