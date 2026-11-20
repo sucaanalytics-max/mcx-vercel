@@ -429,7 +429,9 @@ BAND_STOCKS = [
     # name, NSE ticker, where the daily revenue comes from
     ("MCX", "MCX.NS", "mcx_daily_revenue (this project)"),
     ("BSE", "BSE.NS", "codex_bse_daily (NSE-BSE project)"),
+    ("Angel One", "ANGELONE.NS", "sb_daily_revenue, latest run (NSE-BSE project; a model, not reported revenue)"),
 ]
+ANGEL_SEGMENTS = ("fo", "cash", "comm", "mtf_net")     # research/strategy/data.py, Addendum A
 
 
 def _mcx_band_inputs():
@@ -462,17 +464,49 @@ def _bse_band_inputs():
     return rev_rows, price_rows, None
 
 
+def _angel_band_inputs():
+    """Angel One's modelled daily revenue (F&O + cash + commodity + net MTF) from the latest
+    successful run, and its share price, both from the NSE-BSE project. Days missing a segment
+    are dropped, as in the study."""
+    from lib.supabase import nsebse_read_all, NSEBSE_SUPABASE_KEY
+    if not NSEBSE_SUPABASE_KEY:
+        return None, None, "Angel One revenue is not connected yet: needs a read key for the NSE-BSE project (NSEBSE_SUPABASE_KEY)"
+    runs = nsebse_read_all("sb_runs", "?select=run_id&broker_id=eq.ANGELONE&status=eq.success&order=finished_at.desc",
+                           page_size=1, max_rows=1)
+    if not runs:
+        return None, None, "No Angel One revenue run found"
+    from concurrent.futures import ThreadPoolExecutor
+    run = runs[0]["run_id"]
+    with ThreadPoolExecutor(max_workers=len(ANGEL_SEGMENTS)) as pool:   # one page per segment, fetched together
+        parts = pool.map(lambda seg: nsebse_read_all(
+            "sb_daily_revenue", f"?select=trade_date,segment,revenue_cr&run_id=eq.{run}&segment=eq.{seg}"
+                                "&order=trade_date.asc"), ANGEL_SEGMENTS)
+        rows = [r for part in parts for r in part]
+    by_day = {}
+    for r in rows:
+        v = _f(r.get("revenue_cr"))
+        if v is not None:
+            by_day.setdefault(r["trade_date"], {})[r["segment"]] = v
+    rev_rows = [(d, sum(seg.values())) for d, seg in sorted(by_day.items())
+                if len(seg) == len(ANGEL_SEGMENTS) and sum(seg.values()) > 0]
+    start = rev_rows[0][0] if rev_rows else "2024-01-01"
+    px = nsebse_read_all("sb_share_prices", f"?select=trade_date,close&ticker=eq.ANGELONE.NS&trade_date=gte.{start}"
+                                            "&order=trade_date.asc")
+    price_rows = [(r["trade_date"], float(r["close"])) for r in px if _f(r.get("close"))]
+    return rev_rows, price_rows, None
+
+
 def generate_bands_response(range_key="1Y"):
     from lib import strategy_bands as sb
+    from concurrent.futures import ThreadPoolExecutor
     days = RANGE_DAYS.get(range_key, 252)
-    stocks = []
-    for name, ticker, source in BAND_STOCKS:
+    loaders = {"MCX": lambda: (*_mcx_band_inputs(), None), "BSE": _bse_band_inputs, "Angel One": _angel_band_inputs}
+
+    def one(spec):
+        name, ticker, source = spec
         entry = {"name": name, "ticker": ticker, "source": source}
         try:
-            if name == "MCX":
-                rev_rows, price_rows, why = (*_mcx_band_inputs(), None)
-            else:
-                rev_rows, price_rows, why = _bse_band_inputs()
+            rev_rows, price_rows, why = loaders[name]()
             if why:
                 entry.update(available=False, reason=why)
             else:
@@ -486,7 +520,10 @@ def generate_bands_response(range_key="1Y"):
                                  history=rows[-days:] if days else rows)
         except Exception as e:
             entry.update(available=False, reason=f"Could not load: {str(e)[:120]}")
-        stocks.append(entry)
+        return entry
+
+    with ThreadPoolExecutor(max_workers=len(BAND_STOCKS)) as pool:      # the three reads are independent
+        stocks = list(pool.map(one, BAND_STOCKS))
     return {"success": any(s.get("available") for s in stocks), "as_of": now_ist().strftime("%Y-%m-%d %H:%M IST"),
             "window": sb.WINDOW, "fast": sb.FAST, "min_obs": sb.MIN_OBS, "verdict": sb.VERDICT, "stocks": stocks,
             "error": None if any(s.get("available") for s in stocks) else "No stock could be computed"}

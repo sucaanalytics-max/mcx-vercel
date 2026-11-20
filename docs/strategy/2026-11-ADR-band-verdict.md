@@ -1,24 +1,25 @@
-# ADR band strategy: verdict (MCX, BSE)
+# ADR band strategy: verdict (MCX, BSE, Angel One)
 
-20 Nov 2026 · first pass, pre-registered (`2026-11-preregistration.md`) ·
+20 Nov 2026 · pre-registered (`2026-11-preregistration.md`; Angel One in Addendum A) ·
 reproduce with `scripts/mcx_uv.sh python -I research/strategy/run_verdict.py`
 
 ## The view
 
 | CIO rule | Verdict | The numbers (out of sample, after costs) |
 |---|---|---|
-| **Price vs 45-day ADR line is fair value** | **Descriptive yes, anchor no** | R² is 0.87 (MCX) and 0.88 (BSE), but MCX price does **not** revert to the line: it fails the cointegration test (ADF −2.1 vs −3.3 needed) and a gap takes about 96 trading days to halve. BSE is borderline (10% level, half-life 28 days). |
-| **Trade at ±2 SD** | **Not proven** | About 1 trade per stock per year. Only 6 trades in the combined test period: +15.5% average, t 2.4. After correcting for the 39 variants tried, the chance it's real is only 0.10 (MCX) and 0.17 (BSE). MCX's train period lost money (Sharpe −0.7). |
-| **Turning up:** 10d > 45d and price ≥1 SD below | **Most promising, not yet proven** | 40 episodes across MCX and BSE: **+5.0% above the average 20-day return**, hit rate 74% (BSE) to 92% (MCX). Long-only test Sharpe is 1.5 (MCX) and 2.4 (BSE); the chance it's real is 0.47 and 0.80. |
-| **Turning down / shorts at the top of the band** | **Fails** | After the MCX signals the stock still rose: shorts won only 32–40% of the time at 20 days. The top of the band means a below-average return, not a fall. |
-| **"While 10d > 45d the stock doesn't fall"** | **False as stated** | With the 10-day above the 45-day, MCX still fell over the next 20 days 30% of the time, and BSE 38%. MCX did earn more in those windows (+7.0% vs +3.4%); BSE didn't (+5.0% vs +6.3%). |
+| **Price vs 45-day ADR line is fair value** | **Descriptive for exchanges, weak for Angel One** | R² is 0.87 (MCX) and 0.88 (BSE), but only 0.24 for Angel One, whose modelled revenue explains little of its price. MCX price does **not** revert to the line: it fails the cointegration test (ADF −2.1 vs −3.3 needed) and a gap takes about 96 trading days to halve. BSE is borderline (10% level, half-life 28 days). |
+| **Trade at ±2 SD** | **Not proven** | About 1 trade per stock per year: only 8 trades across the three test periods, averaging +13.3% (t 2.4). After correcting for the 39 variants tried, the chance it's real is only 0.10 (MCX), 0.17 (BSE) and 0.22 (Angel One). |
+| **Turning up:** 10d > 45d and price ≥1 SD below | **Most promising, not yet proven** | **54 episodes** across the three stocks: **+5.7% above the stock's average 20-day return (t 2.8)** and +12.9% over 60 days (t 3.5). Long-only test Sharpe is 1.5 (MCX), 2.4 (BSE) and 0.8 (Angel One); the chance it's real is 0.47, 0.80 and 0.32. |
+| **Turning down / top of the band** | **Fails as a short; works as an exit flag** | In this rising market, shorts lost money on MCX. Relative to each stock's average, the signals did work: returns after the upper band were 3.8% below average (40 episodes, t 2.5), and after turning down 3.1% below (75 episodes, t 2.1). On Angel One, which fell in its train period, a turn down was right 67% of the time. |
+| **"While 10d > 45d the stock doesn't fall"** | **False as stated** | With the 10-day above the 45-day, the stock still fell over the next 20 days 30% (MCX), 38% (BSE) and 46% (Angel One) of the time. Returns were higher in those windows for MCX (+7.0% vs +3.4%) and Angel One (+2.0% vs +1.3%), but not for BSE (+5.0% vs +6.3%). |
 
 **Bottom line**
 
-- The ADR line is a good *picture* of fair value, but not a reliable *trading band*.
+- The ADR line is a good *picture* of fair value for the exchanges, but not a
+  reliable *trading band*. For a broker like Angel One it's a poor picture.
 - Use the band's **lower half as a buy-watch flag**. Make **"turning up" the one
   live signal**, long only, with small size until it has more history.
-- **Don't short** off the top of the band.
+- Use the **upper band and "turning down" to trim or exit longs**, not to short.
 - The edge that does pass is **revenue momentum, long only**:
   - **MCX**: long only while the 10-day ADR is above the 45-day. Test Sharpe 2.3,
     max drawdown −20%, in the market 57% of the time; the chance it's real is 0.85.
@@ -33,6 +34,7 @@ reproduce with `scripts/mcx_uv.sh python -I research/strategy/run_verdict.py`
 |---|---|---|---|---|---|---|
 | MCX | ₹3,645 | ₹3,329 | +0.91 (+1.01) | ₹2,634 / ₹4,024 | 1.03 | In band, revenue trend up |
 | BSE | ₹3,765 | ₹4,064 | −0.90 (−0.32) | ₹3,401 / ₹4,727 | 0.95 | In band, revenue trend down; turning up would need 10d > 45d with price below ₹3,733 |
+| Angel One (18 Nov) | ₹338 | ₹303 | +1.09 (+1.39) | ₹238 / ₹368 | 0.98 | **Turning down**: an exit flag for longs, not a short |
 
 **What the line implies for MCX** (expanding fit: price = −391 + 287 × ADR45):
 
@@ -84,7 +86,7 @@ First day of each episode only. "Excess" is the return above the average 20-day
 return over the same period. For shorts, results are signed so that + means the
 rule was right.
 
-| Event | MCX n | MCX 20d (excess, t, hit) | BSE n | BSE 20d (excess, t, hit) | Pooled n, excess |
+| Event | MCX n | MCX 20d (excess, t, hit) | BSE n | BSE 20d (excess, t, hit) | MCX + BSE n, excess |
 |---|---|---|---|---|---|
 | z ≤ −2, long | 5 | +15.8% (+10.4, 2.4, 100%) | 12 | +4.3% (−1.2, −0.3, 58%) | 17, +2.2% |
 | z ≥ +2, short | 20 | −0.9% (+4.4, 2.0, 40%) | 15 | −2.5% (+3.0, 1.1, 40%) | 35, +3.8% |
@@ -139,24 +141,89 @@ day-of-week adjustment before it means anything for BSE.
 - The trend rule is the only family that is positive in every setting on both
   stocks.
 
+### E2. Angel One (Addendum A) and the three-stock pool
+
+**Data.** Angel One's daily revenue is the house model in the NSE-BSE project
+(`sb_daily_revenue`, latest run): F&O, cash, commodity and net MTF interest.
+
+- **Coverage:** 1 Oct 2024 → 18 Nov 2026; about 89% of FY26 operating revenue.
+- **Windows:** evaluated from Jul 2025; train through Dec 2025, test 2026.
+- **Look-ahead:** each quarter is scaled by take rates fitted to that quarter's
+  reported results. The same rules on orders only (no fee scaling) are shown
+  beside it.
+
+| Angel One | Revenue | Orders only |
+|---|---|---|
+| R², price on ADR45 | 0.24 | 0.09 |
+| Cointegration (ADF t, half-life) | −1.92, 31 days, not cointegrated | −1.51, 45 days, not cointegrated |
+| Turning up, 20d excess (n, t, hit) | +7.9% (14, 1.9, 64%) | +11.6% (12, 2.2, 67%) |
+| Turning up, 60d excess | +14.7% (t 2.6) | +24.7% (t 4.8) |
+| Turning down, 20d excess (signed) | +5.3% (15, t 3.1, right 67%) | +3.5% (23, t 2.6) |
+| z ≤ −2, 20d excess | +13.7% (6, t 2.5) | 1 episode |
+| R1 band L/S test Sharpe (chance real) | 0.50 (0.22) | 0.53 (0.19) |
+| R2 turning long-only test Sharpe | 0.82 | 0.11 |
+| R4 trend long-only test Sharpe | 1.09 | 1.53 |
+| Buy and hold test Sharpe | 1.33 | 1.33 |
+
+Like BSE's, Angel One's revenue z-score rule is in the market nearly all the time
+(weekly expiry spikes in F&O), so it adds nothing over holding the stock.
+
+**Pooled events, MCX + BSE + Angel One (revenue).** Each event's return is
+signed, minus that stock's average return over the same horizon. "Beat avg" is
+the share of events that did better than the stock's average.
+
+| Event | n | 20d excess (t, beat avg) | 60d excess (t, beat avg) |
+|---|---|---|---|
+| Turning up, long | 54 | **+5.7%** (2.8, 63%) | **+12.9%** (3.5, 61%) |
+| z ≤ −2, long | 23 | +5.2% (1.7, 61%) | +24.6% (4.5, 91%) |
+| z ≥ +2, short (below-average return) | 40 | +3.8% (2.5, 70%) | +8.9% (2.4, 72%) |
+| Turning down, short (below-average return) | 75 | +3.1% (2.1, 63%) | +9.7% (3.9, 72%) |
+| 10/45 cross up, long | 113 | +1.7% (1.1, 50%) | +4.5% (1.5, 47%) |
+| 10/45 cross down, short | 113 | −0.3% (−0.2, 52%) | −2.1% (−0.8, 55%) |
+
+**Pooled test-period trades** (three stocks):
+
+| Rule | Trades | Average | t |
+|---|---|---|---|
+| R1 | 8 | +13.3% | 2.4 |
+| R2 | 16 | +12.7% | 2.1 |
+| R4 | 126 | +2.1% | 2.4 |
+
+The t-stats overstate certainty:
+- episodes in the same stock a few days apart are not independent;
+- 60-day windows overlap heavily.
+
+Read them as direction and rough size.
+
+What Angel One adds:
+- **Turning up** holds on a third stock, and on its activity-only version.
+- **The band's upper side** works as a below-average-return flag on all three
+  stocks.
+- **The price-on-ADR line** is a poor fit for a broker, where revenue is a model
+  and the share price also reflects client growth and MTF.
+
 ### F. Limits
 
 - **One market regime.** MCX rose about 12× from 2023 and BSE about 6× from Jan 2024.
   Every long rule looks good and every short looks bad. "Excess over the average"
-  is the fairer read.
+  is the fairer read. Angel One fell about 22% in its train period (Jul–Dec 2025), which is why its
+  turn-down signals were right as shorts.
+- **Angel One's revenue is a model** with quarterly look-ahead (see E2), and its
+  sample is about 340 evaluation days.
 - **Old MCX fees.** MCX revenue before Oct 2024 is restated at today's flat fee
   rate. The Nov 2024 onwards sample is shown separately.
 - **BSE short trades** before BSE's stock futures listing are hypothetical; check
   the inclusion date before trusting the BSE short legs.
 - **Few events.** The band rules give about 1 trade per stock per year. Adding
-  Angel One (week 2) and the other ~17 stocks is what will make these tests
-  conclusive.
+  the other ~17 stocks is what will make these tests conclusive.
 
 ### G. Next
 
-1. **Tracker page** (`/signals/bands`): state per stock, with the lower-band and
-   turning-up flags; the trend state as context.
-2. **Angel One** from `sb_daily_revenue`, then the 4-check blend: test each check
-   on its own, then compare 45/45/10 with weights fitted on past data.
-3. **BSE revenue** adjusted for day of week, so the z-score rule means something.
-4. **Options overlay** for downside views, instead of shorting futures off the band.
+1. **Done:** the tracker page (`/signals/bands`) shows MCX, BSE and Angel One.
+2. **The 4-check blend:** test each check on its own, then compare 45/45/10 with
+   weights fitted on past data.
+3. **Revenue adjusted for day of week** (BSE, Angel One), so the z-score rule
+   means something.
+4. **Paper-trade "turning up"** from the tracker, to build forward-looking
+   evidence.
+5. **Options overlay** for downside views, instead of shorting futures off the band.

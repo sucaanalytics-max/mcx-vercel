@@ -13,7 +13,7 @@
       "maxDuration": 15
     },
     "api/models.py": {
-      "maxDuration": 15
+      "maxDuration": 30
     },
     "api/analytics.py": {
       "maxDuration": 30

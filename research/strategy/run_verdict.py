@@ -18,7 +18,11 @@ STOCKS = [
     ("MCX", "MCX.NS", "2022-07-01", "2025-03-31", None),
     ("MCX_post", "MCX.NS", "2025-05-01", "2025-12-31", "2024-11-01"),   # post fee-change sample
     ("BSE", "BSE.NS", "2024-01-01", "2024-12-31", None),
+    # Addendum A: Angel One, modelled revenue (pooled) and orders (reported beside it)
+    ("ANGEL", "ANGELONE.NS", "2025-07-01", "2025-12-31", None),
+    ("ANGEL_ORD", "ANGELONE.NS", "2025-07-01", "2025-12-31", None),
 ]
+POOLED = ("MCX", "BSE", "ANGEL")
 FITS = {"exp": dict(window=None, log=False), "roll250": dict(window=250, log=False),
         "log": dict(window=None, log=True)}
 
@@ -40,7 +44,7 @@ def build(panel: pd.DataFrame, w: int, fit: str, min_obs: int = 120) -> pd.DataF
 
 
 def run_stock(name, ticker, start, train_end, fit_start):
-    panel = data.panel(name.split("_")[0])
+    panel = data.panel("MCX" if name == "MCX_post" else name)
     if fit_start:
         panel = panel[panel.index >= fit_start]
     px = data.prices(ticker)
@@ -57,7 +61,9 @@ def run_stock(name, ticker, start, train_end, fit_start):
         starts = bands.episode_starts(mask)
         dates = starts[starts].index
         f = bt.forward_returns(dates, px, HORIZONS)
-        return {f"h{h}": bt.event_stats(f, fwd_all, h, sign) for h in HORIZONS} | {"dates": [str(d.date()) for d in dates]}
+        ex = {f"ex{h}": [round(float(v), 5) for v in (f[f"r{h}"].dropna() * sign - fwd_all[f"r{h}"].dropna().mean() * sign)]
+              for h in (20, 60)} if len(f) else {"ex20": [], "ex60": []}
+        return {f"h{h}": bt.event_stats(f, fwd_all, h, sign) for h in HORIZONS} | {"dates": [str(d.date()) for d in dates]} | ex
     cross_up = (ev.ratio > 1) & (ev.ratio.shift(1) <= 1)
     cross_dn = (ev.ratio < 1) & (ev.ratio.shift(1) >= 1)
     res["events"] = {
@@ -131,16 +137,16 @@ def run_stock(name, ticker, start, train_end, fit_start):
 
 
 def pooled(results):
-    """Pool R1/R2 event excess returns across MCX and BSE (20d), per direction."""
+    """Pool event excess returns (signed, over each stock's average) across POOLED, with a t-stat."""
     out = {}
     for ev in ("z<=-2 (long)", "z>=+2 (short)", "turning up (long)", "turning down (short)",
                "10/45 cross up (long)", "10/45 cross down (short)"):
-        ns, ex, hits = 0, [], 0
-        for s in ("MCX", "BSE"):
-            e = results[s]["events"][ev]["h20"]
-            if e.get("n", 0) >= 1 and e.get("excess") is not None:
-                ns += e["n"]; ex.append((e["excess"], e["n"]))
-        out[ev] = {"n": ns, "weighted_excess_20d": round(sum(a * n for a, n in ex) / ns, 2) if ns else None}
+        out[ev] = {}
+        for h in (20, 60):
+            xs = pd.Series([v for s in POOLED for v in results[s]["events"][ev][f"ex{h}"]], dtype=float)
+            t = xs.mean() / (xs.std(ddof=1) / np.sqrt(len(xs))) if len(xs) > 1 and xs.std(ddof=1) > 0 else float("nan")
+            out[ev][f"h{h}"] = {"n": len(xs), "excess_pct": round(xs.mean() * 100, 2), "t": round(t, 2),
+                                "beat_avg_pct": round((xs > 0).mean() * 100)}
     return out
 
 
@@ -150,7 +156,7 @@ def pooled_trades():
     for rule in ("R1", "R2", "R4"):
         rets = []
         for name, _, _, train_end, _ in STOCKS:
-            if name == "MCX_post":
+            if name not in POOLED:
                 continue
             tr = pd.read_csv(OUT / f"trades_{name}_{rule}.csv", parse_dates=["entry"])
             rets += list(tr[tr.entry > train_end].ret)
