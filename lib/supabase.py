@@ -12,7 +12,8 @@ import urllib.error
 from pathlib import Path
 
 
-_PROJECT_ENV_KEYS = ("SUPABASE_SERVICE_KEY", "SUPABASE_SECRET_KEY", "SUPABASE_PUBLISHABLE_KEY")
+_PROJECT_ENV_KEYS = ("SUPABASE_SERVICE_KEY", "SUPABASE_SECRET_KEY", "SUPABASE_PUBLISHABLE_KEY",
+                     "NSEBSE_SUPABASE_URL", "NSEBSE_SUPABASE_KEY")   # NSE-BSE project, read-only (BSE revenue)
 
 
 def _load_project_env():
