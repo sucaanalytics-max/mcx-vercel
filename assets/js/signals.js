@@ -273,9 +273,41 @@
     return (track || []).filter(t => !t.shadow).map(t => ({ ...t, ref: (backtest || {})[t.book] || null }));
   }
 
+  // ── ADR bands (lib/strategy_bands.py; docs/strategy/2026-11-ADR-band-verdict.md) ──
+  // [pill state, glyph, label]. Turning up is the live signal (long only); the others are context.
+  const BAND = { 'TURNING UP': ['strong-up', '▲', 'Turning up'], 'AT LOWER': ['up', '▲', 'At lower band'],
+                 'IN BAND': ['', '■', 'In band'], 'AT UPPER': ['caution', '!', 'At upper band'],
+                 'TURNING DOWN': ['caution', '▼', 'Turning down'], 'NO DATA': ['none', '', 'No data'] };
+
+  // Headline and deck for the bands page from the stocks the API could compute
+  function bandLede(stocks) {
+    const ok = (stocks || []).filter(s => s.available && s.today);
+    if (!ok.length) return { head: 'No stock could be computed.', deck: '' };
+    const flagged = ok.filter(s => s.today.state === 'TURNING UP' || s.today.state === 'AT LOWER');
+    const z = s => `${s.today.z >= 0 ? '+' : '−'}${num(Math.abs(s.today.z), 1)} SD`;
+    const where = s => `${s.name} ${s.today.z >= 0 ? 'above' : 'below'} its line (${z(s)})`;
+    const head = flagged.length
+      ? `${flagged.map(s => s.name).join(' and ')} ${flagged.length === 1 ? 'is' : 'are'} flagged: ${flagged.map(s => label(BAND, s.today.state).toLowerCase()).join(', ')}.`
+      : `No buy flag today: ${ok.map(where).join('; ')}.`;
+    const parts = ok.map(s => {
+      const t = s.today, trend = t.ratio > 1 ? 'above' : 'below';
+      return `${s.name}: ₹${num(t.close, 0)} against a line of ₹${num(t.line, 0)}; the 10-day revenue average is ${trend} the 45-day (${num(t.ratio, 2)}×).`;
+    });
+    return { head, deck: parts.join(' ') };
+  }
+
+  // What it would take to turn up: price below line − 1 SD, with the 10-day above the 45-day
+  function turnUpText(t) {
+    if (t.state === 'TURNING UP') return 'Turning up now.';
+    const px = t.lo1, needPx = t.close > px, needTrend = !(t.ratio > 1);
+    if (needPx && needTrend) return `Needs the price below ₹${num(px, 0)} and the 10-day revenue average back above the 45-day.`;
+    if (needPx) return `Needs the price below ₹${num(px, 0)} (${num((1 - px / t.close) * 100, 1)}% lower).`;
+    return 'Needs the 10-day revenue average back above the 45-day.';
+  }
+
   MCX.signalsModel = { HOT, COLD, W, streak, cushion, changes, momLede, overlayText, forward, contributions, ensLede, ecmText, pill,
                        MOM_RULES_FIXED, afterRules, inStudy, tradeBacktest, momCaveat,
-                       COMPOSITE, REGIME, OVERLAY, ECM, ACTIVITY, optLede, legsText, trackRows, BOOK };
+                       COMPOSITE, REGIME, OVERLAY, ECM, ACTIVITY, optLede, legsText, trackRows, BOOK, BAND, bandLede, turnUpText };
   if (window.MCX_TEST) return;
 
   // ════════════════════════════════════════════════════════════════════════
@@ -812,5 +844,141 @@
       + '<p class="note">Too few trades to judge yet; the review after six series checks for a clear failure, not for proof.</p>';
   }
 
-  MCX.signals = { momentum: { mount: loadMomentum }, ensemble: { mount: loadModels }, options: { mount: loadOptions } };
+  // ════════════════════════════════════════════════════════════════════════
+  //  ADR bands (/api/models?view=bands; lib/strategy_bands.py)
+  // ════════════════════════════════════════════════════════════════════════
+  const BD = { data: null, err: null, width: 0 };
+  const BAND_RANGES = ['Q', '1Y', '2Y', 'Max'];
+  const bdUrl = () => '/api/models?view=bands&range=' + (rangeState.bands || '1Y');
+  const sdTxt = v => `${v >= 0 ? '+' : '−'}${num(Math.abs(v), 2)}`;
+
+  function loadBands() {
+    return fetchRanged(bdUrl()).then(d => {
+      BD.data = d; BD.err = d.success ? null : (d.error || 'No data'); renderBands();
+    }).catch(e => { BD.err = e.message || String(e); renderBands(); });
+  }
+
+  function renderBands() {
+    const d = BD.data;
+    if (BD.err || !d) {
+      $('bdHead').textContent = 'The ADR bands could not be loaded.';
+      MCX.ui.error($('bdTable'), 'Could not load the ADR bands: ' + (BD.err || 'no data'), loadBands);
+      return;
+    }
+    const ok = d.stocks.filter(s => s.available), l = bandLede(d.stocks);
+    const thru = ok.length ? ok.map(s => s.today.date).sort().pop() : null;
+    $('bdKicker').textContent = `ADR bands · under validation${thru ? ` · data through ${fmt.day(thru)}` : ''}`;
+    $('bdHead').textContent = l.head;
+    $('bdDeck').textContent = l.deck;
+    $('bdStats').innerHTML = d.stocks.map((s, k) => {
+      if (!s.available) return stat(esc(s.name), pillRow(pill(BAND, 'NO DATA')), esc(s.reason || 'Not available'));
+      const t = s.today;
+      return stat(esc(s.name), pillRow(pill(BAND, t.state)),
+        `z ${sdTxt(t.z)} (week ${sdTxt(t.z_week)}) · ₹${num(t.close, 0)} vs line ₹${num(t.line, 0)} · 10d/45d ${num(t.ratio, 2)}`, k === 0);
+    }).join('');
+    renderBandTable(d);
+    renderBandCharts(d);
+    renderBandIO(d);
+    renderVerdict(d.verdict);
+    $('bdFoot').textContent = `Line refitted each day on the days before it (at least ${d.min_obs}); ${d.window}-day and ${d.fast}-day revenue averages; computed on request from the stored revenue and share price, ${d.as_of}.`;
+    BD.width = $('bands').clientWidth;
+  }
+
+  function renderBandTable(d) {
+    const ago = f => (!f ? '—' : f.active ? 'now' : `${fmt.day(f.date)}<small>${num(f.sessions_ago)} sessions ago · ${num(f.episodes)} in all</small>`);
+    const rows = d.stocks.map(s => {
+      if (!s.available) return `<tr><td>${esc(s.name)}<small>${esc(s.ticker)}</small></td><td colspan="7"><span class="note">${esc(s.reason || 'Not available')}</span></td></tr>`;
+      const t = s.today;
+      return `<tr><td>${esc(s.name)}<small>${esc(s.ticker)}</small></td><td>${pill(BAND, t.state)}</td>`
+        + `<td>₹${num(t.close, 0)}<small>line ₹${num(t.line, 0)}</small></td><td>${sdTxt(t.z)}<small>week ${sdTxt(t.z_week)}</small></td>`
+        + `<td>₹${num(t.lo2, 0)} – ₹${num(t.hi2, 0)}<small>±1 SD ₹${num(t.lo1, 0)} – ₹${num(t.hi1, 0)}</small></td>`
+        + `<td>${num(t.ratio, 2)}×<small>₹${num(t.adr10, 2)} / ₹${num(t.adr45, 2)} Cr</small></td>`
+        + `<td>${ago(s.flags.turning_up)}</td><td>${ago(s.flags.lower_band)}</td></tr>`;
+    });
+    $('bdTable').innerHTML = tradeTable(rows, ['Stock', 'State', 'Price', 'z (SD)', '±2 SD band', '10d / 45d revenue', 'Last turning up', 'Last at lower band'])
+      + '<p class="note">' + d.stocks.filter(s => s.available).map(s => `${esc(s.name)}: ${esc(turnUpText(s.today))}`).join(' ') + '</p>';
+  }
+
+  function renderBandCharts(d) {
+    const box = $('bdCharts');
+    const ok = d.stocks.filter(s => s.available && (s.history || []).length > 1);
+    if (!ok.length) { box.innerHTML = '<p class="note">Not enough history for a chart.</p>'; return; }
+    box.innerHTML = ok.map(s => `<figure class="td-figure"><figcaption><strong>${esc(s.name)}</strong> · price against the line on its 45-day revenue average, with ±1 and ±2 SD bands; z below</figcaption>`
+      + `<div class="chart-box" id="bdChart${esc(s.name)}"></div></figure>`).join('')
+      + '<div class="legend"><span><i class="sw sw--line"></i>Share price (upper); z (lower); dots are turning-up days</span><span><i class="sw sw--typical"></i>Line, fitted on the days before each day</span>'
+      + '<span><i class="sw sw--band"></i>±1 SD (darker) and ±2 SD</span></div>';
+    ok.forEach(s => bandChart($('bdChart' + s.name), s));
+  }
+
+  function bandChart(box, s) {
+    const rows = s.history;
+    const w = Math.round(box.clientWidth) || 900, compact = w < 520;
+    const long = ['1Y', '2Y', 'Max'].includes(rangeState.bands || '1Y') && rows.length > 200;
+    const pl = compact ? 46 : 58, pr = compact ? 10 : 112, aTop = 10, aH = compact ? 170 : 230, gap = 24, bH = compact ? 80 : 100;
+    const bTop = aTop + aH + gap, h = bTop + bH + 26, iw = w - pl - pr, X = i => pl + iw * i / (rows.length - 1);
+    const [aLo, aHi] = span(rows.flatMap(r => [r.close, r.lo2, r.hi2]), 0.04);
+    const YA = v => aTop + aH * (1 - (v - aLo) / (aHi - aLo));
+    const zLim = Math.max(2.6, Math.ceil(Math.max(...rows.map(r => Math.abs(r.z))) * 2) / 2 + 0.2);
+    const YB = v => bTop + bH * (1 - (v + zLim) / (2 * zLim));
+    const last = rows[rows.length - 1];
+    const sv = [V.open(w, h, `${s.name}: price ₹${num(last.close, 0)} against the revenue line ₹${num(last.line, 0)}, z ${sdTxt(last.z)}, ${fmt.span(rows[0].date, last.date)}`)];
+    V.niceTicks(aHi, compact ? 3 : 4, aLo).forEach(v => sv.push(`<line x1="${pl}" x2="${w - pr}" y1="${YA(v).toFixed(1)}" y2="${YA(v).toFixed(1)}" class="c-grid"/>`,
+      txt(pl - 8, YA(v) + 4, 'c-tick', `₹${num(v, 0)}`, 'end')));
+    sv.push(`<path d="${bandPath(rows, X, YA, r => r.lo2, r => r.hi2)}" class="c-band"/>`,
+            `<path d="${bandPath(rows, X, YA, r => r.lo1, r => r.hi1)}" class="c-band"/>`,
+            `<path d="${path(rows, X, YA, 'line')}" class="c-typical"/>`, `<path d="${path(rows, X, YA, 'close')}" class="c-line"/>`);
+    rows.forEach((r, i) => { if (r.state === 'TURNING UP') sv.push(`<circle cx="${X(i).toFixed(1)}" cy="${YA(r.close).toFixed(1)}" r="2.5" class="c-dot"/>`); });
+    [-2, -1, 1, 2].forEach(v => sv.push(`<line x1="${pl}" x2="${w - pr}" y1="${YB(v).toFixed(1)}" y2="${YB(v).toFixed(1)}" class="${Math.abs(v) === 2 ? 'c-typical' : 'c-grid'}"/>`));
+    sv.push(`<line x1="${pl}" x2="${w - pr}" y1="${YB(0).toFixed(1)}" y2="${YB(0).toFixed(1)}" class="c-axis"/>`);
+    [[-2, '−2'], [0, '0'], [2, '+2']].forEach(([v, t]) => sv.push(txt(pl - 8, YB(v) + 4, 'c-tick', t, 'end')));
+    sv.push(`<path d="${path(rows, X, YB, 'z')}" class="c-line"/>`);
+    if (!compact) {
+      const xl = w - pr + 10;
+      const ia = [{ y: YA(last.close) + 4, s: `₹${num(last.close, 0)}`, cls: 'c-label' }, { y: YA(last.line) + 4, s: `Line ₹${num(last.line, 0)}`, cls: 'c-label2' },
+                  { y: YA(last.hi2) + 4, s: `+2 SD ₹${num(last.hi2, 0)}`, cls: 'c-label3' }, { y: YA(last.lo2) + 4, s: `−2 SD ₹${num(last.lo2, 0)}`, cls: 'c-label3' }];
+      V.spread(ia, 15, aTop, aTop + aH).forEach(it => sv.push(txt(xl, it.y, it.cls, it.s)));
+      sv.push(txt(xl, YB(last.z) + 4, 'c-label', `z ${sdTxt(last.z)}`));
+    }
+    sv.push(txt(pl + 4, aTop + 12, 'c-label3', 'Share price and the revenue line', null, true), txt(pl + 4, bTop + 12, 'c-label3', 'z, SD from the line', null, true));
+    sv.push(dateTicks(rows, X, h - 6, long, compact), '</svg>');
+    box.innerHTML = sv.join('');
+    V.hover(box, { pl, pt: aTop, iw, ih: bTop + bH - aTop, h, pb: h - bTop - bH }, rows.map((_, i) => X(i)), i => {
+      const r = rows[i];
+      return `<strong>${fmt.day(r.date)}</strong> · ${esc(label(BAND, r.state))}<br>₹${num(r.close, 0)} vs line ₹${num(r.line, 0)} · z ${sdTxt(r.z)}`
+        + `<br><span class="c-tip-sub">45-day revenue ₹${num(r.adr45, 2)} Cr · 10d/45d ${r.ratio === null ? '—' : num(r.ratio, 2)}</span>`;
+    });
+  }
+
+  // Input → output: the price the latest line implies at a few 45-day revenue levels
+  function renderBandIO(d) {
+    const ok = d.stocks.filter(s => s.available && s.line_at);
+    $('bdIO').innerHTML = ok.map(s => {
+      const t = s.today, ks = Object.keys(s.line_at);
+      return `<div class="table-scroll"><table class="v2-table"><thead><tr><th scope="col">${esc(s.name)}: 45-day revenue, ₹ Cr</th>`
+        + ks.map(k => `<th scope="col">${num(+k, 1)}${Math.abs(+k - t.adr45) < 0.06 ? ' (today)' : ''}</th>`).join('') + '</tr></thead><tbody>'
+        + `<tr><td>Price on the line</td>${ks.map(k => `<td>₹${num(s.line_at[k], 0)}</td>`).join('')}</tr>`
+        + `<tr><td>Buy-watch (−2 SD)</td>${ks.map(k => `<td>₹${num(s.line_at[k] - 2 * t.sd, 0)}</td>`).join('')}</tr></tbody></table></div>`
+        + `<p class="note">Line: price = ${num(t.a, 0)} + ${num(t.b, 1)} × 45-day revenue (₹ Cr), fitted on ${num(t.n)} days; SD ₹${num(t.sd, 0)}. Line values, not targets.</p>`;
+    }).join('');
+  }
+
+  function renderVerdict(v) {
+    if (!v) { $('bdVerdict').innerHTML = ''; return; }
+    $('bdVerdict').innerHTML = tradeTable(v.rules.map(r => `<tr><td>${esc(r.rule)}</td><td><strong>${esc(r.verdict)}</strong></td><td>${esc(r.detail)}</td></tr>`),
+      ['Rule', 'Verdict', 'Out of sample, after costs'])
+      + `<p class="note">Pre-registered test on MCX (2022–2026) and BSE (2024–2026), ${esc(fmt.day(v.as_of))}. Treat <strong>turning up</strong> as the one live signal, long only and small until it has more history; the lower band is a buy-watch flag. Do not short off the upper band. Full memo: <code>${esc(v.doc)}</code>.</p>`;
+  }
+
+  makeRangeToggle({ key: 'bands', containerId: 'bdRange', ranges: BAND_RANGES, defaultRange: '1Y', labelIds: ['bdRangeLabel'],
+                    onChange: () => loadBands() });
+  if (window.ResizeObserver) {
+    let queued = false;
+    new ResizeObserver(() => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => { queued = false; const el = $('bands'); if (BD.data && el.clientWidth && Math.abs(el.clientWidth - BD.width) > 2) renderBands(); });
+    }).observe($('bands'));
+  }
+
+  MCX.signals = { momentum: { mount: loadMomentum }, ensemble: { mount: loadModels }, options: { mount: loadOptions }, bands: { mount: loadBands } };
 })();
