@@ -273,7 +273,7 @@
     return (track || []).filter(t => !t.shadow).map(t => ({ ...t, ref: (backtest || {})[t.book] || null }));
   }
 
-  // ── ADR bands (lib/strategy_bands.py; docs/strategy/2026-11-ADR-band-verdict.md) ──
+  // ── ADR bands (lib/strategy_bands.py; verdict in the private tusk-strategy-research repo) ──
   // [pill state, glyph, label]. Turning up is the live signal (long only); the others are context.
   const BAND = { 'TURNING UP': ['strong-up', '▲', 'Turning up'], 'AT LOWER': ['up', '▲', 'At lower band'],
                  'IN BAND': ['', '■', 'In band'], 'AT UPPER': ['caution', '!', 'At upper band'],

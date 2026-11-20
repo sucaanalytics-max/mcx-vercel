@@ -1,19 +1,20 @@
 """ADR band tracker: price against the line fitted on the 45-day average daily revenue.
 
-The production copy of research/strategy/bands.py, in pure Python (no numpy/pandas)
+The production copy of the band maths in the private tusk-strategy-research repo
+(strategy/bands.py), in pure Python (no numpy/pandas)
 so /api/models?view=bands can compute it on request. Same maths, same timing:
 
 - ADR45 / ADR10: rolling means of daily revenue (Muhurat sessions excluded upstream).
 - Line: OLS close = a + b * ADR45 fitted on every day BEFORE t (expanding, at least
   MIN_OBS pairs). The fit never sees t's own price or anything later.
 - z = (close - line) / residual SD; bands at +-1 and +-2 SD.
-- State (the CIO's rules, docs/strategy/2026-11-ADR-band-verdict.md):
+- State (the CIO's rules; verdict in tusk-strategy-research docs/2026-11-ADR-band-verdict.md):
   TURNING UP   ADR10 > ADR45 and z <= -1   (the live signal, long only)
   TURNING DOWN ADR10 < ADR45 and z >= +1   (shown; the verdict found it does not work as a short)
   AT LOWER     z <= -2                     (buy-watch)
   AT UPPER     z >= +2                     (below-average returns follow, not falls)
   IN BAND      otherwise
-scripts/test_strategy_bands.py checks this module against the research version.
+scripts/test_strategy_bands.py checks this module against a plain OLS on prior days.
 """
 from __future__ import annotations
 import math
@@ -27,7 +28,7 @@ MIN_OBS = 120
 # Update with the memo; the page quotes these, it does not recompute them.
 VERDICT = {
     "as_of": "2026-11-20",
-    "doc": "docs/strategy/2026-11-ADR-band-verdict.md",
+    "doc": "tusk-strategy-research (private): docs/2026-11-ADR-band-verdict.md",
     "rules": [
         {"rule": "Line as fair value", "verdict": "Descriptive for exchanges",
          "detail": "R² 0.87 (MCX), 0.88 (BSE), 0.24 (Angel One); MCX price does not revert to the line (half-life about 96 trading days)"},

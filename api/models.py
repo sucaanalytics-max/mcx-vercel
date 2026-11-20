@@ -431,7 +431,7 @@ BAND_STOCKS = [
     ("BSE", "BSE.NS", "codex_bse_daily (NSE-BSE project)"),
     ("Angel One", "ANGELONE.NS", "sb_daily_revenue, latest run (NSE-BSE project; a model, not reported revenue)"),
 ]
-ANGEL_SEGMENTS = ("fo", "cash", "comm", "mtf_net")     # research/strategy/data.py, Addendum A
+ANGEL_SEGMENTS = ("fo", "cash", "comm", "mtf_net")     # as in the private tusk-strategy-research study (Addendum A)
 
 
 def _mcx_band_inputs():
