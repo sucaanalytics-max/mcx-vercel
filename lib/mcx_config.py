@@ -695,10 +695,26 @@ def _multiplier_from_curve(time_pct, hist_wt, day_type):
 # 21.6 / 21.6 / 17.2 / 12.4 / 6.1 -> 15.2 / 15.7 / 14.9 / 11.9 / 6.1; under
 # 60 min 23.6 -> 15.7. The grid (N 5-20, k 0.03-0.06, fade power 1-3) was flat
 # within ~2 points; 20 days, k 0.04, linear fade sit mid-grid.
+#
+# Heavy mornings revert. When the curve projects above the prior, k grows
+# with how far above:  k *= 1 + PRIOR_HEAVY_GAIN * ln(curve / prior).
+# A busy open (a price shock, an event) front-loads the day, so the curve's
+# usual share understates how much has already traded. Walk-forward, 117 days
+# Jun-19 Nov 2026, 8-35% elapsed, median error by curve / prior ratio, before
+# -> after: 1.0-1.3x +0.6 -> -1.2%; 1.3-1.6x +8.5 -> +2.4%; 1.6-2x +29 -> +4%;
+# >2x +65 -> +16% (4 days). MAE % at 10 / 17 / 25 / 50 / 75% elapsed, all
+# days: 15.8 / 15.4 / 14.9 / 11.8 / 6.1 -> 13.7 / 13.0 / 12.7 / 11.3 / 6.1,
+# better in each of Jun-Aug, Sep-Oct and Nov; the 1-sigma band now covers
+# 72-78% before 40% elapsed (was 68-74%). Light days (curve below the prior)
+# keep the plain blend: shrinking them harder raised their error. Gain 4 / 8 / 12 gave
+# 13.3 / 12.7 / 12.4 MAE at 25%; 12 still improved but only 4 days sit above
+# 2x, so 8. 20 Nov 2026 (gold -4%, silver -5.6%) read Rs 38.5 Cr at 11:30
+# with the plain blend, Rs 21.6 Cr with this.
 PRIOR_DAYS = 20
 PRIOR_MIN_DAYS = 5
 PRIOR_STRENGTH = 0.04
 PRIOR_FADE_POWER = 1
+PRIOR_HEAVY_GAIN = 8
 PRIOR_HISTORY_DAYS = 400   # calendar days of mcx_daily_revenue read (one read, cached)
 
 _eod_history_cache = {}
@@ -744,14 +760,18 @@ def eod_prior(trading_date=None):
 
 def _blend_with_prior(curve_proj, prior, hist_wt, time_pct, day_type):
     """Shrink a curve projection toward the trailing-mean prior; the prior's
-    weight is k / (hist_wt + k) with k fading to 0 at the close."""
+    weight is k / (hist_wt + k) with k fading to 0 at the close, and larger
+    the further the curve runs above the prior (PRIOR_HEAVY_GAIN)."""
     if not prior or prior <= 0:
         return curve_proj
     k = PRIOR_STRENGTH * (1.0 - time_pct) ** PRIOR_FADE_POWER
     if k <= 0:
         return curve_proj
+    target = prior * DAY_MULTIPLIER.get(day_type, 1.0)
+    if curve_proj > target:
+        k *= 1.0 + PRIOR_HEAVY_GAIN * math.log(curve_proj / target)
     w = k / (max(hist_wt, 0.0) + k)
-    return (1.0 - w) * curve_proj + w * prior * DAY_MULTIPLIER.get(day_type, 1.0)
+    return (1.0 - w) * curve_proj + w * target
 
 
 def project_full_day(realized_fut, realized_opt, elapsed_min, day_type="LOW",

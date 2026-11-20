@@ -5,7 +5,7 @@ share (no blend toward linear extrapolation, no drift scaling); a season with
 no fitted curve borrows the other season's, moved to its hours; the drift
 check compares like with like. No network: the curve fitter is stubbed.
 """
-import os, sys
+import math, os, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -117,13 +117,26 @@ check("curve stays monotonic", all(a <= b + 1e-12 for a, b in zip(series, series
 print("\n[6] early projections shrink toward the trailing mean")
 check("no prior: curve unchanged", m._blend_with_prior(50.0, None, 0.01, 0.01, "LOW") == 50.0)
 k0 = m.PRIOR_STRENGTH
-w_early = k0 * 0.99 ** m.PRIOR_FADE_POWER / (0.01 + k0 * 0.99 ** m.PRIOR_FADE_POWER)
-check("first minutes: mostly prior",
-      close(m._blend_with_prior(50.0, 20.0, 0.01, 0.01, "LOW"), (1 - w_early) * 50 + w_early * 20))
+k_early = k0 * 0.99 ** m.PRIOR_FADE_POWER
+w_early = k_early / (0.01 + k_early)
+check("first minutes, light day: plain blend, mostly prior",
+      close(m._blend_with_prior(10.0, 20.0, 0.01, 0.01, "LOW"), (1 - w_early) * 10 + w_early * 20))
+k_heavy = k_early * (1 + m.PRIOR_HEAVY_GAIN * math.log(50 / 20))
+w_heavy = k_heavy / (0.01 + k_heavy)
+check("first minutes, heavy day: k grows with ln(curve / prior)",
+      close(m._blend_with_prior(50.0, 20.0, 0.01, 0.01, "LOW"), (1 - w_heavy) * 50 + w_heavy * 20))
 check("prior carries the day-type multiplier",
       m._blend_with_prior(20.0, 20.0, 0.01, 0.01, "HIGH") > m._blend_with_prior(20.0, 20.0, 0.01, 0.01, "LOW"))
-late = m._blend_with_prior(50.0, 20.0, 0.6, 0.75, "LOW")
-check("75% elapsed: under 2% pulled", abs(late - 50.0) < 0.02 * 50, f"{late:.3f}")
+# 20 Nov 2026 at 149 min, futures leg: curve share ~0.19, curve 2.4x the prior
+plain_w = k0 * (1 - 0.167) / (0.19 + k0 * (1 - 0.167))
+plain = (1 - plain_w) * 2.4 + plain_w * 1.0
+heavy = m._blend_with_prior(2.4, 1.0, 0.19, 0.167, "LOW")
+check("heavy morning: pulled harder than the plain blend, still above the prior",
+      1.0 < heavy < plain - 0.3, f"{heavy:.3f} vs plain {plain:.3f}")
+ratios = [m._blend_with_prior(c, 1.0, 0.1, 0.1, "LOW") for c in (1.0, 1.5, 2, 3, 5, 10)]
+check("heavier curve never projects lower", all(a < b for a, b in zip(ratios, ratios[1:])), str(ratios))
+late = m._blend_with_prior(24.0, 20.0, 0.6, 0.75, "LOW")
+check("75% elapsed, 1.2x day: under 2% pulled", abs(late - 24.0) < 0.02 * 24, f"{late:.3f}")
 check("at the close: none", m._blend_with_prior(50.0, 20.0, 1.0, 1.0, "LOW") == 50.0)
 
 rows = [{"trading_date": d, "fut_notl_cr": f, "opt_prem_cr": o, "source": src}
