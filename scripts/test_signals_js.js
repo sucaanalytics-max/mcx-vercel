@@ -185,5 +185,23 @@ check('turn-up needs price and trend', M.turnUpText(bseT), 'Needs the price belo
 check('turn-up needs trend only', M.turnUpText({ ...bseT, close: 3700 }), 'Needs the 10-day revenue average back above the 45-day.');
 check('turning up now', M.turnUpText({ ...bseT, state: 'TURNING UP' }), 'Turning up now.');
 
+// ── ADR bands redesign: gauge, ribbon, calculator, count line, flip text ─────
+check('gauge maps −3…+3 across the width', [M.gaugeX(-3, 300), M.gaugeX(0, 300), M.gaugeX(3, 300)], [0, 150, 300]);
+check('gauge clamps beyond ±3', [M.gaugeX(-5, 300), M.gaugeX(9, 300)], [0, 300]);
+check('gauge zone edges at ±1 and ±2', [M.gaugeX(-2, 600), M.gaugeX(-1, 600), M.gaugeX(1, 600), M.gaugeX(2, 600)], [100, 200, 400, 500]);
+const rib = M.stateRuns([{ state: 'IN BAND' }, { state: 'IN BAND' }, { state: 'TURNING UP' }, { state: 'AT UPPER' }, { state: 'AT UPPER' }, { state: 'NO DATA' }]);
+check('ribbon merges consecutive states', rib, [{ key: 'band', from: 0, to: 1 }, { key: 'up', from: 2, to: 2 }, { key: 'upper', from: 3, to: 4 }, { key: 'band', from: 5, to: 5 }]);
+const mcxLine = { a: -384.0, b: 286.9, sd: 348, adr45: 12.96 };
+const c15 = M.calcLine(mcxLine, 15);
+check('calculator: MCX at ₹15 Cr', [Math.round(c15.line), Math.round(c15.buyWatch), Math.round(c15.trim)], [3920, 3224, 4616]);
+check('calculator: empty, zero and negative refused', [M.calcLine(mcxLine, '').error, M.calcLine(mcxLine, 0).error, M.calcLine(mcxLine, -3).error].every(e => /above ₹0/.test(e)), true);
+check('calculator: implausibly large refused', /within 5×/.test(M.calcLine(mcxLine, 100).error), true);
+check('count line', M.bandCount([{ available: true, today: mcxT }, { available: true, today: bseT }, { available: true, today: angT }, { available: false }]),
+  '3 stocks · 0 buy flags · 1 exit flag');
+check('count line singular', M.bandCount([{ available: true, today: { ...bseT, state: 'TURNING UP' } }]), '1 stock · 1 buy flag · 0 exit flags');
+check('flip text: exit flag', M.flipText(angT), 'Exit flag: trim longs, don’t short.');
+check('flip text: in band uses the turn-up condition', M.flipText(mcxT), 'Needs the price below ₹2,986 (18.1% lower).');
+check('flip text: lower band is a buy-watch', M.flipText({ ...bseT, state: 'AT LOWER', z: -2.2, close: 3300 }).startsWith('Buy-watch. '), true);
+
 console.log(failed ? `\n${failed} FAILED` : '\nAll Signals model tests passed.');
 process.exit(failed ? 1 : 0);
