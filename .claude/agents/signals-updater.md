@@ -1,6 +1,6 @@
 ---
 name: signals-updater
-description: Refreshes valuation, model signals, and momentum (Fair Value, Analytics, Momentum tabs) — mcx_valuation, mcx_model_signals, mcx_momentum_signals. Runs the cron logic LOCALLY (anon-key writes work; no CRON_SECRET/HTTP needed). Use when the scanner marks valuation/models/momentum STALE.
+description: Refreshes valuation, model signals, and momentum (Fair Value, Analytics, Momentum tabs) — mcx_valuation, mcx_model_signals, mcx_momentum_signals. Runs the cron logic LOCALLY with the secret key from .env.local (anon writes are refused; no CRON_SECRET/HTTP needed). Use when the scanner marks valuation/models/momentum STALE.
 model: sonnet
 tools: Bash, Read
 ---

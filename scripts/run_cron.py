@@ -3,7 +3,9 @@
 run_cron.py — local dispatcher for the MCX signal/cron recomputations.
 
 Runs the same logic as the Vercel /api/cron jobs, but locally, writing to
-Supabase with the anon key (no CRON_SECRET / HTTP needed). Gives the freshness
+Supabase with the secret key from .env.local (no CRON_SECRET / HTTP needed).
+The signal tables refuse anon writes (HTTP 401, 42501), so run it from the
+production checkout, which has .env.local; a worktree has none. Gives the freshness
 fixer agents a SINGLE, narrowly-scoped command to invoke — so the agent
 permission allowlist can whitelist `run_cron.py` instead of arbitrary `python -c`.
 
@@ -45,6 +47,10 @@ def main():
         raise SystemExit(__doc__)
     job = sys.argv[1]
     mode = sys.argv[2] if len(sys.argv) > 2 else "recent"
+    from lib.supabase import SUPABASE_WRITE_ROLE
+    if SUPABASE_WRITE_ROLE == "anon":
+        print("warning: no SUPABASE_SECRET_KEY / SUPABASE_SERVICE_KEY (no .env.local here?); "
+              "writes will likely be refused (anon)", file=sys.stderr)
     result = _run(job, mode)
     print(json.dumps(result, default=str)[:600])
     # Exit non-zero on a failed run: daily_verify and the freshness fixers read
