@@ -580,6 +580,17 @@ def main():
         print(f"  backfill_commodity_oi FAILED (non-fatal; commodity_signals will skip the "
               f"missing OI): {tail[-200:]}")
 
+    # 5e. Per-contract futures EOD files for a separate local project
+    # (lib/contract_eod.py): one CSV per session from MCX's Bhavcopy, every
+    # FUTCOM contract with the official close. Writes whichever of the last 10
+    # sessions has no file yet, so a report published late or a missed morning
+    # heals on a later run. Files only, no Supabase. Soft-fail like the blocks above.
+    print("\nContract EOD files (MCX Bhavcopy, missing days among the last 10 sessions)...")
+    if _run_script("backfill_contract_eod.py", ["--recent", "10"], timeout=300):
+        print("  backfill_contract_eod OK")
+    else:
+        print("  backfill_contract_eod FAILED (non-fatal; the next run retries the missing days)")
+
     # 6. Derived signal tables (models / momentum / commodity_signals).
     # The Vercel crons that own these fire at 14:10-14:20 UTC, but mcx_valuation
     # for the same session is not written until ~20:27 UTC — so those runs can
