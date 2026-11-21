@@ -14,8 +14,9 @@ Designed to be called by a cron/scheduled task starting at 8:00 AM IST.
 Usage:
   python3 scripts/mcx_relay.py          # single snapshot, push to Supabase
   python3 scripts/mcx_relay.py --loop   # loop every 15 min until session ends
+  python3 scripts/mcx_relay.py --contract-eod  # per-contract EOD file now (after the close)
 """
-import sys, os, time, urllib.request, urllib.error
+import sys, os, time, urllib.request, urllib.error, csv, re, tempfile
 
 # Force UTF-8 output on Windows (cp1252 can't handle Unicode symbols)
 if sys.platform == "win32":
@@ -395,6 +396,12 @@ def fetch_mcx_historical(date_iso):
         return None
 
 
+# The MarketWatch JSON capture_eod() fetched, by session date, so the
+# per-contract file (capture_contract_eod) is written from it with no MCX call
+# of its own. close_session() pops it.
+_EOD_MARKET_WATCH = {}
+
+
 def capture_eod(date_iso=None):
     """Capture final EOD data and upsert to mcx_daily_revenue as authoritative record.
     Priority: market watch API (direct PremiumValue) > historical detailed report.
@@ -415,8 +422,10 @@ def capture_eod(date_iso=None):
     try:
         session = _get_mw_session()
         raw = fetch_market_watch(session)
+        _EOD_MARKET_WATCH[date_iso] = raw
         time.sleep(2)
         raw2 = fetch_market_watch(session)
+        _EOD_MARKET_WATCH[date_iso] = raw2
 
         fut_n1, opt_n1, opt_p1, futures1, options1 = extract_notionals(raw)
         fut_n2, opt_n2, opt_p2, _, _ = extract_notionals(raw2)
@@ -701,6 +710,213 @@ def capture_commodity_breakdown(session_date, timeout=COMMODITY_EOD_TIMEOUT, run
     return res.returncode
 
 
+# ── Per-contract EOD file ────────────────────────────────────────────────────
+# After the close, every FUTCOM contract in MarketWatch (all expiries, not just
+# the near month) goes to one CSV per session, read by a separate local
+# project. A local file only; nothing goes to Supabase or the dashboard. The
+# columns and the file name are that project's contract: change neither.
+#
+# Built from the MarketWatch JSON capture_eod() already fetched (no extra MCX
+# call) and run after every other close-of-session step; any failure is
+# logged, never raised.
+#
+# `close`: MarketWatch has no closing-price field (only Open, High, Low, LTP,
+# PreviousClose), so `close` is the LTP at the EOD capture, i.e. the last
+# traded price, NOT MCX's official closing price (the Bhavcopy's Close). On
+# 20 Nov 2026 they agreed for 8 of 98 traded contracts; median gap 13 bp,
+# 90th percentile 53 bp, worst 286 bp. `ltp` repeats it as MarketWatch
+# reported it. Price columns are blank where MarketWatch reports 0 (the
+# contract did not trade); oi and volume are in lots, as MarketWatch reports
+# them. MarketWatch lists every contract with volume or open interest (115 of
+# the Bhavcopy's 169 that day; the other 54 had neither).
+CONTRACT_EOD_COLUMNS = ("date", "symbol", "instrument", "expiry", "open", "high", "low",
+                        "close", "prev_close", "ltp", "oi", "volume", "captured_at")
+CONTRACT_EOD_DEFAULT_DIR = "~/tradingone/data/mcx_contract_eod"
+_MONTHS = {m: i for i, m in enumerate(
+    ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"), 1)}
+
+
+def contract_eod_dir():
+    """$MCX_CONTRACT_EOD_DIR, else ~/tradingone/data/mcx_contract_eod (read at call time)."""
+    return os.environ.get("MCX_CONTRACT_EOD_DIR") or os.path.expanduser(CONTRACT_EOD_DEFAULT_DIR)
+
+
+def _mw_data(raw):
+    """The {"Summary":..., "Data":[...]} block of a MarketWatch payload, or {}."""
+    if not isinstance(raw, dict):
+        return {}
+    data = raw.get("data") or raw.get("d") or {}
+    return data if isinstance(data, dict) else {}
+
+
+def _mw_rows(raw):
+    rows = _mw_data(raw).get("Data")
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
+def market_watch_as_of(raw):
+    """Naive IST datetime the MarketWatch payload is as of: Summary.AsOn
+    ("/Date(<epoch ms>)/"), else the latest row LTTValue. None if neither
+    (MCX's "/Date(-62135596800000)/" placeholder is year 1, not a date)."""
+    summary = _mw_data(raw).get("Summary")
+    m = re.match(r"/Date\((-?\d+)", str((summary or {}).get("AsOn") or "")) \
+        if isinstance(summary, dict) else None
+    if m:
+        try:
+            t = datetime(1970, 1, 1) + timedelta(milliseconds=int(m.group(1)), hours=5, minutes=30)
+            if t.year >= 2000:
+                return t
+        except (OverflowError, ValueError):
+            pass
+    stamps = []
+    for r in _mw_rows(raw):
+        try:
+            stamps.append(datetime.strptime(str(r.get("LTTValue") or "").strip(), "%Y-%m-%d %H:%M:%S"))
+        except ValueError:
+            pass
+    return max(stamps) if stamps else None
+
+
+def _instrument(r):
+    return str(r.get("InstrumentName") or r.get("Instrumentname") or "").strip().upper()
+
+
+def _expiry_iso(s):
+    """'30NOV2026' -> '2026-11-30' (locale-free), else None."""
+    m = re.fullmatch(r"(\d{1,2})([A-Za-z]{3})(\d{4})", str(s or "").strip())
+    if not m or m.group(2).upper() not in _MONTHS:
+        return None
+    try:
+        return datetime(int(m.group(3)), _MONTHS[m.group(2).upper()], int(m.group(1))).strftime("%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def _price(v):
+    """A MarketWatch price; "" where it reports 0 or nothing (no trade)."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return ""
+    return f if f > 0 else ""
+
+
+def _count(v):
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return ""
+
+
+def contract_eod_rows(raw, session_date, captured_at):
+    """One dict per FUTCOM contract in a MarketWatch payload, keys in
+    CONTRACT_EOD_COLUMNS order, sorted by symbol then expiry. A row without a
+    symbol or a readable expiry is dropped; a repeated (symbol, expiry) keeps
+    the first."""
+    out = {}
+    for r in _mw_rows(raw):
+        if _instrument(r) != "FUTCOM":
+            continue
+        sym = str(r.get("ProductCode") or r.get("Symbol") or "").strip()
+        exp = _expiry_iso(r.get("ExpiryDate"))
+        if not sym or not exp or (sym, exp) in out:
+            continue
+        ltp = _price(r.get("LTP"))
+        out[(sym, exp)] = dict(zip(CONTRACT_EOD_COLUMNS, (
+            session_date, sym, "FUTCOM", exp,
+            _price(r.get("Open")), _price(r.get("High")), _price(r.get("Low")),
+            ltp, _price(r.get("PreviousClose")), ltp,
+            _count(r.get("OpenInterest")), _count(r.get("Volume")), captured_at)))
+    return [out[k] for k in sorted(out)]
+
+
+def write_contract_eod(rows, session_date, out_dir):
+    """Write rows to <out_dir>/<session_date>.csv atomically: a temp file in
+    the same directory, fsync, then os.replace, so a reader never sees a
+    half-written file. Returns "written"; "empty" (no rows: nothing touched,
+    no directory made); or "kept" (the existing file has more contracts: a
+    smaller capture never replaces it). I/O errors are raised after the temp
+    file is removed; the existing file is then untouched."""
+    if not rows:
+        return "empty"
+    path = os.path.join(out_dir, f"{session_date}.csv")
+    if os.path.exists(path):
+        try:
+            with open(path, newline="") as f:
+                have = max(sum(1 for line in csv.reader(f) if line) - 1, 0)
+        except Exception:   # unreadable: not worth keeping over a full capture
+            have = 0
+        if have > len(rows):
+            return "kept"
+    os.makedirs(out_dir, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=f".{session_date}.", suffix=".csv.tmp", dir=out_dir)
+    try:
+        os.fchmod(fd, 0o644)
+        with os.fdopen(fd, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=CONTRACT_EOD_COLUMNS)
+            w.writeheader()
+            w.writerows(rows)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    return "written"
+
+
+def capture_contract_eod(session_date=None, raw=None, out_dir=None):
+    """Write the session's per-contract file from `raw`, the MarketWatch JSON
+    capture_eod() fetched. Never raises. Returns the file's path when written,
+    else None. Not written when there is no payload, or when the payload is
+    for a different day than session_date (never file one day's prices under
+    another's date). session_date=None takes the payload's own day (manual
+    runs). out_dir defaults to contract_eod_dir()."""
+    _mark_progress()
+    try:
+        print(f"\n  ── Contract EOD file for {session_date or 'the MarketWatch day'} ──")
+        if raw is None:
+            print("  ⓘ no MarketWatch data from the EOD capture — contract file skipped")
+            return None
+        as_of = market_watch_as_of(raw)
+        as_of_day = as_of.strftime("%Y-%m-%d") if as_of else None
+        session_date = session_date or as_of_day
+        if as_of_day is None or as_of_day != session_date:
+            print(f"  ⓘ MarketWatch is as of {as_of or 'an unknown time'}, not {session_date}"
+                  " — contract file not written")
+            return None
+        captured_at = now_ist().strftime("%Y-%m-%dT%H:%M:%S+05:30")
+        rows = contract_eod_rows(raw, session_date, captured_at)
+        n_futcom = sum(1 for r in _mw_rows(raw) if _instrument(r) == "FUTCOM")
+        out_dir = out_dir or contract_eod_dir()
+        path = os.path.join(out_dir, f"{session_date}.csv")
+        status = write_contract_eod(rows, session_date, out_dir)
+        if status == "empty":
+            print(f"  ⓘ no usable FUTCOM contracts in MarketWatch ({n_futcom} rows) — nothing written")
+            return None
+        if status == "kept":
+            print(f"  ⓘ {path} already has more contracts than this capture ({len(rows)}) — kept")
+            return None
+        per_sym = defaultdict(int)
+        for r in rows:
+            per_sym[r["symbol"]] += 1
+        untraded = sum(1 for r in rows if r["ltp"] == "")
+        dropped = n_futcom - len(rows)
+        print(f"  ✓ {len(rows)} FUTCOM contracts, {len(per_sym)} commodities "
+              f"({untraded} untraded" + (f", {dropped} rows dropped" if dropped else "")
+              + f", as of {as_of:%H:%M} IST) → {path}")
+        print("    " + ", ".join(f"{s} {n}" for s, n in sorted(per_sym.items())))
+        return path
+    except Exception as e:
+        print(f"  ⓘ contract EOD file failed ({type(e).__name__}: {e}) — relay unaffected")
+        return None
+    finally:
+        _mark_progress()
+
+
 def close_session(session_date, clock_fallback=False):
     """Everything after the close, in priority order. Revenue first and always:
     nothing after it can fail or delay it.
@@ -726,6 +942,12 @@ def close_session(session_date, clock_fallback=False):
         capture_commodity_breakdown(session_date)
     except Exception as e:  # belt and braces: the function already never raises
         print(f"  ⓘ commodity breakdown skipped: {e}")
+    # Last: the research lab's per-contract file, from the MarketWatch JSON the
+    # EOD capture already fetched. Nothing above waits on it.
+    try:
+        capture_contract_eod(session_date, raw=_EOD_MARKET_WATCH.pop(session_date, None))
+    except Exception as e:  # belt and braces: the function already never raises
+        print(f"  ⓘ contract EOD file skipped: {e}")
 
 
 def next_sleep_seconds(t, base_s):
@@ -915,6 +1137,16 @@ if __name__ == "__main__":
                 else:
                     print(f"  Max restarts reached. Exiting.")
                     sys.exit(1)
+    elif "--contract-eod" in sys.argv:
+        # Manual per-contract file from MarketWatch as it is now, filed under
+        # the day the data is as of (e.g. after a missed close).
+        # MCX_CONTRACT_EOD_DIR picks the folder. Refused while trading: the
+        # prices would be intraday, not end of day.
+        from lib.mcx_config import is_market_open
+        if is_market_open(now_ist()):
+            print("Market is open: run --contract-eod after the close.")
+            sys.exit(2)
+        sys.exit(0 if capture_contract_eod(None, raw=fetch_market_watch()) else 1)
     elif "--catchup" in sys.argv:
         days = 7
         for i, arg in enumerate(sys.argv):

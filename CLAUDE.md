@@ -79,7 +79,7 @@ interpreter that can import curl_cffi + pandas).
 
 | When | Job | Writes |
 |---|---|---|
-| 08:55–close, every 15 min | `com.mcx.relay` → `mcx_relay.py --loop` | `mcx_snapshots`, `relay_heartbeat`; at the close `mcx_daily_revenue` (EOD), `mcx_margin_daily`, `mcx_oi_participants` |
+| 08:55–close, every 15 min | `com.mcx.relay` → `mcx_relay.py --loop` | `mcx_snapshots`, `relay_heartbeat`; at the close `mcx_daily_revenue` (EOD), `mcx_margin_daily`, `mcx_oi_participants`, then a local per-contract CSV (`$MCX_CONTRACT_EOD_DIR/YYYY-MM-DD.csv`, not Supabase) |
 | 05:30–06:55 | `com.mcx.commodity-eod` → `bhav_refresh.py --commodity-recent 4` | `mcx_commodity_daily` (only complete reports) |
 | 07:00 | `com.mcx.daily-verify` → `daily_verify.py --days 3` | reconciles revenue vs MCX's report (>1% → replace), commodity breakdown, iCOMDEX, commodity prices, margins (MCXCCL), OI participants, futures OI from MCX's Bhavcopy (`backfill_commodity_oi.py --nightly`), then valuation → models → momentum → commodity_signals |
 | 19:30 / 19:45 / 19:50 | Vercel crons: valuation, models, commodity_signals | `mcx_valuation`, `mcx_model_signals`, `mcx_commodity_signals` |
@@ -146,6 +146,7 @@ commodity price step; no endpoint reads it any more), `mcx_options_paper`,
 | `MCX_TRADING_DAYS`, `MCX_PAT_MARGIN`, `MCX_NON_FO_REV`, `MCX_DILUTED_SHARES`, `MCX_PE_MEAN`, `MCX_PE_SD`, `MCX_NONTX_DAILY` | valuation / fee overrides |
 | `MCX_IMPERSONATE` | curl_cffi target (default chrome142) |
 | `MCX_PYTHON` | interpreter override for the launchd jobs |
+| `MCX_CONTRACT_EOD_DIR` | folder for the relay's per-contract EOD CSV (default `~/tradingone/data/mcx_contract_eod`) |
 
 Dhan (options paper trading only; futures OI comes from MCX's Bhavcopy,
 `lib/mcx_bhavcopy.py`, no login): `~/.dhan/credentials.json`, else
