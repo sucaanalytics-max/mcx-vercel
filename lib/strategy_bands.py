@@ -27,19 +27,22 @@ MIN_OBS = 120
 # Headline results of the pre-registered test, 20 Nov 2026 (out-of-sample, after costs).
 # Update with the memo; the page quotes these, it does not recompute them.
 VERDICT = {
-    "as_of": "2026-11-20",
+    # Rerun on point-in-time MCX revenue (21 Nov 2026): the stored Jan 2022 - Aug 2024 MCX series
+    # was scaled to each quarter's reported revenue, which is only known later.
+    "as_of": "2026-11-21",
     "doc": "tusk-strategy-research (private): docs/2026-11-ADR-band-verdict.md",
     "rules": [
         {"rule": "Line as fair value", "verdict": "Descriptive for exchanges",
-         "detail": "R² 0.87 (MCX), 0.88 (BSE), 0.24 (Angel One); MCX price does not revert to the line (half-life about 96 trading days)"},
+         "detail": "R² 0.88 (MCX), 0.88 (BSE), 0.24 (Angel One); MCX price does not revert to the line (half-life about 86 trading days)"},
         {"rule": "Trade at ±2 SD", "verdict": "Not proven",
-         "detail": "About 1 trade a year per stock; 8 test trades, chance the edge is real 0.10–0.22"},
-        {"rule": "Turning up", "verdict": "Most promising",
-         "detail": "54 episodes on 3 stocks, +5.7% above the stock's average 20-day return (t 2.8)"},
+         "detail": "About 1 trade a year per stock; 8 test trades, chance the edge is real 0.17–0.31"},
+        {"rule": "Turning up", "verdict": "Most promising, not for MCX",
+         "detail": "52 episodes on 3 stocks, +4.9% above the stock's average 20-day return (t 2.4), carried by BSE and Angel One; "
+                   "MCX alone +1.5% (t 0.9). Pooled t is overstated: the three stocks move together"},
         {"rule": "Turning down / top of the band", "verdict": "Exit flag, not a short",
-         "detail": "Shorts lost in the rising market; returns afterwards were 3–4% below average (t 2.1–2.5)"},
+         "detail": "Shorts lost in the rising market; returns afterwards were 4–5% below average (t 2.6–3.8)"},
         {"rule": "Revenue trend (10d > 45d), long only", "verdict": "Passes on MCX",
-         "detail": "Test Sharpe 2.3, drawdown −20%, chance the edge is real 0.85"},
+         "detail": "Test period from Apr 2025, after the revenue fix: Sharpe 2.3, drawdown −20%, chance the edge is real 0.84"},
     ],
 }
 
