@@ -116,5 +116,20 @@ finally:
 check("Angel One: non-UUID run id is refused", bad[0] is None and "not a UUID" in bad[2], bad)
 check("Angel One: no revenue query made with it", not any(t == "sb_daily_revenue" for t, _ in calls), calls)
 
+# 7. MCX on the tracker reads only the live series (no look-ahead backfill before Sep 2024)
+mcx_calls = []
+def fake_mcx_read(table, params="", **kw):
+    mcx_calls.append((table, params))
+    return []
+orig_read = am.supabase_read_all
+am.supabase_read_all = fake_mcx_read
+try:
+    am._mcx_band_inputs()
+finally:
+    am.supabase_read_all = orig_read
+check("MCX: revenue and price reads start at the clean date",
+      len(mcx_calls) == 2 and all(f"trading_date=gte.{am.MCX_CLEAN_FROM}" in p for _, p in mcx_calls), mcx_calls)
+check("MCX: clean date is after the Aug 2024 backfill", am.MCX_CLEAN_FROM >= "2024-09-01")
+
 print(f"\n{'ALL PASS' if not failed else str(failed) + ' FAILED'}")
 sys.exit(1 if failed else 0)

@@ -435,16 +435,24 @@ BAND_STOCKS = [
 ANGEL_SEGMENTS = ("fo", "cash", "comm", "mtf_net")     # as in the private tusk-strategy-research study (Addendum A)
 
 
+# MCX revenue before Sep 2024 is the Jan 2022 - Aug 2024 backfill, scaled per quarter to reported
+# revenue that was only published weeks later (look-ahead). The tracker uses the live series only:
+# ADR45 is defined from late Oct 2024, so the line is fitted from about Nov 2024.
+MCX_CLEAN_FROM = "2024-09-01"
+
+
 def _mcx_band_inputs():
     from lib.mcx_config import FINAL_ROW_SOURCES
     today = now_ist().strftime("%Y-%m-%d")
     rev = supabase_read_all("mcx_daily_revenue",
-                            "?select=trading_date,total_rev_cr,day_type,source&order=trading_date.asc", max_rows=20000)
+                            f"?select=trading_date,total_rev_cr,day_type,source&trading_date=gte.{MCX_CLEAN_FROM}"
+                            "&order=trading_date.asc", max_rows=20000)
     rev_rows = [(r["trading_date"], float(r["total_rev_cr"])) for r in rev
                 if _f(r.get("total_rev_cr")) and float(r["total_rev_cr"]) > 0
                 and "muhurat" not in (r.get("day_type") or "").lower()
                 and (r["trading_date"] < today or r.get("source") in FINAL_ROW_SOURCES)]
-    px = supabase_read_all("mcx_share_price", "?select=trading_date,close&order=trading_date.asc", max_rows=20000)
+    px = supabase_read_all("mcx_share_price", f"?select=trading_date,close&trading_date=gte.{MCX_CLEAN_FROM}"
+                           "&order=trading_date.asc", max_rows=20000)
     price_rows = [(r["trading_date"], float(r["close"])) for r in px if _f(r.get("close"))]
     return rev_rows, price_rows
 
