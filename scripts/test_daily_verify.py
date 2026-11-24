@@ -19,12 +19,28 @@ reported "MISSING ... Historical API also unavailable" for a stored day.
 Offline: Supabase, MCX and subprocesses are faked.
 Run:  python3 scripts/test_daily_verify.py
 """
-import sys, os
+import sys, os, subprocess
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import scripts.daily_verify as dv
 
 FAILED = []
+
+# "Offline" is enforced, not only promised: daily_verify's helpers run their
+# jobs (backfill_commodity_oi, bhav_refresh, run_cron, ...) as subprocesses
+# that call MCX and write Supabase. A test that reaches a real one is recorded
+# here and fails the run. Until 23 Nov 2026 test_main_exits_nonzero ran the
+# real nightly OI backfill (30 days of Bhavcopy requests plus an upsert into
+# mcx_commodity_daily) on every run_tests.sh, the pre-push gate included.
+SPAWNED = []
+
+
+def _no_real_subprocess(cmd, *a, **k):
+    SPAWNED.append(cmd)
+    raise RuntimeError(f"test reached a real subprocess: {cmd}")
+
+
+subprocess.run = _no_real_subprocess
 
 
 def check(name, cond, detail=""):
@@ -117,16 +133,17 @@ def test_presence_ignores_oi_stubs():
 
 def test_main_exits_nonzero():
     print("\n[5] main() exits non-zero when a day still has no commodity rows")
-    saved = (dv.dates_to_verify, dv.verify_date, dv._run_script)
+    saved = (dv.dates_to_verify, dv.verify_date, dv._run_script, dv.run_commodity_oi_backfill)
     dv.dates_to_verify = lambda t, days: ["2026-11-09"]
     dv.verify_date = lambda d: {"date": d, "status": "ISSUES", "revenue": 11.93, "source": "mcx_relay_eod",
                                 "snapshots": 59, "actions": [],
                                 "issues": ["No commodity breakdown in mcx_commodity_daily (bhav_refresh exit 1: ...)"]}
     dv._run_script = lambda *a, **k: True
+    dv.run_commodity_oi_backfill = lambda *a, **k: (True, "")
     try:
         rc = dv.main()
     finally:
-        dv.dates_to_verify, dv.verify_date, dv._run_script = saved
+        dv.dates_to_verify, dv.verify_date, dv._run_script, dv.run_commodity_oi_backfill = saved
     check("exit code 1", rc == 1, f"rc={rc}")
 
 
@@ -259,6 +276,8 @@ if __name__ == "__main__":
     test_revenue_read_failure_is_not_missing()
     test_missing_row_backfill_outcomes()
     test_backfill_upsert_merges_on_trading_date()
+    print("\n[guard] no test reached a real subprocess")
+    check("no real subprocess (MCX / Supabase jobs) was started", not SPAWNED, str(SPAWNED)[:300])
     print("\n" + "=" * 72)
     if FAILED:
         print(f"{len(FAILED)} FAILED: {', '.join(FAILED)}")
