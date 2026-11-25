@@ -349,10 +349,27 @@
     return `${pl(ok.length, 'stock')} · ${pl(buy, 'buy flag')} · ${pl(exit, 'exit flag')}`;
   }
 
+  // "data through …" for the kicker. The stocks' latest rows can differ (Angel One's MTF revenue
+  // lands a day after its other segments; NSE holidays), so name each stock's date when they do.
+  const nbsp = s => s.replace(/ /g, ' ');     // keep "24 Nov" on one line on a phone
+  function bandThrough(stocks) {
+    const ok = (stocks || []).filter(s => s.available && s.today);
+    if (!ok.length) return '';
+    const dates = ok.map(s => s.today.date);
+    if (dates.every(d => d === dates[0])) return `data through ${nbsp(fmt.day(dates[0]))}`;
+    return 'data through ' + ok.map(s => nbsp(`${s.name} ${fmt.dayMonth(s.today.date)}`)).join(', ');
+  }
+
+  // A card's date; on an NSE holiday the close is the last one before it, so say which day it is from
+  function bandDateText(t) {
+    const d = nbsp(fmt.dayMonth(t.date));
+    return t.close_date && t.close_date !== t.date ? `${d} (price ${nbsp(fmt.dayMonth(t.close_date))})` : d;
+  }
+
   MCX.signalsModel = { HOT, COLD, W, streak, cushion, changes, momLede, overlayText, forward, contributions, ensLede, ecmText, pill,
                        MOM_RULES_FIXED, afterRules, inStudy, tradeBacktest, momCaveat,
                        COMPOSITE, REGIME, OVERLAY, ECM, ACTIVITY, optLede, legsText, trackRows, BOOK, BAND, bandLede, turnUpText,
-                       flipText, gaugeX, stateRuns, calcLine, bandCount };
+                       flipText, gaugeX, stateRuns, calcLine, bandCount, bandThrough, bandDateText };
   if (window.MCX_TEST) return;
 
   // ════════════════════════════════════════════════════════════════════════
@@ -931,9 +948,8 @@
       MCX.ui.error($('bdCards'), 'Could not load the ADR bands: ' + (BD.err || 'no data'), loadBands);
       return;
     }
-    const ok = bdOk();
-    const thru = ok.length ? ok.map(s => s.today.date).sort().pop() : null;
-    $('bdKicker').textContent = `ADR bands · under validation${thru ? ` · data through ${fmt.day(thru)}` : ''}`;
+    const thru = bandThrough(d.stocks);
+    $('bdKicker').textContent = `ADR bands · under validation${thru ? ` · ${thru}` : ''}`;
     $('bdHead').textContent = bandLede(d.stocks).head;
     $('bdDeck').textContent = bandCount(d.stocks);
     renderBandCards(d);
@@ -965,7 +981,7 @@
         + `<div class="bd-card-head"><span class="bd-card-name">${esc(s.name)}</span>${pill(BAND, t.state)}</div>`
         + gaugeHtml(t) + '<div class="bd-gauge-ends" aria-hidden="true"><span>buy-watch</span><span>in band</span><span>trim</span></div>'
         + `<div class="bd-card-price">₹${num(t.close, 0)}<small>${pctTxt(gap)} vs line ₹${num(t.line, 0)}</small></div>`
-        + `<div class="bd-card-line">z ${sdTxt(t.z)} (5-day ${sdTxt(t.z_week)}) · revenue trend ${t.ratio > 1 ? '↑' : '↓'} ${num(t.ratio, 2)}× · ${fmt.dayMonth(t.date)}</div>`
+        + `<div class="bd-card-line">z ${sdTxt(t.z)} (5-day ${sdTxt(t.z_week)}) · revenue trend ${t.ratio > 1 ? '↑' : '↓'} ${num(t.ratio, 2)}× · ${bandDateText(t)}</div>`
         + `<div class="bd-card-flip">${esc(flipText(t))}</div></button>`;
     }).join('');
   }

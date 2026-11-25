@@ -203,5 +203,16 @@ check('flip text: exit flag', M.flipText(angT), 'Exit flag: trim longs, don’t 
 check('flip text: in band uses the turn-up condition', M.flipText(mcxT), 'Needs the price below ₹2,986 (18.1% lower).');
 check('flip text: lower band is a buy-watch', M.flipText({ ...bseT, state: 'AT LOWER', z: -2.2, close: 3300 }).startsWith('Buy-watch. '), true);
 
+// ── ADR bands dates: the stocks can stop on different days (/api/models?view=bands on 25 Nov 2026) ─
+const at = (t, date, close_date) => ({ available: true, today: { ...t, date, close_date } });
+check('kicker: one date when every stock agrees', M.bandThrough([{ name: 'MCX', ...at(mcxT, '2026-11-23') }, { name: 'BSE', ...at(bseT, '2026-11-23') }]),
+  'data through Mon\u00a023\u00a0Nov');
+check('kicker: each stock’s date when they differ', M.bandThrough([{ name: 'MCX', ...at(mcxT, '2026-11-24') }, { name: 'BSE', ...at(bseT, '2026-11-23') },
+  { name: 'Angel One', ...at(angT, '2026-11-20') }, { name: 'X', available: false }]), 'data through MCX\u00a024\u00a0Nov, BSE\u00a023\u00a0Nov, Angel\u00a0One\u00a020\u00a0Nov');
+check('kicker: nothing loaded', M.bandThrough([{ name: 'BSE', available: false }]), '');
+check('card date: price from the same day', M.bandDateText({ date: '2026-11-23', close_date: '2026-11-23' }), '23\u00a0Nov');
+check('card date: NSE holiday carries the day before’s price', M.bandDateText({ date: '2026-11-24', close_date: '2026-11-23' }), '24\u00a0Nov (price\u00a023\u00a0Nov)');
+check('card date: older payload without close_date', M.bandDateText({ date: '2026-11-24' }), '24\u00a0Nov');
+
 console.log(failed ? `\n${failed} FAILED` : '\nAll Signals model tests passed.');
 process.exit(failed ? 1 : 0);
