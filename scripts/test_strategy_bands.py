@@ -57,6 +57,11 @@ check("rows before a price change are unchanged", early and all(abs(r["z"] - r2[
 check("states", [sb.state(-1.2, 1.05), sb.state(1.3, 0.97), sb.state(-2.4, 0.9), sb.state(2.1, 1.1), sb.state(0.3, 1.0)]
       == ["TURNING UP", "TURNING DOWN", "AT LOWER", "AT UPPER", "IN BAND"])
 check("closes are as-of (last price on or before the day)", sb.align_close(["2022-03-15", "2022-01-01"], [("2022-03-14", 5.0)]) == [5.0, None])
+check("close dates name the day the as-of close is from",
+      sb.align_close_dates(["2022-03-15", "2022-03-14", "2022-01-01"], [("2022-03-14", 5.0)]) == ["2022-03-14", "2022-03-14", None])
+check("each row carries its close date (an NSE holiday carries the day before's)",
+      all(r["close_date"] is not None and r["close_date"] <= r["date"] for r in rows)
+      and {r["date"]: r["close_date"] for r in rows}.get(rows[-1]["date"]) == max(d for d, _ in px_rows if d <= rows[-1]["date"]))
 seq = [("IN BAND", 0), ("TURNING UP", -1.2), ("TURNING UP", -1.5), ("IN BAND", -0.5), ("TURNING UP", -1.1), ("AT LOWER", -2.2), ("IN BAND", 0)]
 fl = sb.flags([{"date": f"d{i}", "state": st, "z": z} for i, (st, z) in enumerate(seq)])
 check("flags: latest episode start, sessions ago, count",

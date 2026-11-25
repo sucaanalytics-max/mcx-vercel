@@ -93,15 +93,21 @@ def state(z, ratio):
     return "IN BAND"
 
 
+def _asof(rev_dates, price_rows):
+    """Index into price_rows of the last close on or before each revenue date (-1: none)."""
+    pd_ = [d for d, _ in price_rows]
+    return [bisect_right(pd_, d) - 1 for d in rev_dates]
+
+
 def align_close(rev_dates, price_rows):
     """Last close on or before each revenue date (MCX trades some NSE holidays).
     price_rows: [(iso_date, close)] sorted ascending."""
-    pd_ = [d for d, _ in price_rows]
-    out = []
-    for d in rev_dates:
-        i = bisect_right(pd_, d) - 1
-        out.append(price_rows[i][1] if i >= 0 else None)
-    return out
+    return [price_rows[i][1] if i >= 0 else None for i in _asof(rev_dates, price_rows)]
+
+
+def align_close_dates(rev_dates, price_rows):
+    """The date of the close align_close uses for each revenue date (None: no close yet)."""
+    return [price_rows[i][0] if i >= 0 else None for i in _asof(rev_dates, price_rows)]
 
 
 def compute(rev_rows, price_rows, window=WINDOW, fast=FAST, min_obs=MIN_OBS):
@@ -110,6 +116,7 @@ def compute(rev_rows, price_rows, window=WINDOW, fast=FAST, min_obs=MIN_OBS):
     dates = [d for d, _ in rev_rows]
     rev = [float(r) for _, r in rev_rows]
     close = align_close(dates, price_rows)
+    close_dates = align_close_dates(dates, price_rows)
     slow, quick = rolling_mean(rev, window), rolling_mean(rev, fast)
     fits = expanding_fit(slow, close, min_obs)
     rows = []
@@ -121,7 +128,7 @@ def compute(rev_rows, price_rows, window=WINDOW, fast=FAST, min_obs=MIN_OBS):
         line = a + b * x
         z = (y - line) / s
         ratio = quick[i] / x if quick[i] is not None and x > 0 else None
-        rows.append({"date": d, "close": round(y, 2), "rev_cr": round(rev[i], 3), "adr45": round(x, 3),
+        rows.append({"date": d, "close": round(y, 2), "close_date": close_dates[i], "rev_cr": round(rev[i], 3), "adr45": round(x, 3),
                      "adr10": round(quick[i], 3) if quick[i] is not None else None,
                      "ratio": round(ratio, 4) if ratio is not None else None,
                      "line": round(line, 1), "sd": round(s, 1), "z": round(z, 3),
