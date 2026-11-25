@@ -15,7 +15,7 @@ Usage:
   python3 scripts/mcx_relay.py          # single snapshot, push to Supabase
   python3 scripts/mcx_relay.py --loop   # loop every 15 min until session ends
 """
-import sys, os, time, urllib.request, urllib.error
+import sys, os, time, functools, urllib.request, urllib.error
 
 # Force UTF-8 output on Windows (cp1252 can't handle Unicode symbols)
 if sys.platform == "win32":
@@ -602,22 +602,101 @@ def refresh_oi_participants_local():
         print(f"  ✗ OI participants refresh failed: {e}")
 
 
-def _watchful_sleep(seconds, slack=600):
-    """Sleep, then detect system-sleep gaps. caffeinate -is cannot block
-    lid-close sleep on battery: observed Jul 27–30 2026, one frozen-but-alive
-    process spanned 4 days, EOD capture never fired, and launchd never
-    respawned because the process never exited. If wall clock advanced more
-    than `slack` seconds past the requested sleep, the Mac slept — exit(1) so
-    launchd KeepAlive relaunches a clean process whose startup catch-up
-    (catchup_missing + margin/OI refresh) self-heals the missed window."""
-    before = time.time()
+# ── System sleep ─────────────────────────────────────────────────────────────
+# caffeinate -is keeps the Mac awake on AC power only. With the lid closed on
+# battery macOS sleeps anyway ("Clamshell Sleep" in `pmset -g log`): 17 Nov 2026
+# lost 18:19–23:55, and 18–20 Nov lost 25–50 min each. CLOCK_UPTIME_RAW stops while
+# the Mac sleeps and the wall clock does not, so the gap between them over any
+# stretch is the time asleep in it, wherever the process was (waiting, mid-fetch).
+# A sleep longer than SLEEP_SLACK is reported (log, heartbeat, a macOS notification
+# when snapshots were missed) and the process exits(1): launchd KeepAlive relaunches
+# a clean one whose startup catch-up self-heals what it can (Jul 2026: a process
+# frozen across 4 days of sleep never captured EOD and was never respawned).
+SLEEP_SLACK = 600            # seconds asleep before it counts
+SLEEP_NOTIFY_EVERY = 1800    # one notification per half hour: a lid-closed Mac wakes every few minutes
+SLEEP_NOTICE_STAMP = os.path.expanduser("~/Library/Caches/mcx-relay/last_sleep_notice")
+_IST = timezone(timedelta(hours=5, minutes=30))
+# Bound at import, so the clock is the real one even where `time` is later swapped out
+_uptime = (functools.partial(time.clock_gettime, time.CLOCK_UPTIME_RAW)
+           if hasattr(time, "CLOCK_UPTIME_RAW") else time.monotonic)
+_sleep_mark = (time.time(), _uptime())   # (wall, uptime) at the last check
+
+
+def asleep_seconds(wall0, up0, wall1, up1):
+    """Seconds the Mac slept between two (wall clock, uptime) readings."""
+    return max(0.0, (wall1 - wall0) - (up1 - up0))
+
+
+def sleep_report(since, now, asleep, sessions):
+    """(message, snapshots missed) for a sleep of `asleep` seconds somewhere between
+    `since` and `now` (IST datetimes). `sessions` lists the (open, close) IST datetimes
+    of the sessions in that stretch; only time inside them counts as missed (a sleep
+    from 23:00 to 10:00 next day misses the evening's last snapshots and the morning's)."""
+    window = sum(max(0.0, (min(now, close) - max(since, open_)).total_seconds())
+                 for open_, close in sessions)
+    missed = int(max(0.0, min(asleep, window)) // LOOP_INTERVAL)
+    fmt = "%H:%M" if since.date() == now.date() else "%d %b %H:%M"
+    msg = (f"Mac asleep about {asleep / 60:.0f} min between {since.strftime(fmt)} and "
+           f"{now.strftime(fmt)} IST; about {missed} snapshot{'' if missed == 1 else 's'} missed. "
+           "Keep it plugged in: on battery a closed lid sleeps.")
+    return msg, missed
+
+
+def sessions_between(since, now, max_days=7):
+    """(open, close) IST datetimes of each day's session from since's date to now's,
+    at most max_days of them; a day with no session gives open == close."""
+    out = []
+    day = since.replace(hour=0, minute=0, second=0, microsecond=0)
+    while day.date() <= now.date() and len(out) < max_days:
+        shape = session_shape(day)
+        out.append((day + timedelta(minutes=shape["start"]), day + timedelta(minutes=shape["end"])))
+        day += timedelta(days=1)
+    return out
+
+
+def _notify_sleep(msg):
+    """macOS notification, at most once per SLEEP_NOTIFY_EVERY. Never raises."""
+    try:
+        if time.time() - os.path.getmtime(SLEEP_NOTICE_STAMP) < SLEEP_NOTIFY_EVERY:
+            return
+    except OSError:
+        pass
+    try:
+        import subprocess
+        # Text goes in as arguments, never into the AppleScript source
+        subprocess.run(["/usr/bin/osascript", "-e", "on run argv",
+                        "-e", "display notification (item 1 of argv) with title (item 2 of argv)",
+                        "-e", "end run", msg, "MCX relay: the Mac slept"],
+                       timeout=10, capture_output=True)
+        os.makedirs(os.path.dirname(SLEEP_NOTICE_STAMP), exist_ok=True)
+        with open(SLEEP_NOTICE_STAMP, "w") as f:
+            f.write(str(time.time()))
+    except Exception as e:
+        print(f"  ⚠ Sleep notification failed: {e}")
+
+
+def _check_sleep():
+    """Report a sleep since the last check and exit(1); otherwise just move the mark."""
+    global _sleep_mark
+    wall0, up0 = _sleep_mark
+    wall1, up1 = time.time(), _uptime()
+    _sleep_mark = (wall1, up1)
+    asleep = asleep_seconds(wall0, up0, wall1, up1)
+    if asleep <= SLEEP_SLACK:
+        return
+    since, now = datetime.fromtimestamp(wall0, _IST), datetime.fromtimestamp(wall1, _IST)
+    msg, missed = sleep_report(since, now, asleep, sessions_between(since, now))
+    print(f"\n*** SYSTEM SLEEP: {msg} exit(1) for launchd to relaunch. ***", flush=True)
+    if missed:
+        send_heartbeat("error", error=f"system sleep: {msg}")
+        _notify_sleep(msg)
+    sys.exit(1)
+
+
+def _watchful_sleep(seconds):
+    """Sleep, then check whether the Mac slept meanwhile (see _check_sleep)."""
     time.sleep(seconds)
-    drift = time.time() - before - seconds
-    if drift > slack:
-        print(f"\n*** SYSTEM SLEEP DETECTED: woke {drift/60:.0f} min late from a "
-              f"{seconds//60}-min sleep — exit(1) for launchd to relaunch. ***")
-        send_heartbeat("error", error=f"system-sleep watchdog: {drift/60:.0f} min gap")
-        sys.exit(1)
+    _check_sleep()
 
 
 # ── Stall watchdog ───────────────────────────────────────────────────────────
@@ -627,18 +706,21 @@ def _watchful_sleep(seconds, slack=600):
 # at 104 min, 08-18 at 17 min — a full day of no snapshots). This independent
 # daemon thread hard-exits the process if the loop makes no progress for
 # STALL_LIMIT, so launchd relaunches a clean process with a fresh pool.
-_last_progress = time.time()
-STALL_LIMIT = 1500  # 25 min with no loop progress -> assume frozen -> hard-exit
+# Age is counted on the uptime clock, so time the Mac spent asleep is not a stall
+# (17 Nov 2026: a sleep was reported as "network pool likely frozen"); the loop's
+# _check_sleep reports sleeps.
+_last_progress = _uptime()
+STALL_LIMIT = 1500  # 25 min awake with no loop progress -> assume frozen -> hard-exit
 
 def _mark_progress():
     global _last_progress
-    _last_progress = time.time()
+    _last_progress = _uptime()
 
 def _start_stall_watchdog():
     def _watch():
         while True:
             time.sleep(60)
-            age = time.time() - _last_progress
+            age = _uptime() - _last_progress
             if age > STALL_LIMIT:
                 # os._exit (not sys.exit): a wedged _hard_call thread can swallow
                 # SystemExit; os._exit is unconditional. launchd KeepAlive then
@@ -765,6 +847,7 @@ def run_loop():
     MAX_CONSEC_FAIL = 4  # back-to-back failures before we exit for launchd to relaunch
 
     while True:
+        _check_sleep()    # a sleep mid-snapshot shows here (one while waiting, in _watchful_sleep)
         _mark_progress()  # reset the stall-watchdog each iteration
         t = now_ist()
         current_min = t.hour * 60 + t.minute
