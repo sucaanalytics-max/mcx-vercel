@@ -115,7 +115,7 @@ check("first day of Q3 uses the last 10 sessions of Q2", r,
 if any("placeholder" in e for e in r["errors"]):
     print("FAIL first day of Q3 fell back to the placeholder"); FAILED.append("q3 placeholder")
 r = run(datetime(2026, 10, 1, 10, 0), [])
-# 64 sessions, three of them morning-closed (20 Oct, 10 Nov, 24 Nov) at 0.82 of a day
+# 64 sessions, three of them morning-closed (20 Oct, 10 Nov, 24 Nov) at 0.80 of a day
 from lib.mcx_config import session_weight
 from datetime import date as _date, timedelta as _td
 _q3_weight = sum(session_weight(_date(2026, 10, 1) + _td(days=i)) for i in range(92))

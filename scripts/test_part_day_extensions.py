@@ -2,7 +2,7 @@
 """
 Part-day sessions beyond the live projection (extends PR #19):
 
-  1. session_weight: full 1.0, morning-closed 0.82, evening-closed 0.15, closed 0.
+  1. session_weight: full 1.0, morning-closed 0.80, evening-closed 0.15, closed 0.
   2. Quarterly: a remaining part-day counts at its weight; full-day rates skip
      part days and the Muhurat; an evening-only day is pre-open before 17:00.
   3. Revenue tab (exchange_dashboard): the Muhurat keeps its bar but is in no
@@ -31,7 +31,7 @@ def test_session_weight():
     print("\n[1] session_weight")
     from lib.mcx_config import session_weight
     check("full day (Tue 17 Nov 2026)", session_weight("2026-11-17") == 1.0)
-    check("morning closed (Tue 24 Nov 2026)", session_weight("2026-11-24") == 0.82)
+    check("morning closed (Tue 24 Nov 2026)", session_weight("2026-11-24") == 0.80)
     check("evening closed (1 Jan 2026)", session_weight("2026-01-01") == 0.15)
     check("holiday (25 Dec 2026)", session_weight("2026-12-25") == 0.0)
     check("weekend Muhurat (Sun 8 Nov 2026)", session_weight("2026-11-08") == 0.0)
@@ -45,7 +45,7 @@ def test_quarterly_classify():
     done, remaining, missing, status, weight = q._classify_days(
         date(2026, 11, 20), date(2026, 11, 27), datetime(2026, 11, 23, 10, 0), rows)
     check("5 sessions remain (23-27 Nov)", remaining == 5, str(remaining))
-    check("24 Nov counts 0.82", abs(weight - 4.82) < 1e-9, str(weight))
+    check("24 Nov counts 0.80", abs(weight - 4.80) < 1e-9, str(weight))
     check("today is live", status == "live", status)
     _, _, _, status, _ = q._classify_days(
         date(2026, 11, 24), date(2026, 11, 24), datetime(2026, 11, 24, 12, 0), [])
